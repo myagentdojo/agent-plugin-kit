@@ -1,7 +1,7 @@
 # Agent Plugin Kit
 
-Dependency-free contracts and maintenance tooling for Agent Plugin
-repositories.
+Contracts and maintenance tooling for Agent Plugin repositories, with a
+dependency-free Admission Bootstrap.
 
 The repository currently contains its accepted domain and Repository Topology,
 the P3 Source Tree Interface skeleton, and an intentional RED Contract Test
@@ -24,6 +24,8 @@ Implementation path remain deliberately absent until their owning stage.
 
 The accepted language-to-topology rule and complete placement rationale live in
 [`docs/adr/0001-language-to-topology.md`](docs/adr/0001-language-to-topology.md).
+The Owner Manifest and dependency Locality decision lives in
+[`docs/adr/0002-owner-manifests-and-dependency-locality.md`](docs/adr/0002-owner-manifests-and-dependency-locality.md).
 
 ## Verify the scaffold
 
@@ -44,20 +46,21 @@ bun run test:p3
 It must discover 51 tests across 11 files and fail only because the accepted
 production contracts are not implemented yet.
 
-## Run one workspace package
+## Run one owner's Contract Tests
 
-The private workspace packages are tooling and Contract Test isolation owners.
-They do not add publication, ownership, Interface, or runtime Seams; the root
-Package Identity and its accepted subpath exports remain the caller surface.
+The nine private Owner Manifests give each current Source Tree owner a tooling
+address. They do not add publication, ownership, Interface, or runtime Seams;
+the root Package Identity and its accepted subpath exports remain the caller
+surface.
 
-Run only one package's accepted P3 Contract Tests from the repository root:
+Run only one owner's accepted P3 Contract Tests from the repository root:
 
 ```sh
 bun run --filter @agent-plugin-kit/admission-bootstrap test
 ```
 
 The same selector shape accepts `@agent-plugin-kit/maintenance-command-contract`
-or `@agent-plugin-kit/qualification-evidence`. Packages whose Contract Tests
+or `@agent-plugin-kit/qualification-evidence`. Owners whose Contract Tests
 belong to later gates intentionally have no `test` script yet.
 
 ## Request work

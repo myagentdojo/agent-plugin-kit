@@ -75,6 +75,13 @@ Bootstrap, the seven Deep Modules, and production Reusable Workflow Adapter
 source.
 _Avoid_: Source folder, code bucket, shared source
 
+**Owner Manifest**:
+The private, never-published manifest that gives one Source Tree owner a
+tooling address for its Contract Tests and its owner-local dependencies. It
+adds no Interface, Seam, ownership, or Package Identity; the root Package
+Identity remains the only caller surface.
+_Avoid_: Workspace package, npm package, sub-package, second package identity
+
 **Repository Guidance**:
 The non-executable instructions that route agents and maintainers to the
 correct tracker, Domain Context, Accepted Decisions, and ownership rules.

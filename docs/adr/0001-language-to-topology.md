@@ -28,3 +28,7 @@ generic bucket or hidden human convention.
 - A future path enters Git only when its approved owner supplies real content;
   the scaffold creates no empty Interface, Contract Test, Test Fixture,
   Adapter, Clean Fixture, hosted-workflow, or Implementation path.
+
+Non-normative follow-on: [ADR 0002](0002-owner-manifests-and-dependency-locality.md)
+records Owner Manifest and dependency Locality for the owners established here;
+it does not amend this decision.

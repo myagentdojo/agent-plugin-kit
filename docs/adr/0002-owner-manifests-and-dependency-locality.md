@@ -1,0 +1,41 @@
+---
+status: accepted
+---
+
+# Keep Owner Manifests and Dependencies Local to Their Owners
+
+The nine existing private manifests are Owner Manifests, one for each current
+Source Tree owner represented by the repository workspace. They give tooling
+an owner-local address while the root Package Identity remains the only caller
+surface.
+
+## Decision
+
+- A third-party dependency belongs to the Source Tree owner that needs it and
+  is declared in that owner's Owner Manifest.
+- Admission Bootstrap owns no third-party dependency.
+- Root dev tooling remains root-owned and does not make every Module an owner
+  of those dev dependencies.
+- Owner Manifests remain private and are never published.
+- The root Package Identity and its existing ten-entry public export surface
+  remain the only caller surface.
+- No Bun catalog is accepted now. Exact owner-local pins are sufficient.
+  Version agreement becomes enforceable only when the same third-party
+  dependency appears in more than one Owner Manifest.
+- Linker semantics remain unpinned until a concrete failure requires a
+  reviewed decision.
+- Repository checks and later task 021 will enforce Admission manifest and
+  source rules. The behavioral dependency-free claim remains owned by the
+  independent runtime sentinel, not a source scan.
+
+## Consequences
+
+- Dependency knowledge and verification stay local to the Module, Admission
+  Bootstrap, or Adapter owner that needs the dependency.
+- Root development tooling can support every owner without redistributing
+  ownership of its dependencies.
+- An Owner Manifest adds no Interface, Seam, ownership, or Package Identity.
+- Tooling can address an owner's Contract Tests without expanding the root
+  caller surface.
+- A shared version rule enters repository checks only after more than one Owner
+  Manifest declares the same third-party dependency.
