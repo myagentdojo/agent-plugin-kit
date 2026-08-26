@@ -11,7 +11,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, parse, relative, resolve } from "node:path"
-import p3RedContract from "../../../p3-red-contract.json"
+import intentionalRedContract from "../../../intentional-red-contract.json"
 
 const repositoryRoot = resolve(import.meta.dir, "../../../../")
 
@@ -57,19 +57,19 @@ export function observeAdmissionSourceImport(options?: {
 
   try {
     const projection = JSON.parse(
-      readFileSync(join(repositoryRoot, p3RedContract.admission.projectionFixture), "utf8"),
-    ) as typeof p3RedContract.admission.projection
+      readFileSync(join(repositoryRoot, intentionalRedContract.admission.projectionFixture), "utf8"),
+    ) as typeof intentionalRedContract.admission.projection
     writeFileSync(join(fixtureRoot, "package.json"), `${JSON.stringify(projection, null, 2)}\n`, {
       mode: 0o600,
     })
 
-    for (const relative of p3RedContract.admission.sourceClosure) {
+    for (const relative of intentionalRedContract.admission.sourceClosure) {
       const destination = join(fixtureRoot, relative)
       mkdirSync(dirname(destination), { recursive: true, mode: 0o700 })
       copyFileSync(join(repositoryRoot, relative), destination)
     }
     if (options?.bareSpecifierPerturbation !== undefined) {
-      const entry = join(fixtureRoot, p3RedContract.admission.sourceEntry)
+      const entry = join(fixtureRoot, intentionalRedContract.admission.sourceEntry)
       writeFileSync(
         entry,
         `${readFileSync(entry, "utf8")}\nimport ${JSON.stringify(options.bareSpecifierPerturbation)}\n`,
@@ -77,7 +77,7 @@ export function observeAdmissionSourceImport(options?: {
     }
 
     const childPath = join(fixtureRoot, "admission-consumer.ts")
-    copyFileSync(join(repositoryRoot, p3RedContract.admission.consumerFixture), childPath)
+    copyFileSync(join(repositoryRoot, intentionalRedContract.admission.consumerFixture), childPath)
     const processResult = Bun.spawnSync({
       cmd: ["bun", `--config=${join(repositoryRoot, "bunfig.toml")}`, childPath],
       cwd: fixtureRoot,

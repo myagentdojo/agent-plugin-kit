@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { dirname, relative, resolve } from "node:path"
-import ts from "typescript"
 import packageMetadata from "../package.json"
+import { staticModuleSpecifiers } from "./static-module-specifiers"
 import { branchStationCatalog, stageDeferredOwnerStages } from "../src/modules/maintenance-command-contract/branch-stations"
 import { commandContractSchemaVersion, commandVocabulary } from "../src/modules/maintenance-command-contract/command-vocabulary"
 import { errorSchemaVersion, exitFamilies, failureNextActionProjection, hintVersion, maintenanceCommandContractId, resultSchemaVersion } from "../src/modules/maintenance-command-contract/result-vocabulary"
@@ -45,7 +45,7 @@ findings.push({
   surface: "p5_runtime_failed_residual",
   status: "aligned",
   detail:
-    "Non-Claim: P3 does not prove the later P5 runtime-failed residual mapping through a real process.",
+    "Non-Claim: intentional RED does not prove runtime-failed residual mapping through a real process.",
 })
 
 const requiredScenarios = [
@@ -94,32 +94,7 @@ const resolveRelativeModule = (importer: string, specifier: string) => {
   return [candidate, `${candidate}.ts`, resolve(candidate, "interface.ts"), resolve(candidate, "index.ts")].find((path) => existsSync(path))
 }
 const relativeImports = (file: string) => {
-  const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  const specifiers: string[] = []
-  const visit = (node: ts.Node) => {
-    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-      specifiers.push(node.moduleSpecifier.text)
-    }
-    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-      const argument = node.arguments[0]
-      if (!argument || !ts.isStringLiteral(argument)) throw new Error(`${file} contains a dynamic import with a nonliteral target`)
-      specifiers.push(argument.text)
-    }
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "require") {
-      const argument = node.arguments[0]
-      if (node.arguments.length !== 1 || !argument || !ts.isStringLiteral(argument)) throw new Error(`${file} contains require() with a nonliteral target`)
-      specifiers.push(argument.text)
-    }
-    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
-      specifiers.push(node.argument.literal.text)
-    }
-    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && node.moduleReference.expression && ts.isStringLiteral(node.moduleReference.expression)) {
-      specifiers.push(node.moduleReference.expression.text)
-    }
-    ts.forEachChild(node, visit)
-  }
-  visit(source)
-  return specifiers.flatMap((specifier) => {
+  return staticModuleSpecifiers(file, readFileSync(file, "utf8")).flatMap((specifier) => {
     if (specifier === facadeManifest.name) return [facadeInterface]
     if (specifier.startsWith(`${facadeManifest.name}/`)) throw new Error(`${file} imports a forbidden facade owner subpath: ${specifier}`)
     if (!specifier.startsWith(".")) return []

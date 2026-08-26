@@ -15,7 +15,7 @@ Consumer rules: [`docs/agents/domain.md`](docs/agents/domain.md).
 
 ## Owner routes
 
-The P3 Interface, Admission Bootstrap, Maintenance Command Contract,
+The current Interface, Admission Bootstrap, Maintenance Command Contract,
 Qualification Evidence, and Clean Fixture Contract Test paths are current.
 Other Contract Test paths, every Implementation path, and hosted workflows are
 future and remain absent until their owning stage.

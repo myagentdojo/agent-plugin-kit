@@ -14,14 +14,14 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, extname, join, relative, resolve } from "node:path"
-import ts from "typescript"
+import { staticModuleSpecifiers } from "./static-module-specifiers"
 
 type TestGroup = {
   readonly count: number
   readonly files: readonly string[]
 }
 
-type P3RedContract = {
+type IntentionalRedContract = {
   readonly schemaVersion: number
   readonly bun: { readonly configFile: string; readonly installAuto: string }
   readonly structure: {
@@ -104,21 +104,21 @@ function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T
 }
 
-function readContract(root: string): P3RedContract {
-  const contract = readJson<P3RedContract>(join(root, "clean-fixture/p3-red-contract.json"))
-  if (contract.schemaVersion !== 1) fail("P3 RED contract schemaVersion must remain 1")
+function readContract(root: string): IntentionalRedContract {
+  const contract = readJson<IntentionalRedContract>(join(root, "clean-fixture/intentional-red-contract.json"))
+  if (contract.schemaVersion !== 1) fail("intentional RED contract schemaVersion must remain 1")
   if (contract.admission.proofLayer !== "public-process") {
     fail("Admission sentinel Proof Layer must remain public-process")
   }
   if (contract.admission.sentinelCount !== 1) {
-    fail("P3 RED must retain exactly one Admission dependency-freedom sentinel")
+    fail("intentional RED must retain exactly one Admission dependency-freedom sentinel")
   }
   if (
     typeof contract.admission.firstP4GreenTransition !== "string" ||
     !contract.admission.firstP4GreenTransition.includes("first P4 GREEN") ||
     !contract.admission.firstP4GreenTransition.includes("same reviewed checkpoint")
   ) {
-    fail("P3 RED contract must retain the first P4 GREEN transition rule")
+    fail("intentional RED contract must retain the first P4 GREEN transition rule")
   }
   if (
     JSON.stringify(contract.admission.nonClaims) !==
@@ -129,12 +129,12 @@ function readContract(root: string): P3RedContract {
       "direct observation of network inactivity",
     ])
   ) {
-    fail("Admission P3 Non-Claims must remain exact")
+    fail("Admission Non-Claims must remain exact")
   }
   return contract
 }
 
-function expectedResults(contract: P3RedContract): {
+function expectedResults(contract: IntentionalRedContract): {
   readonly focused: readonly ExpectedResult[]
   readonly workspace: readonly ExpectedResult[]
   readonly aggregate: ExpectedResult
@@ -154,41 +154,41 @@ function expectedResults(contract: P3RedContract): {
     focused: [
       {
         label: "Kit Interface",
-        command: ["bun", "run", "test:p3:kit-interface"],
+        command: ["bun", "run", "test:intentional-red:kit-interface"],
         tests: tests.kitInterface.count,
         selectedFiles: tests.kitInterface.files,
       },
       {
         label: "Admission Bootstrap",
-        command: ["bun", "run", "test:p3:admission-bootstrap"],
+        command: ["bun", "run", "test:intentional-red:admission-bootstrap"],
         tests: tests.admissionBootstrap.count,
         selectedFiles: tests.admissionBootstrap.files,
       },
       {
         label: "Maintenance Command Contract",
-        command: ["bun", "run", "test:p3:maintenance-command-contract"],
+        command: ["bun", "run", "test:intentional-red:maintenance-command-contract"],
         tests: tests.maintenanceCommandContract.count,
         selectedFiles: tests.maintenanceCommandContract.files,
       },
       {
         label: "Qualification Evidence",
-        command: ["bun", "run", "test:p3:qualification-evidence"],
+        command: ["bun", "run", "test:intentional-red:qualification-evidence"],
         tests: tests.qualificationEvidence.count,
         selectedFiles: tests.qualificationEvidence.files,
       },
       {
         label: "Clean Fixture",
-        command: ["bun", "run", "test:p3:clean-fixture"],
+        command: ["bun", "run", "test:intentional-red:clean-fixture"],
         tests: tests.cleanFixture.count,
         selectedFiles: tests.cleanFixture.files,
       },
-      { label: "Maintenance CLI unit", command: ["bun", "run", "test:p3:maintenance-cli:unit"], tests: tests.maintenanceCliUnit.count, selectedFiles: tests.maintenanceCliUnit.files },
-      { label: "Maintenance CLI catalog", command: ["bun", "run", "test:p3:maintenance-cli:catalog"], tests: tests.maintenanceCliCatalog.count, selectedFiles: tests.maintenanceCliCatalog.files },
-      { label: "Maintenance CLI process", command: ["bun", "run", "test:p3:maintenance-cli:process"], tests: tests.maintenanceCliProcess.count, selectedFiles: tests.maintenanceCliProcess.files },
-      { label: "Maintenance CLI observability", command: ["bun", "run", "test:p3:maintenance-cli:observability"], tests: tests.maintenanceCliObservability.count, selectedFiles: tests.maintenanceCliObservability.files },
-      { label: "Maintenance CLI Clean Fixture", command: ["bun", "run", "test:p3:maintenance-cli:clean-fixture"], tests: tests.maintenanceCliCleanFixture.count, selectedFiles: tests.maintenanceCliCleanFixture.files },
-      { label: "Maintenance CLI local link", command: ["bun", "run", "test:p3:maintenance-cli:local-link"], tests: tests.maintenanceCliLocalLink.count, selectedFiles: tests.maintenanceCliLocalLink.files },
-      { label: "Maintenance CLI", command: ["bun", "run", "test:p3:maintenance-cli"], tests: tests.maintenanceCli.count, selectedFiles: tests.maintenanceCli.files },
+      { label: "Maintenance CLI unit", command: ["bun", "run", "test:intentional-red:maintenance-cli:unit"], tests: tests.maintenanceCliUnit.count, selectedFiles: tests.maintenanceCliUnit.files },
+      { label: "Maintenance CLI catalog", command: ["bun", "run", "test:intentional-red:maintenance-cli:catalog"], tests: tests.maintenanceCliCatalog.count, selectedFiles: tests.maintenanceCliCatalog.files },
+      { label: "Maintenance CLI process", command: ["bun", "run", "test:intentional-red:maintenance-cli:process"], tests: tests.maintenanceCliProcess.count, selectedFiles: tests.maintenanceCliProcess.files },
+      { label: "Maintenance CLI observability", command: ["bun", "run", "test:intentional-red:maintenance-cli:observability"], tests: tests.maintenanceCliObservability.count, selectedFiles: tests.maintenanceCliObservability.files },
+      { label: "Maintenance CLI Clean Fixture", command: ["bun", "run", "test:intentional-red:maintenance-cli:clean-fixture"], tests: tests.maintenanceCliCleanFixture.count, selectedFiles: tests.maintenanceCliCleanFixture.files },
+      { label: "Maintenance CLI local link", command: ["bun", "run", "test:intentional-red:maintenance-cli:local-link"], tests: tests.maintenanceCliLocalLink.count, selectedFiles: tests.maintenanceCliLocalLink.files },
+      { label: "Maintenance CLI", command: ["bun", "run", "test:intentional-red:maintenance-cli"], tests: tests.maintenanceCli.count, selectedFiles: tests.maintenanceCli.files },
     ],
     workspace: [
       {
@@ -237,8 +237,8 @@ function expectedResults(contract: P3RedContract): {
       },
     ],
     aggregate: {
-      label: "P3 aggregate",
-      command: ["bun", "run", "test:p3"],
+      label: "intentional RED aggregate",
+      command: ["bun", "run", "test:intentional-red"],
       tests: tests.aggregate.count,
       selectedFiles: aggregateFiles,
     },
@@ -285,53 +285,7 @@ function selectedTestFiles(root: string, result: ExpectedResult): string[] {
 }
 
 function moduleSpecifiers(file: string, source: string): string[] {
-  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
-  const specifiers: string[] = []
-  function visit(node: ts.Node): void {
-    if (
-      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-      node.moduleSpecifier !== undefined &&
-      ts.isStringLiteral(node.moduleSpecifier)
-    ) {
-      specifiers.push(node.moduleSpecifier.text)
-    }
-    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-      const dynamicImportArgument = node.arguments[0]
-      if (dynamicImportArgument === undefined || !ts.isStringLiteral(dynamicImportArgument)) {
-        fail(`${file} contains a dynamic import with a nonliteral target`)
-      }
-      specifiers.push(dynamicImportArgument.text)
-    }
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "require") {
-      const requireArgument = node.arguments[0]
-      if (
-        node.arguments.length !== 1 ||
-        requireArgument === undefined ||
-        !ts.isStringLiteral(requireArgument)
-      ) {
-        fail(`${file} contains require() with a nonliteral target`)
-      }
-      specifiers.push(requireArgument.text)
-    }
-    if (
-      ts.isImportTypeNode(node) &&
-      ts.isLiteralTypeNode(node.argument) &&
-      ts.isStringLiteral(node.argument.literal)
-    ) {
-      specifiers.push(node.argument.literal.text)
-    }
-    if (
-      ts.isImportEqualsDeclaration(node) &&
-      ts.isExternalModuleReference(node.moduleReference) &&
-      node.moduleReference.expression !== undefined &&
-      ts.isStringLiteral(node.moduleReference.expression)
-    ) {
-      specifiers.push(node.moduleReference.expression.text)
-    }
-    ts.forEachChild(node, visit)
-  }
-  visit(parsed)
-  return specifiers
+  return staticModuleSpecifiers(file, source)
 }
 
 function resolveRelativeImport(root: string, importer: string, specifier: string): string {
@@ -373,7 +327,7 @@ function discoverAdmissionSourceClosure(root: string, entry: string): string[] {
   return [...discovered].sort()
 }
 
-function verifyBunPolicy(root: string, contract: P3RedContract): void {
+function verifyBunPolicy(root: string, contract: IntentionalRedContract): void {
   const bunfig = readFileSync(join(root, contract.bun.configFile), "utf8")
   const expected = `[install]\nauto = "${contract.bun.installAuto}"\n`
   if (bunfig !== expected || contract.bun.installAuto !== "disable") {
@@ -382,7 +336,7 @@ function verifyBunPolicy(root: string, contract: P3RedContract): void {
   if (/\blinker\b/.test(bunfig)) fail("linker semantics remain deliberately unpinned")
 }
 
-function verifyAdmissionContract(root: string, contract: P3RedContract): void {
+function verifyAdmissionContract(root: string, contract: IntentionalRedContract): void {
   const admission = contract.admission
   const ownerManifest = readJson<PackageMetadata>(join(root, admission.ownerManifest))
   for (const field of [
@@ -456,7 +410,7 @@ function verifyAdmissionContract(root: string, contract: P3RedContract): void {
   }
 }
 
-const forbiddenP3Paths = [
+const forbiddenPaths = [
   "tests",
   "test-utils",
   ".github/workflows",
@@ -485,7 +439,7 @@ const forbiddenP3Paths = [
   "clean-fixture/public-verification-profile/contract-tests/hosted-workflow-identity.test.ts",
 ] as const
 
-function verifyP3StaticContract(root = repositoryRoot): void {
+function verifyIntentionalRedStaticContract(root = repositoryRoot): void {
   const contract = readContract(root)
   const results = expectedResults(contract)
   const packageMetadata = readJson<PackageMetadata>(join(root, "package.json"))
@@ -496,7 +450,7 @@ function verifyP3StaticContract(root = repositoryRoot): void {
   verifyAdmissionContract(root, contract)
 
   for (const path of contract.structure.requiredPaths) {
-    if (!existsSync(join(root, path))) fail(`missing required P3 path ${path}`)
+    if (!existsSync(join(root, path))) fail(`missing required path ${path}`)
   }
 
   for (const result of [...results.focused, ...results.workspace, results.aggregate]) {
@@ -515,7 +469,7 @@ function verifyP3StaticContract(root = repositoryRoot): void {
     JSON.stringify(discoveredFiles) !== JSON.stringify(selectedAggregateFiles) ||
     discoveredFiles.length !== contract.tests.aggregate.fileCount
   ) {
-    fail("test:p3 must select the complete exact P3 Contract Test file set")
+    fail("test:intentional-red must select the complete exact Contract Test file set")
   }
 
   let explicitTestCount = 0
@@ -530,18 +484,18 @@ function verifyP3StaticContract(root = repositoryRoot): void {
     fail(`expected ${contract.tests.aggregate.count} explicit Contract Tests, found ${explicitTestCount}`)
   }
 
-  for (const path of forbiddenP3Paths) {
-    if (existsSync(join(root, path))) fail(`forbidden in P3 RED ${path}`)
+  for (const path of forbiddenPaths) {
+    if (existsSync(join(root, path))) fail(`forbidden in intentional RED ${path}`)
   }
   const unexpectedImplementation = sourcePaths.find((path) => path.split("/").includes("implementation"))
   if (unexpectedImplementation !== undefined) {
-    fail(`Implementation paths remain absent in P3 RED: ${unexpectedImplementation}`)
+    fail(`Implementation paths remain absent in intentional RED: ${unexpectedImplementation}`)
   }
 
   for (const guide of ["AGENTS.md", "README.md"]) {
     const source = readFileSync(join(root, guide), "utf8")
-    if (!source.includes("clean-fixture/p3-red-contract.json")) {
-      fail(`${guide} must point to the canonical P3 RED contract owner`)
+    if (!source.includes("clean-fixture/intentional-red-contract.json")) {
+      fail(`${guide} must point to the canonical intentional RED contract owner`)
     }
   }
   const contextSource = readFileSync(join(root, "CONTEXT.md"), "utf8")
@@ -585,8 +539,8 @@ function verifyP3StaticContract(root = repositoryRoot): void {
   if (contextMapSource.includes("command-descriptor.ts")) fail("CONTEXT-MAP.md must not restore the retired command descriptor route")
   const requiredCommands = [
     "bun run check",
-    "bun run verify:p3:red",
-    "bun run test:p3",
+    "bun run verify:intentional-red",
+    "bun run test:intentional-red",
     ...results.focused.map(({ command }) => command.join(" ")),
     ...results.workspace.map(({ command }) => command.join(" ")),
   ]
@@ -623,7 +577,7 @@ function verifyP3StaticContract(root = repositoryRoot): void {
     if (Object.keys(dependencies).some((name) => name.toLowerCase().includes("sidequest"))) fail(`${label} manifest must remain free of SideQuest`)
   }
   if (packageMetadata.catalog !== undefined || packageMetadata.catalogs !== undefined) {
-    fail("Bun catalog remains absent in P3")
+    fail("Bun catalog remains absent in intentional RED")
   }
   const workspaceManifests = sourcePaths.filter((file) => file.endsWith("/package.json"))
   if (workspaceManifests.length !== 10) {
@@ -727,13 +681,13 @@ function copyRepositoryFixture(destination: string): void {
 }
 
 function expectStaticRejection(label: string, mutate: (root: string) => void): void {
-  const scratchParent = mkdtempSync(join(tmpdir(), "agent-plugin-kit-p3-probe-"))
+  const scratchParent = mkdtempSync(join(tmpdir(), "agent-plugin-kit-intentional-red-probe-"))
   const scratchRoot = join(scratchParent, "repository")
   try {
     copyRepositoryFixture(scratchRoot)
     mutate(scratchRoot)
     try {
-      verifyP3StaticContract(scratchRoot)
+      verifyIntentionalRedStaticContract(scratchRoot)
       fail(`sensitivity probe did not fail closed: ${label}`)
     } catch (error) {
       if (error instanceof Error && error.message === `sensitivity probe did not fail closed: ${label}`) {
@@ -757,7 +711,7 @@ function verifyStaticSensitivity(): void {
   expectStaticRejection("Admission Owner Manifest dependency added", (root) => {
     const path = join(root, "src/admission-bootstrap/package.json")
     const manifest = readJson<Record<string, unknown>>(path)
-    manifest.dependencies = { "p3-unavailable-dependency": "1.0.0" }
+    manifest.dependencies = { "intentional-red-unavailable-dependency": "1.0.0" }
     writeJson(path, manifest)
   })
   expectStaticRejection("Admission Owner Manifest dev dependency added", (root) => {
@@ -768,7 +722,7 @@ function verifyStaticSensitivity(): void {
   })
   expectStaticRejection("Admission source bare import added", (root) => {
     const path = join(root, "src/admission-bootstrap/interface.ts")
-    writeFileSync(path, `${readFileSync(path, "utf8")}\nimport "p3-unavailable-dependency"\n`)
+    writeFileSync(path, `${readFileSync(path, "utf8")}\nimport "intentional-red-unavailable-dependency"\n`)
   })
   expectStaticRejection("Admission source bare require added", (root) => {
     const path = join(root, "src/admission-bootstrap/interface.ts")
@@ -883,10 +837,10 @@ function verifyStaticSensitivity(): void {
     writeFileSync(path, "export {}\n")
   })
   expectStaticRejection("first P4 GREEN transition rule removed", (root) => {
-    const path = join(root, "clean-fixture/p3-red-contract.json")
+    const path = join(root, "clean-fixture/intentional-red-contract.json")
     const contract = readJson<Record<string, Record<string, unknown>>>(path)
     const admission = contract.admission
-    if (admission === undefined) fail("P3 RED contract is missing Admission")
+    if (admission === undefined) fail("intentional RED contract is missing Admission")
     delete admission.firstP4GreenTransition
     writeJson(path, contract)
   })
@@ -894,7 +848,7 @@ function verifyStaticSensitivity(): void {
     expectStaticRejection(`Facade Owner Manifest ${field} added`, (root) => {
       const path = join(root, "src/adapters/maintenance-command-facade/package.json")
       const manifest = readJson<Record<string, unknown>>(path)
-      manifest[field] = { "p3-unavailable-dependency": "1.0.0" }
+      manifest[field] = { "intentional-red-unavailable-dependency": "1.0.0" }
       writeJson(path, manifest)
     })
   }
@@ -961,7 +915,7 @@ function verifyStaticSensitivity(): void {
   })
 }
 
-function verifyRedContractShells(contract: P3RedContract, root = repositoryRoot): void {
+function verifyRedContractShells(contract: IntentionalRedContract, root = repositoryRoot): void {
   for (const shell of [
     { ...contract.audit.maintenanceCli, sentinel: contract.audit.maintenanceCli.redVerdict },
     { ...contract.qualification.maintenanceCliLocalLink, sentinel: contract.qualification.maintenanceCliLocalLink.redSentinel },
@@ -1055,7 +1009,7 @@ function verifyRedContractShells(contract: P3RedContract, root = repositoryRoot)
 }
 
 function expectDynamicRedRejection(label: string, source: string): void {
-  const scratchRoot = mkdtempSync(join(tmpdir(), "agent-plugin-kit-p3-dynamic-probe-"))
+  const scratchRoot = mkdtempSync(join(tmpdir(), "agent-plugin-kit-intentional-red-dynamic-probe-"))
   const receiptRoot = join(scratchRoot, "receipts")
   mkdirSync(receiptRoot)
   const testFile = join(scratchRoot, "probe.test.ts")
@@ -1082,7 +1036,7 @@ function expectDynamicRedRejection(label: string, source: string): void {
 }
 
 function expectAuditRejection(label: string, mutate: (root: string) => void): void {
-  const scratchParent = mkdtempSync(join(tmpdir(), "agent-plugin-kit-p3-audit-probe-"))
+  const scratchParent = mkdtempSync(join(tmpdir(), "agent-plugin-kit-intentional-red-audit-probe-"))
   const scratchRoot = join(scratchParent, "repository")
   try {
     copyRepositoryFixture(scratchRoot)
@@ -1125,7 +1079,7 @@ function verifyDynamicSensitivity(): void {
     writeFileSync(path, readFileSync(path, "utf8").replace('from "./interface"', 'from "./drifted-interface"'))
   })
   expectAuditRejection("required usage argv drift", (root) => {
-    const path = join(root, "clean-fixture/audit-p3-maintenance-cli.ts")
+    const path = join(root, "clean-fixture/audit-maintenance-cli.ts")
     writeFileSync(path, readFileSync(path, "utf8").replace('["--run-id", "p3-help-literal", "unknown"]', '["--run-id", "p3-help-literal", "drifted"]'))
   })
   expectAuditRejection("declared-unreachable owner rationale drift", (root) => {
@@ -1168,7 +1122,7 @@ function verifyDynamicSensitivity(): void {
   })
   expectDynamicRedRejection(
     "static test load failure",
-    'import "p3-static-test-load-failure"\nimport { test } from "bun:test"\ntest("undiscovered", () => {})\n',
+    'import "intentional-red-static-test-load-failure"\nimport { test } from "bun:test"\ntest("undiscovered", () => {})\n',
   )
 
   const contract = readContract(repositoryRoot)
@@ -1183,7 +1137,7 @@ function verifyDynamicSensitivity(): void {
     env: {
       ...testEnvironment,
       AGENT_PLUGIN_KIT_ADMISSION_BARE_SPECIFIER_PERTURBATION:
-        "p3-copied-subject-resolution-failure",
+        "intentional-red-copied-subject-resolution-failure",
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -1211,7 +1165,7 @@ function verifyAutoInstallDenied(): void {
   const packageSource = '{"name":"auto-install-denial-probe","private":true,"type":"module"}\n'
   try {
     writeFileSync(packagePath, packageSource)
-    writeFileSync(entry, 'await import("p3-auto-install-must-remain-unavailable")\n')
+    writeFileSync(entry, 'await import("intentional-red-auto-install-must-remain-unavailable")\n')
     const result = Bun.spawnSync({
       cmd: ["bun", `--config=${join(repositoryRoot, "bunfig.toml")}`, entry],
       cwd: scratchRoot,
@@ -1237,9 +1191,9 @@ function verifyAutoInstallDenied(): void {
 
 function run(): void {
   const structureOnly = process.argv.includes("--structure-only")
-  verifyP3StaticContract()
+  verifyIntentionalRedStaticContract()
   if (structureOnly) {
-    console.log("P3 structure contract verified")
+    console.log("intentional RED structure contract verified")
     return
   }
 
@@ -1249,18 +1203,18 @@ function run(): void {
   verifyRedContractShells(readContract(repositoryRoot))
 
   const results = expectedResults(readContract(repositoryRoot))
-  const receiptDirectory = mkdtempSync(join(tmpdir(), "agent-plugin-kit-p3-red-"))
+  const receiptDirectory = mkdtempSync(join(tmpdir(), "agent-plugin-kit-intentional-red-"))
   try {
     for (const result of [...results.focused, ...results.workspace, results.aggregate]) {
       verifyIntentionalRed(repositoryRoot, result, receiptDirectory)
     }
     verifyIntentionalRed(
       repositoryRoot,
-      { ...results.aggregate, label: "P3 aggregate hostile color" },
+      { ...results.aggregate, label: "intentional RED aggregate hostile color" },
       receiptDirectory,
       { ...testEnvironment, FORCE_COLOR: "3", NO_COLOR: "0", TERM: "xterm-256color" },
     )
-    console.log("P3 intentional RED contract verified")
+    console.log("intentional RED contract verified")
   } finally {
     rmSync(receiptDirectory, { recursive: true, force: true })
   }
@@ -1270,6 +1224,6 @@ try {
   run()
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error)
-  console.error(`P3 RED verification failed: ${message}`)
+  console.error(`intentional RED verification failed: ${message}`)
   process.exitCode = 1
 }

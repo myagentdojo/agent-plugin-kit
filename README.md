@@ -4,7 +4,7 @@ Contracts and maintenance tooling for Agent Plugin repositories, with a
 dependency-free Admission Bootstrap.
 
 The repository currently contains its accepted domain and Repository Topology,
-the P3 Source Tree Interface skeleton, and an intentional RED Contract Test
+the Source Tree Interface skeleton, and an intentional RED Contract Test
 scaffold. No Module Implementation or maintenance behaviour has moved here.
 
 ## Start here
@@ -19,8 +19,8 @@ scaffold. No Module Implementation or maintenance behaviour has moved here.
 
 Repository Knowledge stays at root and under `docs/`. Package source begins
 under the Source Tree at `src/`. Independent cross-Module proof begins under
-`clean-fixture/`. P4 through P9 Contract Tests, hosted workflows, and every
-Implementation path remain deliberately absent until their owning stage.
+`clean-fixture/`. Later Contract Tests, hosted workflows, and every
+Implementation path remain deliberately absent until their owning gate.
 
 The accepted language-to-topology rule and complete placement rationale live in
 [`docs/adr/0001-language-to-topology.md`](docs/adr/0001-language-to-topology.md).
@@ -33,16 +33,16 @@ The Owner Manifest and dependency Locality decision lives in
 bun run check
 ```
 
-The check validates the P3 Interface and the exact RED Contract Test files,
-counts, and Admission Proof Layer owned by
-[`clean-fixture/p3-red-contract.json`](clean-fixture/p3-red-contract.json). It
+The check validates the current Interface and the exact RED Contract Test
+files, counts, and Admission Proof Layer owned by
+[`clean-fixture/intentional-red-contract.json`](clean-fixture/intentional-red-contract.json). It
 refuses premature later-stage Contract Tests, hosted workflows, or
 Implementation paths.
 
 The exact intentional RED selector is:
 
 ```sh
-bun run test:p3
+bun run test:intentional-red
 ```
 
 It must match the canonical files and counts and fail only because the accepted
@@ -55,7 +55,7 @@ address. They do not add publication, ownership, Interface, or runtime Seams;
 the root Package Identity and its accepted subpath exports remain the caller
 surface.
 
-Run only one owner's accepted P3 Contract Tests from the repository root:
+Run only one owner's accepted Contract Tests from the repository root:
 
 ```sh
 bun run --filter @agent-plugin-kit/admission-bootstrap test

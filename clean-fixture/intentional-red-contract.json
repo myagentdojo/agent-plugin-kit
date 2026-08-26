@@ -16,8 +16,9 @@
       "tsconfig.json",
       "bun.lock",
       "bunfig.toml",
-      "clean-fixture/p3-red-contract.json",
-      "clean-fixture/verify-p3-red-contract.ts",
+      "clean-fixture/intentional-red-contract.json",
+      "clean-fixture/verify-intentional-red-contract.ts",
+      "clean-fixture/static-module-specifiers.ts",
       "docs/agents/README.md",
       "docs/agents/issue-tracker.md",
       "docs/agents/domain.md",
@@ -88,8 +89,8 @@
       ,"clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts"
       ,"clean-fixture/personal-verification-profile/contract-tests/adapters/maintenance-cli-contract-subjects.ts"
       ,"clean-fixture/personal-verification-profile/contract-tests/fixtures/maintenance-cli-process-scenarios.ts"
-      ,"clean-fixture/audit-p3-maintenance-cli.ts"
-      ,"clean-fixture/verify-p3-maintenance-cli-local-link.ts"
+      ,"clean-fixture/audit-maintenance-cli.ts"
+      ,"clean-fixture/verify-maintenance-cli-local-link.ts"
     ],
     "requiredAgentPointers": [
       "CONTEXT.md",
@@ -99,7 +100,7 @@
       "docs/agents/issue-tracker.md",
       "docs/agents/domain.md",
       "docs/agents/triage-labels.md",
-      "clean-fixture/p3-red-contract.json"
+      "clean-fixture/intentional-red-contract.json"
     ]
   },
   "tests": {
@@ -186,7 +187,7 @@
   },
   "audit": {
     "maintenanceCli": {
-      "command": "bun run audit:p3:maintenance-cli",
+      "command": "bun run audit:maintenance-cli",
       "redExit": 1,
       "redVerdict": "drifted",
       "greenExit": 0,
@@ -196,7 +197,7 @@
   },
   "qualification": {
     "maintenanceCliLocalLink": {
-      "command": "bun run verify:p3:maintenance-cli:local-link",
+      "command": "bun run verify:maintenance-cli:local-link",
       "redExit": 1,
       "redSentinel": "implementation-absent",
       "greenExit": 0,

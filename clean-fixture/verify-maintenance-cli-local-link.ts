@@ -1,6 +1,6 @@
 const receipt = {
   schema_version: 1,
-  proof: "agent-plugin-kit.p3-maintenance-cli-local-link",
+  proof: "agent-plugin-kit.maintenance-cli-local-link",
   run_id: "p3-help-literal",
   expected_public_cli_executions: 4,
   observed_public_cli_executions: 0,
