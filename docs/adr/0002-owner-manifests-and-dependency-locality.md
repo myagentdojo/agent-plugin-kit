@@ -4,7 +4,7 @@ status: accepted
 
 # Keep Owner Manifests and Dependencies Local to Their Owners
 
-The nine existing private manifests are Owner Manifests, one for each current
+The ten existing private manifests are Owner Manifests, one for each current
 Source Tree owner represented by the repository workspace. They give tooling
 an owner-local address while the root Package Identity remains the only caller
 surface.
@@ -24,6 +24,12 @@ surface.
   dependency appears in more than one Owner Manifest.
 - Linker semantics remain unpinned until a concrete failure requires a
   reviewed decision.
+- The existing `src/adapters/*` workspace glob admits the private Maintenance
+  Command Facade Adapter owner. Its Interface stays outside root exports; the
+  root Package Identity owns the sole public binary mapping.
+- A future exact `@logtape/logtape@2.3.1` pin belongs only to the facade Owner
+  Manifest. It is absent in intentional RED and never belongs to root or
+  Admission Bootstrap.
 - `clean-fixture/p3-red-contract.json` owns the exact Admission manifest,
   source, and Proof Layer enforcement. The behavioral source-level
   dependency-free claim remains owned by the independent public-process

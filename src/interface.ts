@@ -9,10 +9,14 @@ export type {
 export type {
   CommandPreview,
   CommandResult,
+  MaintenanceError,
+  MaintenanceOutcome,
   MaintenanceApplyRequest,
   MaintenanceCommand,
   MaintenanceCommands,
   MutatingMaintenanceCommand,
+  ResultCode,
+  StationId,
 } from "./modules/maintenance-command-contract/interface"
 export type {
   EvidenceCell,

@@ -1,0 +1,136 @@
+import type {
+  CommandPreview,
+  MaintenanceCommand,
+  MaintenanceCommands,
+  MaintenanceError,
+  MaintenanceOutcome,
+  ResultCode,
+  StationId,
+} from "../../modules/maintenance-command-contract/interface"
+
+type ObservableFailureClass = MaintenanceError["failureClass"] | "event_delivery"
+type ObservableNextAction = MaintenanceError["nextAction"]
+
+export type DiagnosticRecord = Readonly<{
+  schema_version: 1
+  record_type: "diagnostic"
+  timestamp: string
+  sequence: number
+  level: "debug" | "info" | "warning" | "error" | "fatal"
+  category: readonly ["agent-plugin-kit", "maintenance"]
+  event: string
+  run_id: string
+  command?: MaintenanceCommand["command"]
+  station_id?: StationId
+  failure_class?: ObservableFailureClass
+  result_code?: ResultCode
+  transaction_state?: CommandPreview["transactionState"]
+  retry_safety?: CommandPreview["retrySafety"]
+  next_action?: ObservableNextAction
+  message: string
+}>
+
+export type EventRecord = Readonly<{
+  schema_version: 1
+  event_id: string
+  occurred_at: string
+  sequence: number
+  run_id: string
+  command: MaintenanceCommand["command"]
+  station_id: StationId
+  outcome: "previewed" | "completed" | "refused" | "failed"
+  result_code: ResultCode
+  failure_class?: ObservableFailureClass
+  transaction_state: CommandPreview["transactionState"]
+  retry_safety: CommandPreview["retrySafety"]
+  next_action_id: string
+}>
+
+export type EventAcceptance =
+  | { status: "accepted" }
+  | { status: "refused" }
+
+export interface DiagnosticAdapter {
+  record(record: DiagnosticRecord): void
+  flush(): void
+  dispose(): void
+}
+
+export interface EventAdapter {
+  accept(record: EventRecord): EventAcceptance
+}
+
+export type FacadeInvocation = {
+  argv: readonly string[]
+  environment: Readonly<Record<string, string | undefined>>
+  stdin: string
+}
+
+export type ProcessObservation = {
+  stdout: string
+  stderr: string
+  exitCode: number
+}
+
+export interface MaintenanceCommandFacade {
+  invoke(invocation: FacadeInvocation): Promise<ProcessObservation>
+  dispatch(command: MaintenanceCommand): Promise<MaintenanceOutcome<unknown>>
+}
+
+export type MaintenanceCommandFacadeAssembly = {
+  commands: MaintenanceCommands
+  diagnostics?: DiagnosticAdapter
+  events?: EventAdapter
+}
+
+export type DiagnosticMode = "quiet" | "default" | "verbose" | "debug"
+
+export interface DiagnosticPipeline {
+  record(record: DiagnosticRecord): void
+  reset(): void
+  dispose(): void
+}
+
+export type DiagnosticPipelineAssembly = {
+  mode: DiagnosticMode
+  maximumBufferedRecords: 250
+  diagnostics: DiagnosticAdapter
+}
+
+export interface EventDeliveryClock {
+  sleep(milliseconds: 250): Promise<void>
+}
+
+export interface EventTransport {
+  deliver(record: EventRecord): Promise<void>
+}
+
+export type EventDeliveryResult =
+  | { status: "delivered"; attempts: 1 | 2 }
+  | { status: "failed"; attempts: 2 }
+
+export interface EventDelivery {
+  deliver(record: EventRecord): Promise<EventDeliveryResult>
+}
+
+export type EventDeliveryAssembly = {
+  clock: EventDeliveryClock
+  transport: EventTransport
+  attemptTimeoutMs: 250
+  maximumAttempts: 2
+}
+
+export type MaintenanceCommandFacadeFactory = (
+  assembly: MaintenanceCommandFacadeAssembly,
+) => MaintenanceCommandFacade
+export type DiagnosticPipelineFactory = (
+  assembly: DiagnosticPipelineAssembly,
+) => DiagnosticPipeline
+export type EventDeliveryFactory = (
+  assembly: EventDeliveryAssembly,
+) => EventDelivery
+
+export const createMaintenanceCommandFacade: MaintenanceCommandFacadeFactory | undefined = undefined
+export const createDiagnosticPipeline: DiagnosticPipelineFactory | undefined = undefined
+export const createEventDelivery: EventDeliveryFactory | undefined = undefined
+export const maintenanceCommandFacade: MaintenanceCommandFacade | undefined = undefined

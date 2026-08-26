@@ -10,6 +10,10 @@
         "typescript": "6.0.3",
       },
     },
+    "src/adapters/maintenance-command-facade": {
+      "name": "@agent-plugin-kit/maintenance-command-facade",
+      "version": "0.0.0",
+    },
     "src/adapters/reusable-workflow-adapter": {
       "name": "@agent-plugin-kit/reusable-workflow-adapter",
     },
@@ -46,6 +50,8 @@
     "@agent-plugin-kit/harness-journeys": ["@agent-plugin-kit/harness-journeys@workspace:src/modules/harness-journeys"],
 
     "@agent-plugin-kit/maintenance-command-contract": ["@agent-plugin-kit/maintenance-command-contract@workspace:src/modules/maintenance-command-contract"],
+
+    "@agent-plugin-kit/maintenance-command-facade": ["@agent-plugin-kit/maintenance-command-facade@workspace:src/adapters/maintenance-command-facade"],
 
     "@agent-plugin-kit/plugin-payload-production": ["@agent-plugin-kit/plugin-payload-production@workspace:src/modules/plugin-payload-production"],
 

@@ -34,7 +34,20 @@ type P3RedContract = {
     readonly maintenanceCommandContract: TestGroup
     readonly qualificationEvidence: TestGroup
     readonly cleanFixture: TestGroup
+    readonly maintenanceCliUnit: TestGroup
+    readonly maintenanceCliCatalog: TestGroup
+    readonly maintenanceCliProcess: TestGroup
+    readonly maintenanceCliObservability: TestGroup
+    readonly maintenanceCliCleanFixture: TestGroup
+    readonly maintenanceCliLocalLink: TestGroup
+    readonly maintenanceCli: TestGroup & { readonly fileCount: number }
     readonly aggregate: { readonly count: number; readonly fileCount: number }
+  }
+  readonly audit: {
+    readonly maintenanceCli: { readonly command: string; readonly redExit: number; readonly redVerdict: string; readonly greenExit: number; readonly greenVerdict: string; readonly proofSchemaVersion: number }
+  }
+  readonly qualification: {
+    readonly maintenanceCliLocalLink: { readonly command: string; readonly redExit: number; readonly redSentinel: string; readonly greenExit: number; readonly proofSchemaVersion: number }
   }
   readonly admission: {
     readonly proofLayer: string
@@ -66,6 +79,8 @@ type ExpectedResult = {
 }
 
 type PackageMetadata = {
+  readonly name?: string
+  readonly type?: string
   readonly catalog?: unknown
   readonly catalogs?: unknown
   readonly dependencies?: Record<string, string>
@@ -132,6 +147,7 @@ function expectedResults(contract: P3RedContract): {
       ...tests.maintenanceCommandContract.files,
       ...tests.qualificationEvidence.files,
       ...tests.cleanFixture.files,
+      ...tests.maintenanceCli.files,
     ]),
   ]
   return {
@@ -166,6 +182,13 @@ function expectedResults(contract: P3RedContract): {
         tests: tests.cleanFixture.count,
         selectedFiles: tests.cleanFixture.files,
       },
+      { label: "Maintenance CLI unit", command: ["bun", "run", "test:p3:maintenance-cli:unit"], tests: tests.maintenanceCliUnit.count, selectedFiles: tests.maintenanceCliUnit.files },
+      { label: "Maintenance CLI catalog", command: ["bun", "run", "test:p3:maintenance-cli:catalog"], tests: tests.maintenanceCliCatalog.count, selectedFiles: tests.maintenanceCliCatalog.files },
+      { label: "Maintenance CLI process", command: ["bun", "run", "test:p3:maintenance-cli:process"], tests: tests.maintenanceCliProcess.count, selectedFiles: tests.maintenanceCliProcess.files },
+      { label: "Maintenance CLI observability", command: ["bun", "run", "test:p3:maintenance-cli:observability"], tests: tests.maintenanceCliObservability.count, selectedFiles: tests.maintenanceCliObservability.files },
+      { label: "Maintenance CLI Clean Fixture", command: ["bun", "run", "test:p3:maintenance-cli:clean-fixture"], tests: tests.maintenanceCliCleanFixture.count, selectedFiles: tests.maintenanceCliCleanFixture.files },
+      { label: "Maintenance CLI local link", command: ["bun", "run", "test:p3:maintenance-cli:local-link"], tests: tests.maintenanceCliLocalLink.count, selectedFiles: tests.maintenanceCliLocalLink.files },
+      { label: "Maintenance CLI", command: ["bun", "run", "test:p3:maintenance-cli"], tests: tests.maintenanceCli.count, selectedFiles: tests.maintenanceCli.files },
     ],
     workspace: [
       {
@@ -200,6 +223,17 @@ function expectedResults(contract: P3RedContract): {
           file.replace("src/modules/qualification-evidence/", ""),
         ),
         packageDirectory: "src/modules/qualification-evidence",
+      },
+      {
+        label: "Maintenance Command Facade workspace",
+        command: ["bun", "run", "--filter", "@agent-plugin-kit/maintenance-command-facade", "test"],
+        tests: 32,
+        selectedFiles: [
+          "contract-tests/command-surface.test.ts",
+          "contract-tests/public-process.test.ts",
+          "contract-tests/observability.test.ts",
+        ],
+        packageDirectory: "src/adapters/maintenance-command-facade",
       },
     ],
     aggregate: {
@@ -436,6 +470,7 @@ const forbiddenP3Paths = [
   "src/modules/canary-qualification/implementation",
   "src/modules/qualification-evidence/implementation",
   "src/adapters/reusable-workflow-adapter/implementation",
+  "src/adapters/maintenance-command-facade/implementation",
   "src/modules/plugin-payload-production/contract-tests",
   "src/modules/runtime-custody/contract-tests",
   "src/modules/release-and-git-engine/contract-tests",
@@ -454,6 +489,8 @@ function verifyP3StaticContract(root = repositoryRoot): void {
   const contract = readContract(root)
   const results = expectedResults(contract)
   const packageMetadata = readJson<PackageMetadata>(join(root, "package.json"))
+  const facadeManifest = readJson<PackageMetadata>(join(root, "src/adapters/maintenance-command-facade/package.json"))
+  const admissionManifest = readJson<PackageMetadata>(join(root, "src/admission-bootstrap/package.json"))
 
   verifyBunPolicy(root, contract)
   verifyAdmissionContract(root, contract)
@@ -507,6 +544,45 @@ function verifyP3StaticContract(root = repositoryRoot): void {
       fail(`${guide} must point to the canonical P3 RED contract owner`)
     }
   }
+  const contextSource = readFileSync(join(root, "CONTEXT.md"), "utf8")
+  const requiredContextTerms = [
+    "Result Code", "Maintenance Outcome", "Maintenance Error",
+    "Maintenance Command Facade Adapter", "Branch Station", "Station ID",
+    "Station Map", "Declared Branch Coverage", "Observed Branch Coverage",
+    "Stage-Deferred Branch", "Failure Class", "Diagnostic Record",
+    "Event Record", "Event Acceptance", "Facade Envelope Version",
+    "Result Schema Version", "Hint Version", "Command Surface Alignment Proof",
+  ]
+  for (const term of requiredContextTerms) {
+    if (!contextSource.includes(`**${term}**:`)) fail(`CONTEXT.md is missing exact Ubiquitous Language term ${term}`)
+  }
+  const contextMapSource = readFileSync(join(root, "CONTEXT-MAP.md"), "utf8")
+  for (const route of [
+    "src/modules/maintenance-command-contract/command-vocabulary.ts",
+    "src/modules/maintenance-command-contract/result-vocabulary.ts",
+    "src/modules/maintenance-command-contract/branch-stations.ts",
+    "src/adapters/maintenance-command-facade/interface.ts",
+    "docs/adr/0001-language-to-topology.md",
+    "docs/adr/0002-owner-manifests-and-dependency-locality.md",
+  ]) {
+    if (!contextMapSource.includes(route)) fail(`CONTEXT-MAP.md is missing exact owner route ${route}`)
+  }
+  const contextMapRows = contextMapSource.split("\n")
+  const commandResultRoute = contextMapRows.find((row) => row.includes("Where are command and result meanings owned?"))
+  const facadeRoute = contextMapRows.find((row) => row.includes("Where is the public maintenance binary adapted?"))
+  const branchStationRoute = contextMapRows.find((row) => row.includes("Where are execution branches declared and reconciled?"))
+  if (
+    !commandResultRoute?.includes("docs/adr/0001-language-to-topology.md") ||
+    !commandResultRoute.includes("src/modules/maintenance-command-contract/command-vocabulary.ts") ||
+    !commandResultRoute.includes("src/modules/maintenance-command-contract/result-vocabulary.ts") ||
+    !facadeRoute?.includes("docs/adr/0002-owner-manifests-and-dependency-locality.md") ||
+    !facadeRoute.includes("src/adapters/maintenance-command-facade/interface.ts") ||
+    !branchStationRoute?.includes("docs/adr/0001-language-to-topology.md") ||
+    !branchStationRoute.includes("src/modules/maintenance-command-contract/branch-stations.ts")
+  ) {
+    fail("CONTEXT-MAP.md owner routes must retain their exact Interface and binding ADR pairs")
+  }
+  if (contextMapSource.includes("command-descriptor.ts")) fail("CONTEXT-MAP.md must not restore the retired command descriptor route")
   const requiredCommands = [
     "bun run check",
     "bun run verify:p3:red",
@@ -526,12 +602,32 @@ function verifyP3StaticContract(root = repositoryRoot): void {
   if (Object.keys(packageMetadata.exports ?? {}).length !== 10) {
     fail("root Package Identity must retain exactly 10 exports")
   }
+  if (JSON.stringify((packageMetadata as PackageMetadata & { bin?: Record<string, string> }).bin) !== JSON.stringify({ "agent-plugin-kit": "./src/adapters/maintenance-command-facade/maintenance.ts" })) {
+    fail("root Package Identity must own the sole accepted binary mapping")
+  }
+  if (
+    facadeManifest.name !== "@agent-plugin-kit/maintenance-command-facade" ||
+    facadeManifest.private !== true ||
+    facadeManifest.type !== "module" ||
+    JSON.stringify(facadeManifest.exports) !== JSON.stringify({ ".": "./interface.ts" }) ||
+    facadeManifest.scripts?.test !== "bun test contract-tests/command-surface.test.ts contract-tests/public-process.test.ts contract-tests/observability.test.ts"
+  ) {
+    fail("Maintenance Command Facade Owner Manifest identity, ESM Interface export, and selector must remain exact")
+  }
+  for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const) {
+    if (Object.keys(facadeManifest[field] ?? {}).length !== 0) fail(`Facade Owner Manifest ${field} must remain empty in RED`)
+  }
+  for (const [label, manifest] of [["root", packageMetadata], ["Admission", admissionManifest]] as const) {
+    const dependencies = { ...manifest.dependencies, ...manifest.devDependencies, ...manifest.optionalDependencies, ...manifest.peerDependencies }
+    if (dependencies["@logtape/logtape"] !== undefined) fail(`${label} manifest must remain free of LogTape`)
+    if (Object.keys(dependencies).some((name) => name.toLowerCase().includes("sidequest"))) fail(`${label} manifest must remain free of SideQuest`)
+  }
   if (packageMetadata.catalog !== undefined || packageMetadata.catalogs !== undefined) {
     fail("Bun catalog remains absent in P3")
   }
   const workspaceManifests = sourcePaths.filter((file) => file.endsWith("/package.json"))
-  if (workspaceManifests.length !== 9) {
-    fail(`expected exactly 9 Owner Manifests, found ${workspaceManifests.length}`)
+  if (workspaceManifests.length !== 10) {
+    fail(`expected exactly 10 Owner Manifests, found ${workspaceManifests.length}`)
   }
   for (const file of workspaceManifests) {
     if (readJson<PackageMetadata>(join(root, file)).private !== true) {
@@ -551,7 +647,12 @@ function readAttribute(xml: string, name: string): number {
   return Number(value)
 }
 
-function verifyIntentionalRed(root: string, result: ExpectedResult, receiptDirectory: string): void {
+function verifyIntentionalRed(
+  root: string,
+  result: ExpectedResult,
+  receiptDirectory: string,
+  environment: Record<string, string | undefined> = testEnvironment,
+): void {
   const receipt = join(
     receiptDirectory,
     `${result.label.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}.xml`,
@@ -559,7 +660,7 @@ function verifyIntentionalRed(root: string, result: ExpectedResult, receiptDirec
   const processResult = Bun.spawnSync({
     cmd: [...result.command, "--reporter=junit", "--reporter-outfile", receipt],
     cwd: root,
-    env: testEnvironment,
+    env: environment,
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -789,6 +890,168 @@ function verifyStaticSensitivity(): void {
     delete admission.firstP4GreenTransition
     writeJson(path, contract)
   })
+  for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const) {
+    expectStaticRejection(`Facade Owner Manifest ${field} added`, (root) => {
+      const path = join(root, "src/adapters/maintenance-command-facade/package.json")
+      const manifest = readJson<Record<string, unknown>>(path)
+      manifest[field] = { "p3-unavailable-dependency": "1.0.0" }
+      writeJson(path, manifest)
+    })
+  }
+  expectStaticRejection("LogTape added to root", (root) => {
+    const path = join(root, "package.json")
+    const manifest = readJson<Record<string, unknown>>(path)
+    manifest.dependencies = { "@logtape/logtape": "2.3.1" }
+    writeJson(path, manifest)
+  })
+  expectStaticRejection("LogTape added to Admission", (root) => {
+    const path = join(root, "src/admission-bootstrap/package.json")
+    const manifest = readJson<Record<string, unknown>>(path)
+    manifest.dependencies = { "@logtape/logtape": "2.3.1" }
+    writeJson(path, manifest)
+  })
+  expectStaticRejection("eleventh root export added", (root) => {
+    const path = join(root, "package.json")
+    const manifest = readJson<Record<string, unknown> & { exports: Record<string, string> }>(path)
+    manifest.exports["./maintenance-command-facade"] = "./src/adapters/maintenance-command-facade/interface.ts"
+    writeJson(path, manifest)
+  })
+  expectStaticRejection("Facade Owner Manifest made public", (root) => {
+    const path = join(root, "src/adapters/maintenance-command-facade/package.json")
+    const manifest = readJson<Record<string, unknown>>(path)
+    manifest.private = false
+    writeJson(path, manifest)
+  })
+  expectStaticRejection("Facade Owner Manifest ESM type drifted", (root) => {
+    const path = join(root, "src/adapters/maintenance-command-facade/package.json")
+    const manifest = readJson<Record<string, unknown>>(path)
+    manifest.type = "commonjs"
+    writeJson(path, manifest)
+  })
+  expectStaticRejection("Facade Owner Manifest Interface export drifted", (root) => {
+    const path = join(root, "src/adapters/maintenance-command-facade/package.json")
+    const manifest = readJson<Record<string, unknown>>(path)
+    manifest.exports = { ".": "./drifted.ts" }
+    writeJson(path, manifest)
+  })
+  expectStaticRejection("facade Ubiquitous Language term removed", (root) => {
+    const path = join(root, "CONTEXT.md")
+    writeFileSync(path, readFileSync(path, "utf8").replace("**Maintenance Command Facade Adapter**:", "**Drifted Facade Adapter**:"))
+  })
+  expectStaticRejection("Branch Station owner route removed", (root) => {
+    const path = join(root, "CONTEXT-MAP.md")
+    writeFileSync(path, readFileSync(path, "utf8").replace("src/modules/maintenance-command-contract/branch-stations.ts", "src/modules/maintenance-command-contract/drifted-stations.ts"))
+  })
+  expectStaticRejection("Facade owner route ADR binding swapped", (root) => {
+    const path = join(root, "CONTEXT-MAP.md")
+    const source = readFileSync(path, "utf8")
+    const row = source.split("\n").find((line) => line.includes("Where is the public maintenance binary adapted?"))
+    if (!row) fail("missing facade Context Map row in sensitivity fixture")
+    writeFileSync(path, source.replace(row, row.replace("docs/adr/0002-owner-manifests-and-dependency-locality.md", "docs/adr/0001-language-to-topology.md")))
+  })
+  expectStaticRejection("Branch Station route ADR binding swapped", (root) => {
+    const path = join(root, "CONTEXT-MAP.md")
+    const source = readFileSync(path, "utf8")
+    const row = source.split("\n").find((line) => line.includes("Where are execution branches declared and reconciled?"))
+    if (!row) fail("missing Branch Station Context Map row in sensitivity fixture")
+    writeFileSync(path, source.replace(row, row.replace("docs/adr/0001-language-to-topology.md", "docs/adr/0002-owner-manifests-and-dependency-locality.md")))
+  })
+  expectStaticRejection("tenth workspace owner removed", (root) => {
+    rmSync(join(root, "src/adapters/maintenance-command-facade"), { recursive: true })
+  })
+}
+
+function verifyRedContractShells(contract: P3RedContract, root = repositoryRoot): void {
+  for (const shell of [
+    { ...contract.audit.maintenanceCli, sentinel: contract.audit.maintenanceCli.redVerdict },
+    { ...contract.qualification.maintenanceCliLocalLink, sentinel: contract.qualification.maintenanceCliLocalLink.redSentinel },
+  ]) {
+    const result = Bun.spawnSync({
+      cmd: shell.command.split(" "),
+      cwd: root,
+      env: testEnvironment,
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const stdout = stripAnsi(result.stdout.toString())
+    const lines = stdout.trim().split("\n")
+    let record: Record<string, unknown> | undefined
+    try {
+      record = JSON.parse(lines.at(-1) ?? "") as Record<string, unknown>
+    } catch {
+      fail(`${shell.command} must emit one parseable JSON proof record`)
+    }
+    if (result.exitCode !== shell.redExit || !stdout.includes(shell.sentinel) || record?.schema_version !== shell.proofSchemaVersion) {
+      fail(`${shell.command} must retain its schema-valid intentional RED sentinel and exit`)
+    }
+    if (shell.command === contract.audit.maintenanceCli.command) {
+      const exactKeys = [
+        "schema_version", "package_identity", "command_contract_id",
+        "command_contract_schema_version", "facade_envelope_schema_version",
+        "result_schema_version", "error_schema_version", "hint_version",
+        "diagnostic_schema_version", "event_schema_version", "surface_findings",
+        "declared_branch_coverage", "stage_deferred_branch_coverage",
+        "stage_deferred_owner_stages", "declared_unreachable_branch_coverage",
+        "required_observed_branch_total", "observed_branch_coverage", "stations",
+        "root_consumers", "verdict",
+      ].sort()
+      if (JSON.stringify(Object.keys(record ?? {}).sort()) !== JSON.stringify(exactKeys)) {
+        fail("maintenance CLI audit must emit the exact closed proof schema")
+      }
+      const findings = record?.surface_findings as { surface: string; status: string; detail: string }[]
+      const stations = record?.stations as {
+        station_id: string
+        status: string
+        provenance: string | null
+        argv: string[] | null
+        exit_code: number | null
+        deadline_ms: number | null
+        timed_out: boolean | null
+        descriptor_closure: string | null
+        result_code: string | null
+        next_action_id: string | null
+      }[]
+      const owners = record?.stage_deferred_owner_stages as unknown[]
+      const consumers = record?.root_consumers as Record<string, unknown>
+      const requiredRows = stations.filter(({ station_id }) => station_id === "help.previewed" || station_id === "maintenance.usage-refused")
+      if (
+        record?.package_identity !== "agent-plugin-kit" ||
+        record?.command_contract_id !== "agent-plugin-kit.maintenance-command-result" ||
+        ![record?.command_contract_schema_version, record?.result_schema_version, record?.facade_envelope_schema_version, record?.error_schema_version, record?.hint_version, record?.diagnostic_schema_version, record?.event_schema_version].every((version) => version === 1) ||
+        record?.declared_branch_coverage !== 118 ||
+        record?.stage_deferred_branch_coverage !== 109 ||
+        record?.declared_unreachable_branch_coverage !== 7 ||
+        record?.required_observed_branch_total !== 2 ||
+        record?.observed_branch_coverage !== 0 ||
+        stations.length !== 118 || owners.length !== 5 ||
+        JSON.stringify(requiredRows) !== JSON.stringify([
+          { station_id: "help.previewed", status: "drifted", provenance: "real_process", argv: ["--run-id", "p3-help-literal", "--help"], exit_code: 1, deadline_ms: 2000, timed_out: false, descriptor_closure: "closed", result_code: null, next_action_id: null, skip_rationale: null },
+          { station_id: "maintenance.usage-refused", status: "drifted", provenance: "real_process", argv: ["--run-id", "p3-help-literal", "unknown"], exit_code: 1, deadline_ms: 2000, timed_out: false, descriptor_closure: "closed", result_code: null, next_action_id: null, skip_rationale: null },
+        ]) ||
+        JSON.stringify(findings.filter(({ status }) => status === "drifted").map(({ surface }) => surface)) !== JSON.stringify(["public_process"]) ||
+        record?.verdict !== "drifted" ||
+        JSON.stringify(consumers.declared) !== JSON.stringify(consumers.discovered) ||
+        JSON.stringify(consumers.discovered) !== JSON.stringify(consumers.typechecked) ||
+        consumers.declared_count !== (consumers.declared as unknown[]).length ||
+        consumers.discovered_count !== (consumers.discovered as unknown[]).length ||
+        consumers.typechecked_count !== (consumers.typechecked as unknown[]).length
+      ) {
+        fail("maintenance CLI audit proof content drifted")
+      }
+    } else if (
+      JSON.stringify(Object.keys(record ?? {}).sort()) !==
+        JSON.stringify(["expected_cleanup_ledger", "expected_public_cli_executions", "fixed_help_argv", "observed_public_cli_executions", "proof", "run_id", "schema_version", "sentinel", "verdict"].sort()) ||
+      record?.expected_public_cli_executions !== 4 ||
+      record?.observed_public_cli_executions !== 0 || record?.run_id !== "p3-help-literal" ||
+      JSON.stringify(record?.fixed_help_argv) !== JSON.stringify(["maintenance", "--json", "--run-id", "p3-local-link-help", "help"]) ||
+      (record?.expected_cleanup_ledger as string[]).filter((entry) => entry.startsWith("execute:")).length !== 4 ||
+      JSON.stringify((record?.expected_cleanup_ledger as string[]).slice(0, 2)) !== JSON.stringify(["ln:-s:package", "ln:-s:binary"]) ||
+      JSON.stringify((record?.expected_cleanup_ledger as string[]).slice(-2)) !== JSON.stringify(["unlink:binary", "unlink:package"])
+    ) {
+      fail("maintenance CLI local-link RED receipt schema drifted")
+    }
+    console.log(`verified ${shell.command}: intentional RED exit ${result.exitCode}`)
+  }
 }
 
 function expectDynamicRedRejection(label: string, source: string): void {
@@ -818,11 +1081,91 @@ function expectDynamicRedRejection(label: string, source: string): void {
   }
 }
 
+function expectAuditRejection(label: string, mutate: (root: string) => void): void {
+  const scratchParent = mkdtempSync(join(tmpdir(), "agent-plugin-kit-p3-audit-probe-"))
+  const scratchRoot = join(scratchParent, "repository")
+  try {
+    copyRepositoryFixture(scratchRoot)
+    mutate(scratchRoot)
+    try {
+      verifyRedContractShells(readContract(scratchRoot), scratchRoot)
+      fail(`audit sensitivity probe did not fail closed: ${label}`)
+    } catch (error) {
+      if (error instanceof Error && error.message === `audit sensitivity probe did not fail closed: ${label}`) throw error
+      console.log(`sensitivity audit ${label}: rejected`)
+    }
+  } finally {
+    rmSync(scratchParent, { recursive: true, force: true })
+  }
+}
+
 function verifyDynamicSensitivity(): void {
   expectDynamicRedRejection(
     "wrong failure class",
     'import { expect, test } from "bun:test"\ntest("wrong class", () => { expect(undefined, "fixture-failure: wrong class").toBeDefined() })\n',
   )
+  expectAuditRejection("schema equality drift", (root) => {
+    const path = join(root, "src/modules/maintenance-command-contract/command-vocabulary.ts")
+    writeFileSync(path, readFileSync(path, "utf8").replace("export const commandContractSchemaVersion = resultSchemaVersion", "export const commandContractSchemaVersion = 2 as const"))
+  })
+  expectAuditRejection("failure Next Action drift", (root) => {
+    const path = join(root, "src/modules/maintenance-command-contract/result-vocabulary.ts")
+    writeFileSync(path, readFileSync(path, "utf8").replace('"maintenance.show-help"', '"maintenance.show-drifted-help"'))
+  })
+  expectAuditRejection("conflicting duplicate Next Action", (root) => {
+    const path = join(root, "src/modules/maintenance-command-contract/result-vocabulary.ts")
+    writeFileSync(path, readFileSync(path, "utf8").replace('"runtime.inspect-usage"', '"maintenance.show-help"'))
+  })
+  expectAuditRejection("frozen Clean Fixture help drift", (root) => {
+    const path = join(root, "clean-fixture/personal-verification-profile/contract-tests/fixtures/plugin-consumer.ts")
+    writeFileSync(path, readFileSync(path, "utf8").replace('\\"package_identity\\":\\"agent-plugin-kit\\"', '\\"package_identity\\":\\"drifted-kit\\"'))
+  })
+  expectAuditRejection("facade consumer omitted", (root) => {
+    const path = join(root, "src/adapters/maintenance-command-facade/maintenance.ts")
+    writeFileSync(path, readFileSync(path, "utf8").replace('from "./interface"', 'from "./drifted-interface"'))
+  })
+  expectAuditRejection("required usage argv drift", (root) => {
+    const path = join(root, "clean-fixture/audit-p3-maintenance-cli.ts")
+    writeFileSync(path, readFileSync(path, "utf8").replace('["--run-id", "p3-help-literal", "unknown"]', '["--run-id", "p3-help-literal", "drifted"]'))
+  })
+  expectAuditRejection("declared-unreachable owner rationale drift", (root) => {
+    const path = join(root, "src/modules/maintenance-command-contract/branch-stations.ts")
+    writeFileSync(path, readFileSync(path, "utf8").replace(
+      "No accepted argv, stdin, or named file can cause a pre-dispatch facade fault; unit fault Adapters retain containment proof.",
+      "",
+    ))
+  })
+  expectAuditRejection("declared-unreachable Interface pointer drift", (root) => {
+    const path = join(root, "src/modules/maintenance-command-contract/branch-stations.ts")
+    writeFileSync(path, readFileSync(path, "utf8").replace(
+      'governingInterface: "src/adapters/maintenance-command-facade/interface.ts",',
+      'governingInterface: "src/modules/maintenance-command-contract/interface.ts",',
+    ))
+  })
+  expectAuditRejection("package version drift", (root) => {
+    const path = join(root, "package.json")
+    const manifest = readJson<Record<string, unknown>>(path)
+    manifest.version = "0.0.1"
+    writeJson(path, manifest)
+  })
+  expectAuditRejection("unreachable workspace consumer added", (root) => {
+    writeFileSync(
+      join(root, "src/modules/plugin-payload-production/hidden-facade-consumer.ts"),
+      'import type { MaintenanceCommandFacade } from "../../adapters/maintenance-command-facade/interface"\nexport type HiddenFacadeConsumer = MaintenanceCommandFacade\n',
+    )
+  })
+  expectAuditRejection("type-position workspace consumer added", (root) => {
+    writeFileSync(
+      join(root, "src/modules/plugin-payload-production/hidden-type-facade-consumer.ts"),
+      'export type HiddenTypeFacadeConsumer = import("../../adapters/maintenance-command-facade/interface").MaintenanceCommandFacade\n',
+    )
+  })
+  expectAuditRejection("package-identity workspace consumer added", (root) => {
+    writeFileSync(
+      join(root, "src/modules/plugin-payload-production/hidden-package-facade-consumer.ts"),
+      'export type HiddenPackageFacadeConsumer = import("@agent-plugin-kit/maintenance-command-facade").MaintenanceCommandFacade\n',
+    )
+  })
   expectDynamicRedRejection(
     "static test load failure",
     'import "p3-static-test-load-failure"\nimport { test } from "bun:test"\ntest("undiscovered", () => {})\n',
@@ -903,6 +1246,7 @@ function run(): void {
   verifyStaticSensitivity()
   verifyDynamicSensitivity()
   verifyAutoInstallDenied()
+  verifyRedContractShells(readContract(repositoryRoot))
 
   const results = expectedResults(readContract(repositoryRoot))
   const receiptDirectory = mkdtempSync(join(tmpdir(), "agent-plugin-kit-p3-red-"))
@@ -910,6 +1254,12 @@ function run(): void {
     for (const result of [...results.focused, ...results.workspace, results.aggregate]) {
       verifyIntentionalRed(repositoryRoot, result, receiptDirectory)
     }
+    verifyIntentionalRed(
+      repositoryRoot,
+      { ...results.aggregate, label: "P3 aggregate hostile color" },
+      receiptDirectory,
+      { ...testEnvironment, FORCE_COLOR: "3", NO_COLOR: "0", TERM: "xterm-256color" },
+    )
     console.log("P3 intentional RED contract verified")
   } finally {
     rmSync(receiptDirectory, { recursive: true, force: true })

@@ -321,6 +321,103 @@ The single actionable continuation carried by every Command Preview, Command
 Result, or refusal.
 _Avoid_: Hint, generic rerun
 
+**Maintenance Command Facade Adapter**:
+The single private Adapter that projects Maintenance Command Contract meaning
+through the root Package Identity binary. It owns parsing and envelopes, but
+no command or result policy.
+_Avoid_: CLI module, command owner
+
+**Diagnostic Adapter**:
+The environmental Seam for structured stderr diagnostics and bounded
+fingers-crossed buffering.
+_Avoid_: Observability Module, logger owner
+
+**Event Adapter**:
+The environmental Seam for synchronous best-effort event acceptance.
+_Avoid_: Event Module, durable queue
+
+**Branch Station**:
+One deterministic command and Result Code identity in the execution-only
+catalog, with its owner, stage, reachability, and Independent Observable.
+_Avoid_: Generic branch, test case
+
+**Station Map**:
+The projection of Branch Station declarations and real evidence without
+synthetic coverage promotion.
+_Avoid_: Coverage percentage, route registry
+
+**Result Code**:
+The stable lower-kebab machine discriminant for one meaning within the
+versioned Result Vocabulary.
+_Avoid_: Result Vocabulary
+
+**Maintenance Outcome**:
+The tagged owner result carrying one Result Code and Station ID with either a
+Command value or Maintenance Error.
+_Avoid_: Process envelope, inferred status
+
+**Maintenance Error**:
+The typed `MaintenanceCommandError` refusal or failure detail whose exit hint,
+failure meaning, retry, recovery, and Next Action remain Maintenance-owned.
+_Avoid_: Facade error, thrown exception
+
+**Station ID**:
+The deterministic `<command-slug>.<result-code>` identity of one Branch
+Station.
+_Avoid_: Event ID, test name
+
+**Declared Branch Coverage**:
+The catalog count and status including visible stage-deferred and
+declared-unreachable Branch Stations.
+_Avoid_: Observed coverage, percentage
+
+**Observed Branch Coverage**:
+The count of required Branch Stations reconciled by qualifying `real_process`
+evidence.
+_Avoid_: Synthetic coverage, declared count
+
+**Stage-Deferred Branch**:
+A real Branch Station controlled by a later-stage owner whose Skip Rationale
+names that owner, stage, future selector, and Non-Claim.
+_Avoid_: Unreachable branch, omitted branch
+
+**Failure Class**:
+The closed agent-facing class `usage`, `refusal`, `transient`, `continuation`,
+`recovery`, `unexpected`, or `event_delivery`.
+_Avoid_: Exit class, error message
+
+**Diagnostic Record**:
+The closed redacted stderr projection accepted by the Diagnostic Adapter Seam.
+_Avoid_: Raw logger record, primary envelope
+
+**Event Record**:
+The closed redacted event projection accepted synchronously by the Event
+Adapter Seam.
+_Avoid_: Diagnostic Record, arbitrary payload
+
+**Event Acceptance**:
+The synchronous `accepted` or `refused` ownership transfer observed without
+waiting for event settlement.
+_Avoid_: Delivery receipt, awaited transport
+
+**Facade Envelope Version**:
+The independently incremented version of the public process envelope.
+_Avoid_: Result Schema Version
+
+**Result Schema Version**:
+The independently incremented version of Maintenance result meaning and help
+payload shape.
+_Avoid_: Facade Envelope Version
+
+**Hint Version**:
+The independently incremented version of machine repair semantics.
+_Avoid_: Result Schema Version
+
+**Command Surface Alignment Proof**:
+The independent reconciliation of Command Vocabulary, discovery, argv,
+process, Branch Station, and consumer surfaces without dispatch ownership.
+_Avoid_: Runtime implementation, whole-program coverage
+
 ### Verification and claims
 
 **Verification Profile**:

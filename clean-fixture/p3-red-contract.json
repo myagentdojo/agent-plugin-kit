@@ -67,6 +67,29 @@
       "src/modules/maintenance-command-contract/contract-tests/adapters/mutation-recording-module-adapter.ts",
       "src/modules/maintenance-command-contract/contract-tests/adapters/public-process-adapter.ts",
       "src/modules/qualification-evidence/contract-tests/fixtures/evidence-cells.ts"
+      ,"src/adapters/maintenance-command-facade/package.json"
+      ,"src/adapters/maintenance-command-facade/interface.ts"
+      ,"src/adapters/maintenance-command-facade/maintenance.ts"
+      ,"src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts"
+      ,"src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts"
+      ,"src/adapters/maintenance-command-facade/contract-tests/observability.test.ts"
+      ,"src/adapters/maintenance-command-facade/contract-tests/adapters/maintenance-commands-recording-adapter.ts"
+      ,"src/adapters/maintenance-command-facade/contract-tests/adapters/diagnostic-recording-adapter.ts"
+      ,"src/adapters/maintenance-command-facade/contract-tests/adapters/event-recording-adapter.ts"
+      ,"src/adapters/maintenance-command-facade/contract-tests/adapters/public-process-adapter.ts"
+      ,"src/adapters/maintenance-command-facade/contract-tests/fixtures/literal-cli-scenarios.ts"
+      ,"src/adapters/maintenance-command-facade/contract-tests/fixtures/literal-observability-cases.ts"
+      ,"src/modules/maintenance-command-contract/command-vocabulary.ts"
+      ,"src/modules/maintenance-command-contract/result-vocabulary.ts"
+      ,"src/modules/maintenance-command-contract/branch-stations.ts"
+      ,"src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts"
+      ,"src/modules/maintenance-command-contract/contract-tests/fixtures/literal-branch-stations.ts"
+      ,"clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts"
+      ,"clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts"
+      ,"clean-fixture/personal-verification-profile/contract-tests/adapters/maintenance-cli-contract-subjects.ts"
+      ,"clean-fixture/personal-verification-profile/contract-tests/fixtures/maintenance-cli-process-scenarios.ts"
+      ,"clean-fixture/audit-p3-maintenance-cli.ts"
+      ,"clean-fixture/verify-p3-maintenance-cli-local-link.ts"
     ],
     "requiredAgentPointers": [
       "CONTEXT.md",
@@ -94,10 +117,11 @@
       ]
     },
     "maintenanceCommandContract": {
-      "count": 16,
+      "count": 24,
       "files": [
         "src/modules/maintenance-command-contract/contract-tests/effect-class-and-retry-safety.test.ts",
-        "src/modules/maintenance-command-contract/contract-tests/human-and-agent-result-vocabulary.test.ts"
+        "src/modules/maintenance-command-contract/contract-tests/human-and-agent-result-vocabulary.test.ts",
+        "src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts"
       ]
     },
     "qualificationEvidence": {
@@ -108,18 +132,75 @@
       ]
     },
     "cleanFixture": {
-      "count": 13,
+      "count": 26,
       "files": [
         "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
         "clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts",
         "clean-fixture/personal-verification-profile/contract-tests/installation-evidence.test.ts",
         "clean-fixture/personal-verification-profile/contract-tests/fresh-native-non-claims.test.ts",
-        "clean-fixture/public-verification-profile/contract-tests/profile-non-promotion.test.ts"
+        "clean-fixture/public-verification-profile/contract-tests/profile-non-promotion.test.ts",
+        "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts",
+        "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts"
+      ]
+    },
+    "maintenanceCliUnit": {
+      "count": 12,
+      "files": ["src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts"]
+    },
+    "maintenanceCliCatalog": {
+      "count": 8,
+      "files": ["src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts"]
+    },
+    "maintenanceCliProcess": {
+      "count": 8,
+      "files": ["src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts"]
+    },
+    "maintenanceCliObservability": {
+      "count": 12,
+      "files": ["src/adapters/maintenance-command-facade/contract-tests/observability.test.ts"]
+    },
+    "maintenanceCliCleanFixture": {
+      "count": 5,
+      "files": ["clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts"]
+    },
+    "maintenanceCliLocalLink": {
+      "count": 8,
+      "files": ["clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts"]
+    },
+    "maintenanceCli": {
+      "count": 53,
+      "fileCount": 6,
+      "files": [
+        "src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts",
+        "src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
+        "src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts",
+        "src/adapters/maintenance-command-facade/contract-tests/observability.test.ts",
+        "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts",
+        "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts"
       ]
     },
     "aggregate": {
-      "count": 51,
-      "fileCount": 11
+      "count": 104,
+      "fileCount": 17
+    }
+  },
+  "audit": {
+    "maintenanceCli": {
+      "command": "bun run audit:p3:maintenance-cli",
+      "redExit": 1,
+      "redVerdict": "drifted",
+      "greenExit": 0,
+      "greenVerdict": "ship",
+      "proofSchemaVersion": 1
+    }
+  },
+  "qualification": {
+    "maintenanceCliLocalLink": {
+      "command": "bun run verify:p3:maintenance-cli:local-link",
+      "redExit": 1,
+      "redSentinel": "implementation-absent",
+      "greenExit": 0,
+      "proofSchemaVersion": 1
     }
   },
   "admission": {

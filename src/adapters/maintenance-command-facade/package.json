@@ -1,0 +1,12 @@
+{
+  "name": "@agent-plugin-kit/maintenance-command-facade",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./interface.ts"
+  },
+  "scripts": {
+    "test": "bun test contract-tests/command-surface.test.ts contract-tests/public-process.test.ts contract-tests/observability.test.ts"
+  }
+}

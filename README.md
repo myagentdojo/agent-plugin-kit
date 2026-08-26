@@ -50,7 +50,7 @@ production contracts are not implemented yet.
 
 ## Run one owner's Contract Tests
 
-The nine private Owner Manifests give each current Source Tree owner a tooling
+The ten private Owner Manifests give each current Source Tree owner a tooling
 address. They do not add publication, ownership, Interface, or runtime Seams;
 the root Package Identity and its accepted subpath exports remain the caller
 surface.
@@ -62,7 +62,8 @@ bun run --filter @agent-plugin-kit/admission-bootstrap test
 ```
 
 The same selector shape accepts `@agent-plugin-kit/maintenance-command-contract`
-or `@agent-plugin-kit/qualification-evidence`. Owners whose Contract Tests
+or `@agent-plugin-kit/qualification-evidence`. The private facade owner uses
+`@agent-plugin-kit/maintenance-command-facade`. Owners whose Contract Tests
 belong to later gates intentionally have no `test` script yet.
 
 ## Request work

@@ -69,10 +69,20 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   `bun run test:p3:maintenance-command-contract`,
   `bun run test:p3:qualification-evidence`, or
   `bun run test:p3:clean-fixture`.
+- CLI RED: run `bun run test:p3:maintenance-cli:unit`,
+  `bun run test:p3:maintenance-cli:catalog`,
+  `bun run test:p3:maintenance-cli:process`,
+  `bun run test:p3:maintenance-cli:observability`,
+  `bun run test:p3:maintenance-cli:clean-fixture`,
+  `bun run test:p3:maintenance-cli:local-link`, or the exact combined selector
+  `bun run test:p3:maintenance-cli`.
+- CLI shells: `bun run audit:p3:maintenance-cli` and
+  `bun run verify:p3:maintenance-cli:local-link` intentionally exit one in RED.
 - Workspace RED: run
   `bun run --filter @agent-plugin-kit/admission-bootstrap test`,
   `bun run --filter @agent-plugin-kit/maintenance-command-contract test`, or
-  `bun run --filter @agent-plugin-kit/qualification-evidence test`.
+  `bun run --filter @agent-plugin-kit/qualification-evidence test`, or
+  `bun run --filter @agent-plugin-kit/maintenance-command-facade test`.
 - Review: inspect `git status --short` and the exact intended diff.
 
 ## Agent skills

@@ -77,6 +77,114 @@ type TransactionState =
   | "unknown"
 type RetrySafety = "safe" | "unsafe" | "requires-fresh-inspection"
 
+type MaintenanceAction =
+  | "change_input"
+  | "contact_support"
+  | "inspect_state"
+  | "open_docs"
+  | "repair_state"
+  | "retry"
+  | "run_command"
+  | "select_command"
+  | "wait"
+
+type FailureClass =
+  | "usage"
+  | "refusal"
+  | "transient"
+  | "continuation"
+  | "recovery"
+  | "unexpected"
+
+export type ResultCode =
+  | "completed"
+  | "previewed"
+  | "runtime-repair-preview"
+  | "runtime-repair-unneeded"
+  | "runtime-repair-applied"
+  | "runtime-failed"
+  | "runtime-control-invalid"
+  | "usage-refused"
+  | "runtime-usage-refused"
+  | "continuation-required"
+  | "recovery-required"
+  | "runtime-bun-missing"
+  | "runtime-cache-root-unsafe"
+  | "runtime-repair-required"
+  | "command-refused"
+  | "runtime-host-tool-missing"
+  | "runtime-not-executable"
+  | "runtime-unsupported-platform"
+  | "retry-deferred"
+  | "runtime-download-failed"
+  | "runtime-lock-held"
+  | "runtime-archive-hash-mismatch"
+  | "runtime-archive-member-ambiguous"
+  | "runtime-archive-member-missing"
+  | "runtime-archive-size-mismatch"
+  | "runtime-bundle-mismatch"
+  | "runtime-bundle-unmapped"
+  | "runtime-executable-hash-mismatch"
+  | "runtime-executable-size-mismatch"
+  | "runtime-executable-version-mismatch"
+  | "runtime-lock-invalid"
+  | "runtime-skill-unknown"
+  | "runtime-url-rejected"
+
+export type StationId = `${string}.${ResultCode}`
+
+type NextAction = {
+  id: string
+  action: MaintenanceAction
+  summary: string
+  commandId?: MaintenanceCommand["command"] | null
+  retryAfterMs?: number
+  idempotencyKey?: string
+}
+
+export type MaintenanceError = {
+  name: "MaintenanceCommandError"
+  exitCodeHint: number
+  failureClass: FailureClass
+  errorFamily:
+    | "input"
+    | "state_conflict"
+    | "authentication"
+    | "authorization_scope"
+    | "network"
+    | "transient"
+    | "runtime"
+  severity: "warning" | "error" | "fatal"
+  action: MaintenanceAction
+  retryable: boolean
+  recoverability:
+    | "none"
+    | "retry"
+    | "change_input"
+    | "authenticate"
+    | "repair_state"
+    | "contact_support"
+  retrySafety: RetrySafety
+  transactionState: TransactionState
+  nextAction: NextAction
+  retryAfterMs?: number
+  idempotencyKey?: string
+}
+
+export type MaintenanceOutcome<T> =
+  | {
+      status: "ok"
+      resultCode: ResultCode
+      stationId: StationId
+      value: T
+    }
+  | {
+      status: "error"
+      resultCode: ResultCode
+      stationId: StationId
+      error: MaintenanceError
+    }
+
 export type CommandPreview = {
   schemaVersion: 1
   command: MaintenanceCommand["command"]
@@ -84,11 +192,10 @@ export type CommandPreview = {
   expectedEffectIds: readonly string[]
   transactionState: TransactionState
   retrySafety: RetrySafety
-  nextAction: string
+  nextAction: NextAction
   human: string
   agent: Readonly<Record<string, unknown>>
   stderr: string
-  exitClass: number
 }
 
 export type CommandResult = {
@@ -98,14 +205,13 @@ export type CommandResult = {
   retrySafety: RetrySafety
   completedEffectIds: readonly string[]
   remainingEffectIds: readonly string[]
-  nextAction: string
+  nextAction: NextAction
   human: string
   agent: Readonly<Record<string, unknown>>
   stderr: string
-  exitClass: number
 }
 
 export interface MaintenanceCommands {
-  inspect(command: MaintenanceCommand): Promise<CommandPreview>
-  apply(request: MaintenanceApplyRequest): Promise<CommandResult>
+  inspect(command: MaintenanceCommand): Promise<MaintenanceOutcome<CommandPreview>>
+  apply(request: MaintenanceApplyRequest): Promise<MaintenanceOutcome<CommandResult>>
 }

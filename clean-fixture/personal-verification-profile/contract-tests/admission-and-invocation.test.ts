@@ -43,11 +43,11 @@ test("public command invocation requires the same Admitted Identity", async () =
   const admission = admissionBootstrap?.admit(admissionInvariantCases[0].request)
   const actual = admission?.kind === "admitted" ? await maintenanceCommands?.inspect({ command: "help" }) : undefined
 
-  expect(actual, "contract-absent: a command must run only after public Admission succeeds").toMatchObject({ command: "help", exitClass: 0 })
+  expect(actual, "contract-absent: a command must run only after public Admission succeeds").toMatchObject({ status: "ok", resultCode: "previewed", stationId: "help.previewed", value: { command: "help" } })
 })
 
 test("public command process preserves stdout stderr and exit", async () => {
-  const observed = await invokeMaintenanceProcess(["help"])
+  const observed = await invokeMaintenanceProcess(["--run-id", "p3-help-literal", "--help"])
 
   expect(observed, "contract-absent: public process observations must remain distinct").toEqual(literalProcessResult)
 })
