@@ -24,7 +24,6 @@ test("admission completes before any maintenance execution", () => {
 
   const actual = harness.bootstrap?.admit(agreeing.request)
 
-  expect(harness.importedOwners).toEqual([])
   expect(harness.durableDigest()).toBe(before)
   expect(
     actual,

@@ -24,9 +24,10 @@ surface.
   dependency appears in more than one Owner Manifest.
 - Linker semantics remain unpinned until a concrete failure requires a
   reviewed decision.
-- Repository checks and later task 021 will enforce Admission manifest and
-  source rules. The behavioral dependency-free claim remains owned by the
-  independent runtime sentinel, not a source scan.
+- `clean-fixture/p3-red-contract.json` owns the exact Admission manifest,
+  source, and Proof Layer enforcement. The behavioral source-level
+  dependency-free claim remains owned by the independent public-process
+  sentinel, not a source scan.
 
 ## Consequences
 

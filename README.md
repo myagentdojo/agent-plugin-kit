@@ -33,8 +33,10 @@ The Owner Manifest and dependency Locality decision lives in
 bun run check
 ```
 
-The check validates the P3 Interface and exact 11-file, 51-test RED structure,
-and refuses premature later-stage Contract Tests, hosted workflows, or
+The check validates the P3 Interface and the exact RED Contract Test files,
+counts, and Admission Proof Layer owned by
+[`clean-fixture/p3-red-contract.json`](clean-fixture/p3-red-contract.json). It
+refuses premature later-stage Contract Tests, hosted workflows, or
 Implementation paths.
 
 The exact intentional RED selector is:
@@ -43,7 +45,7 @@ The exact intentional RED selector is:
 bun run test:p3
 ```
 
-It must discover 51 tests across 11 files and fail only because the accepted
+It must match the canonical files and counts and fail only because the accepted
 production contracts are not implemented yet.
 
 ## Run one owner's Contract Tests

@@ -13,17 +13,12 @@ export type InstalledPackageObservation = {
   installedBytesSha256: `sha256:${string}`
 }
 
-type AdmissionEnvironment = {
-  observeImport(owner: string): void
-  maintenanceState: Uint8Array
-}
+type AdmissionEnvironment = { maintenanceState: Uint8Array }
 type AdmissionFactory = (environment: AdmissionEnvironment) => AdmissionBootstrap
 const absentAdmissionFactory = (): AdmissionFactory | undefined => undefined
 const createAdmission = absentAdmissionFactory()
-export const admissionImportLedger: string[] = []
 const admissionDurableBytes = new TextEncoder().encode("clean-fixture:unchanged\n")
 export const admissionBootstrap = createAdmission?.({
-  observeImport: (owner: string) => admissionImportLedger.push(owner),
   maintenanceState: admissionDurableBytes,
 })
 export const admissionDurableDigest = () =>

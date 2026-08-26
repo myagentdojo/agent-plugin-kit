@@ -1,0 +1,7 @@
+{
+  "name": "agent-plugin-kit",
+  "type": "module",
+  "exports": {
+    "./admission-bootstrap": "./src/admission-bootstrap/interface.ts"
+  }
+}

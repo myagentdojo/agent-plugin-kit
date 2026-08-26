@@ -33,6 +33,8 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   `CONTEXT-MAP.md` and `docs/adr/0001-language-to-topology.md`.
 - Independent proof: `clean-fixture/` owns current P3 cross-Module Contract Tests
   and future Candidate Lineage, installation, hosted, and Fresh-Native Evidence.
+  `clean-fixture/p3-red-contract.json` owns the exact P3 RED Contract Test
+  files, counts, and Admission Proof Layer.
 
 ## Invariants
 
@@ -47,9 +49,9 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   one Full Commit Pin before Kit Repository Implementation executes.
 - Evidence: preserve `proved`, `not-proved`, and `unknown`; attach a Skip
   Rationale and Non-Claims where evidence does not reach the requested layer.
-- P3 RED gate: keep the approved Source Tree Interfaces, Contract Tests, Test
-  Fixtures, and Clean Fixture proof exact. Keep P4 through P9 Contract Tests,
-  hosted workflows, and every Implementation path absent until their owning gate.
+- P3 RED gate: preserve `clean-fixture/p3-red-contract.json`. Keep P4 through
+  P9 Contract Tests, hosted workflows, and every Implementation path absent
+  until their owning gate.
 
 ## Checks
 
@@ -59,9 +61,9 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
 - Machine-pinned RED: run `bun run verify:p3:red`. The verifier exits zero only
   after each child test process exits one with the exact expected
   `contract-absent` failures.
-- Direct intentional RED: run `bun run test:p3`. Expect 0 pass and 51
-  `contract-absent` failures across 11 files; its exit one is evidence, not a
-  GREEN implementation claim.
+- Direct intentional RED: run `bun run test:p3`. Read the exact expected files
+  and counts from `clean-fixture/p3-red-contract.json`; exit one is evidence,
+  not a GREEN Implementation claim.
 - Focused RED: run `bun run test:p3:kit-interface`,
   `bun run test:p3:admission-bootstrap`,
   `bun run test:p3:maintenance-command-contract`,
