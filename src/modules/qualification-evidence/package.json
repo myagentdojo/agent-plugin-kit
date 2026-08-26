@@ -1,0 +1,11 @@
+{
+  "name": "@agent-plugin-kit/qualification-evidence",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./interface.ts"
+  },
+  "scripts": {
+    "test": "bun test contract-tests/candidate-lineage-reduction.test.ts contract-tests/proof-layer-and-non-claim.test.ts"
+  }
+}

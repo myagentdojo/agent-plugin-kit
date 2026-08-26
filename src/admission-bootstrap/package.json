@@ -1,0 +1,11 @@
+{
+  "name": "@agent-plugin-kit/admission-bootstrap",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./interface.ts"
+  },
+  "scripts": {
+    "test": "bun test contract-tests/admitted-identity-before-execution.test.ts contract-tests/identity-refusal.test.ts"
+  }
+}

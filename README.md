@@ -3,9 +3,9 @@
 Dependency-free contracts and maintenance tooling for Agent Plugin
 repositories.
 
-The repository currently contains its accepted domain and Repository Topology
-scaffold only. No Module Interface, Contract Test, Clean Fixture proof, or
-Implementation exists yet, and no maintenance behaviour has moved here.
+The repository currently contains its accepted domain and Repository Topology,
+the P3 Source Tree Interface skeleton, and an intentional RED Contract Test
+scaffold. No Module Implementation or maintenance behaviour has moved here.
 
 ## Start here
 
@@ -17,11 +17,10 @@ Implementation exists yet, and no maintenance behaviour has moved here.
 
 ## Accepted shape
 
-Repository Knowledge stays at root and under `docs/`. Executable package source
-will begin under the Source Tree at `src/`. Independent cross-Module and hosted
-proof will live under `clean-fixture/`. Those future paths are deliberately
-absent until an approved Interface, Contract Test, Test Fixture, Adapter, or
-Verification Profile supplies real content.
+Repository Knowledge stays at root and under `docs/`. Package source begins
+under the Source Tree at `src/`. Independent cross-Module proof begins under
+`clean-fixture/`. P4 through P9 Contract Tests, hosted workflows, and every
+Implementation path remain deliberately absent until their owning stage.
 
 The accepted language-to-topology rule and complete placement rationale live in
 [`docs/adr/0001-language-to-topology.md`](docs/adr/0001-language-to-topology.md).
@@ -32,8 +31,34 @@ The accepted language-to-topology rule and complete placement rationale live in
 bun run check
 ```
 
-The check validates the required document owners and pointers and refuses
-premature Source Tree, Clean Fixture, or hosted-workflow paths.
+The check validates the P3 Interface and exact 11-file, 51-test RED structure,
+and refuses premature later-stage Contract Tests, hosted workflows, or
+Implementation paths.
+
+The exact intentional RED selector is:
+
+```sh
+bun run test:p3
+```
+
+It must discover 51 tests across 11 files and fail only because the accepted
+production contracts are not implemented yet.
+
+## Run one workspace package
+
+The private workspace packages are tooling and Contract Test isolation owners.
+They do not add publication, ownership, Interface, or runtime Seams; the root
+Package Identity and its accepted subpath exports remain the caller surface.
+
+Run only one package's accepted P3 Contract Tests from the repository root:
+
+```sh
+bun run --filter @agent-plugin-kit/admission-bootstrap test
+```
+
+The same selector shape accepts `@agent-plugin-kit/maintenance-command-contract`
+or `@agent-plugin-kit/qualification-evidence`. Packages whose Contract Tests
+belong to later gates intentionally have no `test` script yet.
 
 ## Request work
 

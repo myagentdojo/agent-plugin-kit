@@ -28,11 +28,11 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   navigation, guidance, idioms, and Package Identity.
 - Repository Knowledge: `docs/agents/README.md` indexes branch guidance;
   `docs/adr/` owns Accepted Decisions.
-- Future package source: `src/` is the Source Tree. Reach its accepted Module,
-  Interface, Contract Test, Implementation, and Adapter locations through
+- Package source: `src/` is the Source Tree. Reach its current Interface and P3
+  Contract Test owners, and its deferred Implementation and Adapter owners, through
   `CONTEXT-MAP.md` and `docs/adr/0001-language-to-topology.md`.
-- Future independent proof: `clean-fixture/` owns cross-Module, Candidate
-  Lineage, installation, hosted, and Fresh-Native Evidence.
+- Independent proof: `clean-fixture/` owns current P3 cross-Module Contract Tests
+  and future Candidate Lineage, installation, hosted, and Fresh-Native Evidence.
 
 ## Invariants
 
@@ -47,13 +47,30 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   one Full Commit Pin before Kit Repository Implementation executes.
 - Evidence: preserve `proved`, `not-proved`, and `unknown`; attach a Skip
   Rationale and Non-Claims where evidence does not reach the requested layer.
-- Scaffold gate: keep Source Tree, Contract Test, Test Fixture, Adapter, Clean
-  Fixture, hosted-workflow, and Implementation paths absent until their current
-  approval gate supplies real content.
+- P3 RED gate: keep the approved Source Tree Interfaces, Contract Tests, Test
+  Fixtures, and Clean Fixture proof exact. Keep P4 through P9 Contract Tests,
+  hosted workflows, and every Implementation path absent until their owning gate.
 
 ## Checks
 
-- Scaffold: run `bun run check` from the repository root.
+- Complete gate: run `bun run check` from the repository root. It exits zero only
+  when formatting, types, structure, fixtures, and the exact intentional RED
+  contract all agree.
+- Machine-pinned RED: run `bun run verify:p3:red`. The verifier exits zero only
+  after each child test process exits one with the exact expected
+  `contract-absent` failures.
+- Direct intentional RED: run `bun run test:p3`. Expect 0 pass and 51
+  `contract-absent` failures across 11 files; its exit one is evidence, not a
+  GREEN implementation claim.
+- Focused RED: run `bun run test:p3:kit-interface`,
+  `bun run test:p3:admission-bootstrap`,
+  `bun run test:p3:maintenance-command-contract`,
+  `bun run test:p3:qualification-evidence`, or
+  `bun run test:p3:clean-fixture`.
+- Workspace RED: run
+  `bun run --filter @agent-plugin-kit/admission-bootstrap test`,
+  `bun run --filter @agent-plugin-kit/maintenance-command-contract test`, or
+  `bun run --filter @agent-plugin-kit/qualification-evidence test`.
 - Review: inspect `git status --short` and the exact intended diff.
 
 ## Agent skills

@@ -1,0 +1,11 @@
+{
+  "name": "@agent-plugin-kit/maintenance-command-contract",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./interface.ts"
+  },
+  "scripts": {
+    "test": "bun test contract-tests/effect-class-and-retry-safety.test.ts contract-tests/human-and-agent-result-vocabulary.test.ts"
+  }
+}

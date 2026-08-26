@@ -1,0 +1,88 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "agent-plugin-kit",
+      "devDependencies": {
+        "@biomejs/biome": "2.4.15",
+        "@types/bun": "1.3.14",
+        "typescript": "6.0.3",
+      },
+    },
+    "src/adapters/reusable-workflow-adapter": {
+      "name": "@agent-plugin-kit/reusable-workflow-adapter",
+    },
+    "src/admission-bootstrap": {
+      "name": "@agent-plugin-kit/admission-bootstrap",
+    },
+    "src/modules/canary-qualification": {
+      "name": "@agent-plugin-kit/canary-qualification",
+    },
+    "src/modules/harness-journeys": {
+      "name": "@agent-plugin-kit/harness-journeys",
+    },
+    "src/modules/maintenance-command-contract": {
+      "name": "@agent-plugin-kit/maintenance-command-contract",
+    },
+    "src/modules/plugin-payload-production": {
+      "name": "@agent-plugin-kit/plugin-payload-production",
+    },
+    "src/modules/qualification-evidence": {
+      "name": "@agent-plugin-kit/qualification-evidence",
+    },
+    "src/modules/release-and-git-engine": {
+      "name": "@agent-plugin-kit/release-and-git-engine",
+    },
+    "src/modules/runtime-custody": {
+      "name": "@agent-plugin-kit/runtime-custody",
+    },
+  },
+  "packages": {
+    "@agent-plugin-kit/admission-bootstrap": ["@agent-plugin-kit/admission-bootstrap@workspace:src/admission-bootstrap"],
+
+    "@agent-plugin-kit/canary-qualification": ["@agent-plugin-kit/canary-qualification@workspace:src/modules/canary-qualification"],
+
+    "@agent-plugin-kit/harness-journeys": ["@agent-plugin-kit/harness-journeys@workspace:src/modules/harness-journeys"],
+
+    "@agent-plugin-kit/maintenance-command-contract": ["@agent-plugin-kit/maintenance-command-contract@workspace:src/modules/maintenance-command-contract"],
+
+    "@agent-plugin-kit/plugin-payload-production": ["@agent-plugin-kit/plugin-payload-production@workspace:src/modules/plugin-payload-production"],
+
+    "@agent-plugin-kit/qualification-evidence": ["@agent-plugin-kit/qualification-evidence@workspace:src/modules/qualification-evidence"],
+
+    "@agent-plugin-kit/release-and-git-engine": ["@agent-plugin-kit/release-and-git-engine@workspace:src/modules/release-and-git-engine"],
+
+    "@agent-plugin-kit/reusable-workflow-adapter": ["@agent-plugin-kit/reusable-workflow-adapter@workspace:src/adapters/reusable-workflow-adapter"],
+
+    "@agent-plugin-kit/runtime-custody": ["@agent-plugin-kit/runtime-custody@workspace:src/modules/runtime-custody"],
+
+    "@biomejs/biome": ["@biomejs/biome@2.4.15", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.4.15", "@biomejs/cli-darwin-x64": "2.4.15", "@biomejs/cli-linux-arm64": "2.4.15", "@biomejs/cli-linux-arm64-musl": "2.4.15", "@biomejs/cli-linux-x64": "2.4.15", "@biomejs/cli-linux-x64-musl": "2.4.15", "@biomejs/cli-win32-arm64": "2.4.15", "@biomejs/cli-win32-x64": "2.4.15" }, "bin": { "biome": "bin/biome" } }, "sha512-j5VH3a/h/HXTKBM50MDMxRCzkeLv9S2XJcW2WgnZT1+xyisi+0bISrXR82gCX+8S9lvK0skEvHJRN+3Ktr2hlw=="],
+
+    "@biomejs/cli-darwin-arm64": ["@biomejs/cli-darwin-arm64@2.4.15", "", { "os": "darwin", "cpu": "arm64" }, "sha512-rF3PPqLq1yoST79zaQbDjVJwsuIeci/O+9bgNmC5QpgOqz6aqYuzA4abyAGx+mgyiDXn4A049xAN8gijbuR1Qg=="],
+
+    "@biomejs/cli-darwin-x64": ["@biomejs/cli-darwin-x64@2.4.15", "", { "os": "darwin", "cpu": "x64" }, "sha512-/5KHXYMfSJs1fNXiX30xFtI8JcCFV6zaVVLxOa0M2sfqBKHkpQhRTv94yxQWxeTY2lzo2OuTlNvPC+hDQt2wcQ=="],
+
+    "@biomejs/cli-linux-arm64": ["@biomejs/cli-linux-arm64@2.4.15", "", { "os": "linux", "cpu": "arm64" }, "sha512-owaAMZD/T4LrD0ELNCk0Km3qrRHuM0X6EAyVE1FSqGY0rbLoiDLrO4Us2tllm6cAeB2Ioa9C2C08NZPdr8+0Ug=="],
+
+    "@biomejs/cli-linux-arm64-musl": ["@biomejs/cli-linux-arm64-musl@2.4.15", "", { "os": "linux", "cpu": "arm64" }, "sha512-ZPcxznxm0pogHBLZhYntyR3sR+MrZjqJIKEr7ZqVen0Rl+P/4upVmfYXjftizi9RoqZntg33fv/1fbdhbYXpEQ=="],
+
+    "@biomejs/cli-linux-x64": ["@biomejs/cli-linux-x64@2.4.15", "", { "os": "linux", "cpu": "x64" }, "sha512-0jj7THz12GbUOLmMibktK6DZjqz2zV64KFxyBtcFTKPiiOIY0a7vns1elpO1dERvxpsZ5ik0oFfz0oGwFde1+g=="],
+
+    "@biomejs/cli-linux-x64-musl": ["@biomejs/cli-linux-x64-musl@2.4.15", "", { "os": "linux", "cpu": "x64" }, "sha512-CNq/9W38SYSH023lfcQ4KKU8K0YX8T//FZUhcgtMMRABDojx5XsMV7jlweAvGSl389wJQB29Qo6Zb/a+jdvt+w=="],
+
+    "@biomejs/cli-win32-arm64": ["@biomejs/cli-win32-arm64@2.4.15", "", { "os": "win32", "cpu": "arm64" }, "sha512-ouhkYdlhp/1GghEJPdWwD/Vi3gQ1nFxuSpMolWsbq3Lsq3QUR4jl6UdhhscdCugKU5vOEuMiJhvKj66O0OCq+w=="],
+
+    "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.4.15", "", { "os": "win32", "cpu": "x64" }, "sha512-zBrGq5mx5wwpnow4+2BxUvleDM+GNd4sLbPaMapsSLQLD0NGRCquqPBTgN+7XkUteHvj7M+BstuI8tmnV7+HgQ=="],
+
+    "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
+
+    "@types/node": ["@types/node@26.3.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-L3fgrnchriRC2ExBflb8j4uZZURHZfQsmQeyVzhjcHW4kkwVyo8/0h1B2MVzMTrYUJYu6G7EWs14hW/L9putqw=="],
+
+    "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
+
+    "typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
+  }
+}

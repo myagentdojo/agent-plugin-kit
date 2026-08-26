@@ -1,0 +1,8 @@
+{
+  "name": "@agent-plugin-kit/harness-journeys",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./interface.ts"
+  }
+}

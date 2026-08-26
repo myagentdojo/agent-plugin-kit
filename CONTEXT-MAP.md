@@ -2,8 +2,8 @@
 
 The Kit Repository currently has one active Domain Context. Root `CONTEXT.md`
 governs the system-wide Ubiquitous Language; this map routes each question to
-its Accepted Decision, future Interface or Adapter, Contract Tests or
-independent proof, and future Implementation owner.
+its Accepted Decision, current or future Interface or Adapter, current or
+future Contract Tests or independent proof, and future Implementation owner.
 
 Consumer rules: [`docs/agents/domain.md`](docs/agents/domain.md).
 
@@ -15,10 +15,12 @@ Consumer rules: [`docs/agents/domain.md`](docs/agents/domain.md).
 
 ## Owner routes
 
-Paths marked future are accepted Repository Topology. They remain absent until
-their owning artifact has approved real content.
+The P3 Interface, Admission Bootstrap, Maintenance Command Contract,
+Qualification Evidence, and Clean Fixture Contract Test paths are current.
+Other Contract Test paths, every Implementation path, and hosted workflows are
+future and remain absent until their owning stage.
 
-| Question | Governing language | Accepted Decision | Future Interface or Adapter | Future Contract Tests or independent proof | Future Implementation |
+| Question | Governing language | Accepted Decision | Current or future Interface or Adapter | Current or future Contract Tests or independent proof | Future Implementation |
 | --- | --- | --- | --- | --- | --- |
 | Where does package source live? | Source Tree | `docs/adr/0001-language-to-topology.md` | `src/interface.ts` | Owner-local paths below | `src/` |
 | How is a Plugin Payload produced? | Plugin Payload Production | `docs/adr/0001-language-to-topology.md` | `src/modules/plugin-payload-production/interface.ts` | `src/modules/plugin-payload-production/contract-tests/` | `src/modules/plugin-payload-production/implementation/` |
