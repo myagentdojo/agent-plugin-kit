@@ -18,14 +18,19 @@ scaffold. No Module Implementation or maintenance behaviour has moved here.
 ## Accepted shape
 
 Repository Knowledge stays at root and under `docs/`. Package source begins
-under the Source Tree at `src/`. Independent cross-Module proof begins under
-`clean-fixture/`. Later Contract Tests, hosted workflows, and every
-Implementation path remain deliberately absent until their owning gate.
+under the Source Tree at `src/`. Repository Quality Tooling lives under
+`tooling/repository-quality/`. Independent cross-Module proof begins under
+`clean-fixture/`; it does not own repository policy. Later Contract Tests,
+hosted workflows, and every Implementation path remain deliberately absent
+until their owning gate.
 
 The accepted language-to-topology rule and complete placement rationale live in
 [`docs/adr/0001-language-to-topology.md`](docs/adr/0001-language-to-topology.md).
 The Owner Manifest and dependency Locality decision lives in
 [`docs/adr/0002-owner-manifests-and-dependency-locality.md`](docs/adr/0002-owner-manifests-and-dependency-locality.md).
+Repository Quality Tooling and Verification Transition Contract ownership
+lives in
+[`docs/adr/0003-repository-quality-and-verification-transition.md`](docs/adr/0003-repository-quality-and-verification-transition.md).
 
 ## Verify the scaffold
 
@@ -34,10 +39,12 @@ bun run check
 ```
 
 The check validates the current Interface and the exact RED Contract Test
-files, counts, and Admission Proof Layer owned by
-[`clean-fixture/intentional-red-contract.json`](clean-fixture/intentional-red-contract.json). It
-refuses premature future Contract Tests, hosted workflows, or
-Implementation paths.
+files, counts, and Admission Proof Layer governed by Repository Quality
+Tooling. The current
+[`clean-fixture/intentional-red-contract.json`](clean-fixture/intentional-red-contract.json)
+path is a compatibility data location consumed by the Clean Fixture; it does
+not own repository transition policy. The check refuses premature future
+Contract Tests, hosted workflows, or Implementation paths.
 
 The exact intentional RED selector is:
 

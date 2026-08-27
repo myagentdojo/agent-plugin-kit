@@ -93,11 +93,19 @@ local rather than scattering them through Modules and Adapters.
 _Avoid_: Docs bucket, wiki, notes
 
 **Repository Quality Tooling**:
-The repository-local Module that owns deterministic changed-code quality
-policy, comparison-base selection, tool-result interpretation, and repair
-guidance across the Kit Repository. It stays outside the Source Tree because
-it governs repository maintenance rather than caller-visible Package Identity.
+The repository-local Module that owns deterministic changed-code quality,
+comparison-base selection, repository transition policy, tool-result
+interpretation, and repair guidance across the Kit Repository. It stays
+outside the Source Tree because it governs repository maintenance rather than
+caller-visible Package Identity.
 _Avoid_: Lint script, Fallow wrapper, Source Tree Module
+
+**Verification Transition Contract**:
+The Repository Quality Tooling-owned declaration of the exact paths, source
+closure, proof groups, and expected RED or GREEN states permitted at one
+reviewed repository transition. Clean Fixture may supply independent evidence
+to it but does not own repository policy.
+_Avoid_: Test count snapshot, Clean Fixture contract, implementation ticket
 
 **Accepted Decision**:
 A reviewed, durable choice that constrains more than one change and records
@@ -177,9 +185,9 @@ _Avoid_: Build number, mutable ref
 The agreement that Source Identity, Release Identity, Package Identity,
 Workflow Identity, installed bytes, hosted run, platform, and receipt
 observations belong to one Candidate Identity.
-_Avoid_: Provenance, when cross-layer agreement is meant
+_Avoid_: Source Provenance, when cross-layer agreement is meant
 
-**Provenance**:
+**Source Provenance**:
 Evidence that the source of a Candidate Identity matches its Repository
 Identity and Full Commit Pin.
 _Avoid_: Candidate Lineage, origin string alone
@@ -200,9 +208,9 @@ Package Identity.
 _Avoid_: Workflow name, workflow branch
 
 **Admitted Identity**:
-A Candidate Identity whose Repository Identity, Provenance, Release Identity,
-Package Identity, Workflow Identity, and Full Commit Pin agree before Kit
-Repository Implementation executes.
+A Candidate Identity whose Repository Identity, Source Provenance, Release
+Identity, Package Identity, Workflow Identity, and Full Commit Pin agree
+before Kit Repository Implementation executes.
 _Avoid_: Trusted latest, installed version
 
 **Admission**:
@@ -358,6 +366,16 @@ The stable lower-kebab machine discriminant for one meaning within the
 versioned Result Vocabulary.
 _Avoid_: Result Vocabulary
 
+**Exit Code**:
+The numeric public-process result produced for one accepted outcome or
+containment path.
+_Avoid_: Exit Class, Result Code
+
+**Exit Family**:
+The Result Vocabulary mapping that groups Result Codes under one Exit Code,
+owner, envelope rule, and stable meaning.
+_Avoid_: Exit Class, Failure Class
+
 **Maintenance Outcome**:
 The tagged owner result carrying one Result Code and Station ID with either a
 Command value or Maintenance Error.
@@ -383,6 +401,11 @@ The count of required Branch Stations reconciled by qualifying `real_process`
 evidence.
 _Avoid_: Synthetic coverage, declared count
 
+**Observation Provenance**:
+The declared origin of Branch Station evidence as `real_process` or
+`synthetic`. Only `real_process` evidence can satisfy Observed Branch Coverage.
+_Avoid_: Source Provenance, Candidate Lineage
+
 **Implementation-Deferred Branch**:
 A real Branch Station whose owner Implementation is absent under Intentional
 RED and whose Skip Rationale names the controlling owner, future selector, and
@@ -390,9 +413,12 @@ Non-Claim.
 _Avoid_: Unreachable branch, omitted branch
 
 **Failure Class**:
-The closed agent-facing class `usage`, `refusal`, `transient`, `continuation`,
-`recovery`, `unexpected`, or `event_delivery`.
-_Avoid_: Exit class, error message
+The closed agent-facing vocabulary owned once by Maintenance Command Contract:
+`usage`, `refusal`, `transient`, `continuation`, `recovery`, `unexpected`, or
+`event_delivery`. Primary Maintenance errors use the first six meanings; Event
+Adapter refusal uses `event_delivery`. Adapters may project this vocabulary but
+cannot extend it.
+_Avoid_: Exit Family, error message, Adapter-owned failure class
 
 **Diagnostic Record**:
 The closed redacted stderr projection accepted by the Diagnostic Adapter Seam.

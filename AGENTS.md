@@ -28,13 +28,14 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   navigation, guidance, idioms, and Package Identity.
 - Repository Knowledge: `docs/agents/README.md` indexes branch guidance;
   `docs/adr/` owns Accepted Decisions.
+- Repository quality: `tooling/repository-quality/` owns changed-code quality
+  and the future Verification Transition Contract outside Package Identity.
 - Package source: `src/` is the Source Tree. Reach its current Interface and
   Contract Test owners, and its deferred Implementation and Adapter owners,
   through `CONTEXT-MAP.md` and `docs/adr/0001-language-to-topology.md`.
 - Independent proof: `clean-fixture/` owns current cross-Module Contract Tests
   and future Candidate Lineage, installation, hosted, and Fresh-Native Evidence.
-  `clean-fixture/intentional-red-contract.json` owns the exact intentional RED
-  Contract Test files, counts, and Admission Proof Layer.
+  It supplies evidence to repository policy but does not own that policy.
 
 ## Invariants
 
@@ -52,6 +53,10 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   one Full Commit Pin before Kit Repository Implementation executes.
 - Evidence: preserve `proved`, `not-proved`, and `unknown`; attach a Skip
   Rationale and Non-Claims where evidence does not reach the requested layer.
+- Verification transition: Repository Quality Tooling owns the contract that
+  permits reviewed RED or GREEN repository states. Read
+  `docs/adr/0003-repository-quality-and-verification-transition.md` before
+  changing that contract, its verifier, or a Clean Fixture consumer.
 - Intentional RED gate: preserve
   `clean-fixture/intentional-red-contract.json`. Keep later Contract Tests,
   hosted workflows, and every Implementation path absent until their owning
@@ -117,3 +122,9 @@ questions and lazy future context promotion. See `docs/agents/domain.md`.
 
 Repository Quality Tooling owns changed-code Fallow policy, comparison bases,
 machine results, and repair guidance. See `docs/agents/fallow.md`.
+
+### Verification transition
+
+Verification Transition Contract ownership and the current Clean Fixture
+compatibility path are defined by
+`docs/adr/0003-repository-quality-and-verification-transition.md`.
