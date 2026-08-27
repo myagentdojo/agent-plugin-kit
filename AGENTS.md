@@ -62,6 +62,11 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
 - Complete gate: run `bun run check` from the repository root. It exits zero only
   when formatting, types, structure, fixtures, and the exact intentional RED
   contract all agree.
+- Changed-code quality: run
+  `bun run --silent quality:fallow --changed-since HEAD` after a dirty
+  code-changing turn. For comparison-base policy, JSON interpretation, editor
+  resolution, or repair, read `docs/agents/fallow.md`.
+- Focused quality Contract Tests: run `bun run test:quality:fallow-policy`.
 - Machine-pinned RED: run `bun run verify:intentional-red`. The verifier exits
   zero only
   after each child test process exits one with the exact expected
@@ -106,3 +111,8 @@ The five canonical triage roles use their default label strings. See
 
 One active Domain Context uses root `CONTEXT.md`; root `CONTEXT-MAP.md` routes
 questions and lazy future context promotion. See `docs/agents/domain.md`.
+
+### Repository quality
+
+Repository Quality Tooling owns changed-code Fallow policy, comparison bases,
+machine results, and repair guidance. See `docs/agents/fallow.md`.

@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/fallow/schema.json",
+  "typeAware": {
+    "enabled": true,
+    "require": "complete"
+  },
+  "audit": {
+    "gate": "new-only"
+  },
+  "rules": {
+    "private-type-leaks": "error"
+  }
+}

@@ -16,6 +16,6 @@
 		"resolveJsonModule": true,
 		"types": ["bun"]
 	},
-	"include": ["src/**/*.ts", "clean-fixture/**/*.ts"],
+	"include": ["src/**/*.ts", "clean-fixture/**/*.ts", "tooling/**/*.ts"],
 	"exclude": ["node_modules"]
 }

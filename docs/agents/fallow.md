@@ -1,0 +1,90 @@
+# Fallow Repository Quality
+
+Repository Quality Tooling owns the Kit Repository's deterministic changed-code
+quality policy. Use this guidance for Fallow setup, changed-code analysis,
+warning enforcement, comparison-base selection, editor resolution, and repair.
+
+## Start
+
+1. Read root `CONTEXT.md` and `CONTEXT-MAP.md`.
+2. Read `.agents/skills/fallow/SKILL.md`, then its version-matched owner at
+   `node_modules/fallow/skills/fallow/SKILL.md`.
+3. Resolve live flags from the repository-local executable, never from memory.
+4. Keep MCP, MCPorter, official hooks, global installation, and broad
+   suppressions outside this owner.
+
+## Commands
+
+For a dirty code-changing turn:
+
+```sh
+bun run --silent quality:fallow --changed-since HEAD
+```
+
+For task review or handoff, replace `HEAD` with the immutable task-start Full
+Commit Pin. A clean comparison to `HEAD` is only an empty-delta smoke check.
+
+Run the focused policy proof with:
+
+```sh
+bun run test:quality:fallow-policy
+```
+
+Run the complete repository gate with:
+
+```sh
+bun run check
+```
+
+## Machine result
+
+The policy command emits exactly one JSON document on stdout and nothing on
+stderr. Interpret its adapter exit before inspecting native details:
+
+| Exit | Decision | Meaning |
+| ---: | --- | --- |
+| 0 | `accepted` | Complete Fallow 3.19.0 evidence has zero introduced findings. |
+| 1 | `refused` | Valid analysis completed, but findings violate Kit policy. |
+| 2 | `error` | Preflight, comparison, native runtime, schema, completeness, or Adapter evidence is unreliable. |
+
+Use `reason_code` and `repair_hint` as the stable continuation. Preserve the
+native `fallow` document as evidence. Never execute a repair hint as a command.
+Do not treat native exit 0 as automatic acceptance: warning findings can still
+be introduced and therefore refused.
+
+## Comparison bases
+
+- Dirty turn: use `HEAD` so tracked and untracked work remains in scope.
+- Review and handoff: use the immutable task-start Full Commit Pin.
+- Remote integration: use a freshly resolved `origin/main` only after that
+  remote and action are separately approved. It never replaces the task pin.
+- Missing or unresolved bases fail closed. Do not substitute an implicit branch
+  or save a count baseline.
+
+## Editor resolution
+
+VS Code must resolve both `node_modules/.bin/fallow` and
+`node_modules/.bin/fallow-lsp` from this repository. One root `.fallowrc.json`
+governs the root plus all ten workspace packages.
+
+After dependency setup, restart the Fallow language server once and verify:
+
+- CLI and LSP both report 3.19.0 from the repository;
+- the root config reaches 11 roots and ten workspaces; and
+- no PATH mismatch, managed-download 404, missing-config warning, or package
+  dependency-location warning remains.
+
+If project-binary resolution fails, stop. Do not add `.vscode/settings.json`,
+change global PATH, or set `fallow.lspPath` or `fallow.configPath`.
+
+## Runtime state and repair
+
+`/.fallow/` is ignored repository-local runtime evidence. Inspect it when
+diagnosing, but never commit it. The tracked Codex and Claude skills are small
+version-matched pointers into ignored `node_modules`; a frozen Bun install must
+restore their target.
+
+Repair only the named refusal. Do not delete or weaken an accepted Contract
+Test, add a broad ignore, or turn the existing inventory into a suppression
+baseline. TypeScript remains authoritative for compilation; Fallow type-aware
+completeness is quality evidence only.

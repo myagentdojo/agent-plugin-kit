@@ -32,14 +32,17 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
     "@types/bun": "1.3.14",
+    "fallow": "3.19.0",
     "typescript": "7.0.2"
   },
   "scripts": {
-    "check": "git diff --check && bun run biome:check && bun run typecheck && bun run check:structure && bun run verify:intentional-red",
+    "check": "git diff --check && bun run biome:check && bun run typecheck && bun run check:structure && bun run test:quality:fallow-policy && bun run --silent quality:fallow --changed-since HEAD && bun run verify:intentional-red",
     "biome:check": "biome check --diagnostic-level=error .",
     "biome:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
     "check:structure": "bun run clean-fixture/verify-intentional-red-contract.ts --structure-only",
+    "quality:fallow": "bun run tooling/repository-quality/fallow-policy.ts",
+    "test:quality:fallow-policy": "bun test tooling/repository-quality/contract-tests/fallow-policy.test.ts",
     "verify:intentional-red": "bun run clean-fixture/verify-intentional-red-contract.ts",
     "test:intentional-red": "bun test clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts src/admission-bootstrap/contract-tests/admitted-identity-before-execution.test.ts src/admission-bootstrap/contract-tests/identity-refusal.test.ts src/modules/maintenance-command-contract/contract-tests/effect-class-and-retry-safety.test.ts src/modules/maintenance-command-contract/contract-tests/human-and-agent-result-vocabulary.test.ts src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts src/modules/qualification-evidence/contract-tests/candidate-lineage-reduction.test.ts src/modules/qualification-evidence/contract-tests/proof-layer-and-non-claim.test.ts clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts clean-fixture/personal-verification-profile/contract-tests/installation-evidence.test.ts clean-fixture/personal-verification-profile/contract-tests/fresh-native-non-claims.test.ts clean-fixture/public-verification-profile/contract-tests/profile-non-promotion.test.ts clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts src/adapters/maintenance-command-facade/contract-tests/observability.test.ts",
     "test:intentional-red:kit-interface": "bun test clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",

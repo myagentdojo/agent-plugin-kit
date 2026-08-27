@@ -16,6 +16,11 @@
       "tsconfig.json",
       "bun.lock",
       "bunfig.toml",
+      ".fallowrc.json",
+      ".agents/skills/fallow/SKILL.md",
+      ".agents/skills/fallow/agents/openai.yaml",
+      ".claude/skills/fallow/SKILL.md",
+      ".claude/skills/fallow/agents/openai.yaml",
       "clean-fixture/intentional-red-contract.json",
       "clean-fixture/verify-intentional-red-contract.ts",
       "clean-fixture/static-module-specifiers.ts",
@@ -23,9 +28,12 @@
       "docs/agents/issue-tracker.md",
       "docs/agents/domain.md",
       "docs/agents/triage-labels.md",
+      "docs/agents/fallow.md",
       "docs/adr/0001-language-to-topology.md",
       "docs/adr/0002-owner-manifests-and-dependency-locality.md",
       "src/interface.ts",
+      "tooling/repository-quality/fallow-policy.ts",
+      "tooling/repository-quality/contract-tests/fallow-policy.test.ts",
       "src/admission-bootstrap/interface.ts",
       "src/admission-bootstrap/package.json",
       "src/modules/plugin-payload-production/interface.ts",
@@ -100,8 +108,18 @@
       "docs/agents/issue-tracker.md",
       "docs/agents/domain.md",
       "docs/agents/triage-labels.md",
+      "docs/agents/fallow.md",
       "clean-fixture/intentional-red-contract.json"
-    ]
+    ],
+    "requiredContextTerms": ["Repository Quality Tooling"],
+    "requiredContextMapRoutes": [
+      {
+        "question": "Where is repository-wide quality policy owned?",
+        "term": "Repository Quality Tooling",
+        "path": "tooling/repository-quality/"
+      }
+    ],
+    "requiredAgentIndexPointers": ["docs/agents/fallow.md"]
   },
   "tests": {
     "kitInterface": {

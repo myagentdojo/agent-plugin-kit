@@ -27,6 +27,13 @@ type IntentionalRedContract = {
   readonly structure: {
     readonly requiredPaths: readonly string[]
     readonly requiredAgentPointers: readonly string[]
+    readonly requiredContextTerms: readonly string[]
+    readonly requiredContextMapRoutes: readonly {
+      readonly question: string
+      readonly term: string
+      readonly path: string
+    }[]
+    readonly requiredAgentIndexPointers: readonly string[]
   }
   readonly tests: {
     readonly kitInterface: TestGroup
@@ -461,19 +468,22 @@ function verifyIntentionalRedStaticContract(root = repositoryRoot): void {
   }
 
   const selectedAggregateFiles = [...results.aggregate.selectedFiles].sort()
+  const repositoryQualityTestFile = "tooling/repository-quality/contract-tests/fallow-policy.test.ts"
   const sourcePaths = walkPaths(root, "src")
   const discoveredFiles = walkRepositoryPaths(root)
     .filter((file) => file.endsWith(".test.ts"))
     .sort()
+  const discoveredIntentionalRedFiles = discoveredFiles.filter((file) => file !== repositoryQualityTestFile)
   if (
-    JSON.stringify(discoveredFiles) !== JSON.stringify(selectedAggregateFiles) ||
-    discoveredFiles.length !== contract.tests.aggregate.fileCount
+    JSON.stringify(discoveredIntentionalRedFiles) !== JSON.stringify(selectedAggregateFiles) ||
+    discoveredIntentionalRedFiles.length !== contract.tests.aggregate.fileCount ||
+    JSON.stringify(discoveredFiles) !== JSON.stringify([...selectedAggregateFiles, repositoryQualityTestFile].sort())
   ) {
-    fail("test:intentional-red must select the complete exact Contract Test file set")
+    fail("repository tests must partition into the exact intentional RED and Repository Quality Tooling sets")
   }
 
   let explicitTestCount = 0
-  for (const file of discoveredFiles) {
+  for (const file of discoveredIntentionalRedFiles) {
     const source = readFileSync(join(root, file), "utf8")
     if (/\b(?:test|it|describe)\.(?:skip|todo|only)\b/.test(source)) {
       fail(`disabled or narrowed Contract Test ${file}`)
@@ -482,6 +492,17 @@ function verifyIntentionalRedStaticContract(root = repositoryRoot): void {
   }
   if (explicitTestCount !== contract.tests.aggregate.count) {
     fail(`expected ${contract.tests.aggregate.count} explicit Contract Tests, found ${explicitTestCount}`)
+  }
+  const repositoryQualityTestSource = readFileSync(join(root, repositoryQualityTestFile), "utf8")
+  if (
+    /\b(?:test|it|describe)\.(?:skip|todo|only|each)\b/.test(repositoryQualityTestSource) ||
+    /^describe\s*\(/m.test(repositoryQualityTestSource)
+  ) {
+    fail("Repository Quality Tooling tests must retain 18 explicit unnarrowed top-level test calls")
+  }
+  const repositoryQualityTestCount = repositoryQualityTestSource.match(/^test\s*\(/gm)?.length ?? 0
+  if (repositoryQualityTestCount !== 18) {
+    fail(`expected 18 Repository Quality Tooling tests, found ${repositoryQualityTestCount}`)
   }
 
   for (const path of forbiddenPaths) {
@@ -510,6 +531,9 @@ function verifyIntentionalRedStaticContract(root = repositoryRoot): void {
   for (const term of requiredContextTerms) {
     if (!contextSource.includes(`**${term}**:`)) fail(`CONTEXT.md is missing exact Ubiquitous Language term ${term}`)
   }
+  for (const term of contract.structure.requiredContextTerms) {
+    if (!contextSource.includes(`**${term}**:`)) fail(`CONTEXT.md is missing exact Ubiquitous Language term ${term}`)
+  }
   const contextMapSource = readFileSync(join(root, "CONTEXT-MAP.md"), "utf8")
   for (const route of [
     "src/modules/maintenance-command-contract/command-vocabulary.ts",
@@ -522,6 +546,12 @@ function verifyIntentionalRedStaticContract(root = repositoryRoot): void {
     if (!contextMapSource.includes(route)) fail(`CONTEXT-MAP.md is missing exact owner route ${route}`)
   }
   const contextMapRows = contextMapSource.split("\n")
+  for (const route of contract.structure.requiredContextMapRoutes) {
+    const row = contextMapRows.find((candidate) => candidate.includes(route.question))
+    if (!row?.includes(route.term) || !row.includes(route.path)) {
+      fail(`CONTEXT-MAP.md is missing exact Repository Quality Tooling route ${route.question}`)
+    }
+  }
   const commandResultRoute = contextMapRows.find((row) => row.includes("Where are command and result meanings owned?"))
   const facadeRoute = contextMapRows.find((row) => row.includes("Where is the public maintenance binary adapted?"))
   const branchStationRoute = contextMapRows.find((row) => row.includes("Where are execution branches declared and reconciled?"))
@@ -541,6 +571,8 @@ function verifyIntentionalRedStaticContract(root = repositoryRoot): void {
     "bun run check",
     "bun run verify:intentional-red",
     "bun run test:intentional-red",
+    "bun run test:quality:fallow-policy",
+    "bun run --silent quality:fallow --changed-since HEAD",
     ...results.focused.map(({ command }) => command.join(" ")),
     ...results.workspace.map(({ command }) => command.join(" ")),
   ]
@@ -551,6 +583,45 @@ function verifyIntentionalRedStaticContract(root = repositoryRoot): void {
   const agentCodeSpans = [...agentGuidance.matchAll(/`([^`\n]+)`/g)].map((match) => match[1])
   for (const command of requiredCommands) {
     if (!agentCodeSpans.includes(command)) fail(`AGENTS.md is missing exact command ${command}`)
+  }
+  const agentIndex = readFileSync(join(root, "docs/agents/README.md"), "utf8")
+  for (const pointer of contract.structure.requiredAgentIndexPointers) {
+    if (!agentIndex.includes(pointer)) fail(`docs/agents/README.md is missing pointer ${pointer}`)
+  }
+
+  const exactQualityScript = "bun run tooling/repository-quality/fallow-policy.ts"
+  const exactQualityTestScript = "bun test tooling/repository-quality/contract-tests/fallow-policy.test.ts"
+  const exactCheckScript =
+    "git diff --check && bun run biome:check && bun run typecheck && bun run check:structure && bun run test:quality:fallow-policy && bun run --silent quality:fallow --changed-since HEAD && bun run verify:intentional-red"
+  if (
+    packageMetadata.devDependencies?.fallow !== "3.19.0" ||
+    packageMetadata.scripts?.["quality:fallow"] !== exactQualityScript ||
+    packageMetadata.scripts?.["test:quality:fallow-policy"] !== exactQualityTestScript ||
+    packageMetadata.scripts?.check !== exactCheckScript
+  ) {
+    fail("root Package Identity must retain the exact Fallow pin, commands, and check composition")
+  }
+  const expectedFallowConfig = {
+    $schema: "./node_modules/fallow/schema.json",
+    typeAware: { enabled: true, require: "complete" },
+    audit: { gate: "new-only" },
+    rules: { "private-type-leaks": "error" },
+  }
+  if (JSON.stringify(readJson(join(root, ".fallowrc.json"))) !== JSON.stringify(expectedFallowConfig)) {
+    fail("root .fallowrc.json must retain the exact accepted new-only type-aware policy")
+  }
+  const gitignoreLines = readFileSync(join(root, ".gitignore"), "utf8").split("\n")
+  if (gitignoreLines.filter((line) => line === "/.fallow/").length !== 1) {
+    fail("root .gitignore must own exactly one /.fallow/ runtime-state rule")
+  }
+  for (const skill of [".agents/skills/fallow/SKILL.md", ".claude/skills/fallow/SKILL.md"]) {
+    const source = readFileSync(join(root, skill), "utf8")
+    if (
+      !source.includes("fallow:agent-install v1 skill=stub version=3.19.0") ||
+      !source.includes("node_modules/fallow/skills/fallow/SKILL.md")
+    ) {
+      fail(`${skill} must remain the exact version-matched installed skill pointer`)
+    }
   }
 
   if (Object.keys(packageMetadata.exports ?? {}).length !== 10) {
@@ -909,6 +980,53 @@ function verifyStaticSensitivity(): void {
     const row = source.split("\n").find((line) => line.includes("Where are execution branches declared and reconciled?"))
     if (!row) fail("missing Branch Station Context Map row in sensitivity fixture")
     writeFileSync(path, source.replace(row, row.replace("docs/adr/0001-language-to-topology.md", "docs/adr/0002-owner-manifests-and-dependency-locality.md")))
+  })
+  expectStaticRejection("Repository Quality Tooling test count drifted", (root) => {
+    const path = join(root, "tooling/repository-quality/contract-tests/fallow-policy.test.ts")
+    writeFileSync(path, `${readFileSync(path, "utf8")}\ntest("unexpected quality test", () => {})\n`)
+  })
+  expectStaticRejection("Repository Quality Tooling entered intentional RED selector", (root) => {
+    const path = join(root, "package.json")
+    const manifest = readJson<PackageMetadata>(path)
+    if (manifest.scripts?.["test:intentional-red"] === undefined) fail("missing intentional RED selector")
+    manifest.scripts["test:intentional-red"] +=
+      " tooling/repository-quality/contract-tests/fallow-policy.test.ts"
+    writeJson(path, manifest)
+  })
+  expectStaticRejection("Repository Quality Tooling term removed", (root) => {
+    const path = join(root, "CONTEXT.md")
+    writeFileSync(
+      path,
+      readFileSync(path, "utf8").replace("**Repository Quality Tooling**:", "**Quality Scripts**:"),
+    )
+  })
+  expectStaticRejection("Repository Quality Tooling route drifted", (root) => {
+    const path = join(root, "CONTEXT-MAP.md")
+    const source = readFileSync(path, "utf8")
+    const row = source.split("\n").find((line) => line.includes("Where is repository-wide quality policy owned?"))
+    if (!row) fail("missing Repository Quality Tooling Context Map row in sensitivity fixture")
+    writeFileSync(path, source.replace(row, row.replaceAll("tooling/repository-quality/", "tooling/fallow/")))
+  })
+  expectStaticRejection("Fallow agent index pointer removed", (root) => {
+    const path = join(root, "docs/agents/README.md")
+    writeFileSync(path, readFileSync(path, "utf8").replace("docs/agents/fallow.md", "docs/agents/quality.md"))
+  })
+  expectStaticRejection("root check dropped focused Fallow proof", (root) => {
+    const path = join(root, "package.json")
+    const manifest = readJson<PackageMetadata>(path)
+    if (manifest.scripts?.check === undefined) fail("missing root check")
+    manifest.scripts.check = manifest.scripts.check.replace(" && bun run test:quality:fallow-policy", "")
+    writeJson(path, manifest)
+  })
+  expectStaticRejection("root Fallow config gate weakened", (root) => {
+    const path = join(root, ".fallowrc.json")
+    const config = readJson<Record<string, unknown>>(path)
+    config.audit = { gate: "all" }
+    writeJson(path, config)
+  })
+  expectStaticRejection("installed Fallow skill version drifted", (root) => {
+    const path = join(root, ".agents/skills/fallow/SKILL.md")
+    writeFileSync(path, readFileSync(path, "utf8").replace("version=3.19.0", "version=3.18.0"))
   })
   expectStaticRejection("tenth workspace owner removed", (root) => {
     rmSync(join(root, "src/adapters/maintenance-command-facade"), { recursive: true })

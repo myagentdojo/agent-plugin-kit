@@ -92,6 +92,13 @@ The non-executable owner that keeps Repository Guidance and Accepted Decisions
 local rather than scattering them through Modules and Adapters.
 _Avoid_: Docs bucket, wiki, notes
 
+**Repository Quality Tooling**:
+The repository-local Module that owns deterministic changed-code quality
+policy, comparison-base selection, tool-result interpretation, and repair
+guidance across the Kit Repository. It stays outside the Source Tree because
+it governs repository maintenance rather than caller-visible Package Identity.
+_Avoid_: Lint script, Fallow wrapper, Source Tree Module
+
 **Accepted Decision**:
 A reviewed, durable choice that constrains more than one change and records
 the real trade-off that selected it.
