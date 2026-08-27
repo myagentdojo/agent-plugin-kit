@@ -252,9 +252,14 @@ function decodeEmptyDeltaEvidence(document: JsonRecord): AuditEvidence | null {
     : null
 }
 
+function hasChangedFiles(document: JsonRecord): boolean {
+  return Number.isInteger(document.changed_files_count) && Number(document.changed_files_count) > 0
+}
+
 function decodeTypeAwareAuditEvidence(document: JsonRecord): AuditEvidence | null {
   const shape = extractAuditShape(document)
-  if (shape === null || !hasExpectedAuditShape(shape)) return null
+  if (shape === null) return null
+  if (![hasExpectedAuditShape(shape), hasChangedFiles(document)].every(Boolean)) return null
   return {
     kind: "audit",
     document,

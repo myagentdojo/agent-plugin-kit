@@ -80,6 +80,7 @@ function successDocument(verdict: "pass" | "warn" | "fail" = "pass"): JsonRecord
     version: "3.19.0",
     command: "audit",
     verdict,
+    changed_files_count: 1,
     base_ref: "HEAD",
     attribution: { ...zeroAttribution },
     _meta: {
@@ -272,6 +273,11 @@ test("accepts a clean pass", async () => {
   falseEmptyDelta.changed_files_count = 1
   const falseEmptyResult = await runScenario({ exitCode: 0, stdout: falseEmptyDelta })
   expectReason(falseEmptyResult, "native-output-schema-mismatch", "error", 2)
+
+  const falseTypeAwareDelta = successDocument()
+  falseTypeAwareDelta.changed_files_count = 0
+  const falseTypeAwareResult = await runScenario({ exitCode: 0, stdout: falseTypeAwareDelta })
+  expectReason(falseTypeAwareResult, "native-output-schema-mismatch", "error", 2)
 })
 
 test("accepts a warning verdict with zero introduced findings", async () => {
