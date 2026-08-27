@@ -75,7 +75,7 @@ const repairHints: Record<Exclude<ReasonCode, "policy-accepted">, string> = {
   "native-output-missing": "Inspect the bounded native diagnostics, repair the native failure, then rerun.",
   "native-output-not-json": "Inspect the bounded diagnostics and restore the pinned Fallow output contract.",
   "native-output-schema-mismatch": "Restore Fallow 3.19.0 or update this contract through a new reviewed plan.",
-  "type-aware-incomplete": "Restore complete TypeScript Go analysis before judging findings.",
+  "type-aware-incomplete": "Restore warning-free, complete TypeScript Go attribution before judging findings.",
   "native-exit-mismatch": "Treat the run as unreliable and restore agreement between the native envelope and exit.",
   "native-operational-error": "Repair the reported Fallow resource, coverage, network, security, or upload condition.",
   "native-exit-undocumented": "Review the installed Fallow contract before retrying this undocumented native exit.",
@@ -188,6 +188,16 @@ function hasExpectedAttribution(attribution: JsonRecord): boolean {
   return attribution.gate === "new-only" && countsAreValid
 }
 
+function hasExpectedTypeAwareWarnings(typeAware: JsonRecord): boolean {
+  const warnings = typeAware.warnings
+  return [
+    isNonNegativeInteger(typeAware.warning_count),
+    Array.isArray(warnings),
+    Array.isArray(warnings) && warnings.every((warning) => typeof warning === "string"),
+    Array.isArray(warnings) && typeAware.warning_count === warnings.length,
+  ].every(Boolean)
+}
+
 function hasExpectedTypeAwareIdentity(typeAware: JsonRecord): boolean {
   const identity = typeAware.identity
   if (!isRecord(identity)) return false
@@ -197,6 +207,7 @@ function hasExpectedTypeAwareIdentity(typeAware: JsonRecord): boolean {
     typeAware.backend === "typescript-go",
     typeAware.backend_version === expectedBackendVersion,
     identity.backend_family === "typescript-go",
+    hasExpectedTypeAwareWarnings(typeAware),
   ].every(Boolean)
 }
 
@@ -206,6 +217,7 @@ function isTypeAwareComplete(typeAware: JsonRecord): boolean {
     typeAware.executed === true,
     typeAware.required_completeness === "complete",
     identity.completeness === "complete",
+    typeAware.warning_count === 0,
   ].every(Boolean)
 }
 

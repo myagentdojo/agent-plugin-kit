@@ -66,7 +66,7 @@ const expectedRepairHints: Record<Exclude<ExpectedReasonCode, "policy-accepted">
   "native-output-missing": "Inspect the bounded native diagnostics, repair the native failure, then rerun.",
   "native-output-not-json": "Inspect the bounded diagnostics and restore the pinned Fallow output contract.",
   "native-output-schema-mismatch": "Restore Fallow 3.19.0 or update this contract through a new reviewed plan.",
-  "type-aware-incomplete": "Restore complete TypeScript Go analysis before judging findings.",
+  "type-aware-incomplete": "Restore warning-free, complete TypeScript Go attribution before judging findings.",
   "native-exit-mismatch": "Treat the run as unreliable and restore agreement between the native envelope and exit.",
   "native-operational-error": "Repair the reported Fallow resource, coverage, network, security, or upload condition.",
   "native-exit-undocumented": "Review the installed Fallow contract before retrying this undocumented native exit.",
@@ -92,6 +92,8 @@ function successDocument(verdict: "pass" | "warn" | "fail" = "pass"): JsonRecord
         sidecar_version: "3.19.0",
         backend: "typescript-go",
         backend_version: "7.0.2",
+        warning_count: 0,
+        warnings: [],
       },
     },
   }
@@ -372,6 +374,9 @@ test("rejects every pinned success and error envelope shape mismatch", async () 
   cases.push(setTypeAware(successDocument(), "sidecar_version", "3.18.0"))
   cases.push(setTypeAware(successDocument(), "backend", "typescript"))
   cases.push(setTypeAware(successDocument(), "backend_version", "7.0.1"))
+  cases.push(setTypeAware(successDocument(), "warning_count", -1))
+  cases.push(setTypeAware(successDocument(), "warnings", [7]))
+  cases.push(setTypeAware(successDocument(), "warning_count", 1))
   cases.push(setTypeAwareIdentity(successDocument(), "backend_family", "typescript"))
   cases.push(setAttribution(successDocument(), "dead_code_introduced", -1))
   cases.push({ error: true, message: "not an operational error", exit_code: 0 })
@@ -399,6 +404,13 @@ test("rejects explicitly incomplete type-aware evidence", async () => {
   const native = setTypeAwareIdentity(successDocument(), "completeness", "partial")
   const result = await runScenario({ exitCode: 0, stdout: native })
   expectReason(result, "type-aware-incomplete", "error", 2)
+
+  const warningCount = setTypeAware(successDocument(), "warning_count", 1)
+  const incompatibleAttribution = setTypeAware(warningCount, "warnings", [
+    "base and head semantic identities are incompatible",
+  ])
+  const incompatibleResult = await runScenario({ exitCode: 0, stdout: incompatibleAttribution })
+  expectReason(incompatibleResult, "type-aware-incomplete", "error", 2)
 })
 
 test("includes an untracked TypeScript source in the real new-only audit", async () => {

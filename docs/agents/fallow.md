@@ -21,8 +21,13 @@ For a dirty code-changing turn:
 bun run --silent quality:fallow --changed-since HEAD
 ```
 
-For task review or handoff, replace `HEAD` with the immutable task-start Full
-Commit Pin. A clean comparison to `HEAD` is only an empty-delta smoke check.
+For task review or handoff, first replace `HEAD` with the immutable task-start
+Full Commit Pin. Accept that run only when type-aware attribution is complete
+and warning-free. If Fallow reports incompatible base and head semantic
+identities, preserve the error and use the reviewed composite proof named in
+the project packet; never relabel its syntactic attribution as complete
+type-aware evidence. A clean comparison to `HEAD` is only an empty-delta smoke
+check.
 
 Run the focused policy proof with:
 
@@ -43,7 +48,7 @@ stderr. Interpret its adapter exit before inspecting native details:
 
 | Exit | Decision | Meaning |
 | ---: | --- | --- |
-| 0 | `accepted` | Complete Fallow 3.19.0 evidence has zero introduced findings. |
+| 0 | `accepted` | Warning-free, complete Fallow 3.19.0 evidence has zero introduced findings. |
 | 1 | `refused` | Valid analysis completed, but findings violate Kit policy. |
 | 2 | `error` | Preflight, comparison, native runtime, schema, completeness, or Adapter evidence is unreliable. |
 
@@ -55,11 +60,14 @@ be introduced and therefore refused.
 ## Comparison bases
 
 - Dirty turn: use `HEAD` so tracked and untracked work remains in scope.
-- Review and handoff: use the immutable task-start Full Commit Pin.
+- Review and handoff: attempt the immutable task-start Full Commit Pin and
+  require warning-free semantic attribution. If semantic identities are
+  incompatible, fail closed and follow the packet's reviewed composite proof.
 - Remote integration: use a freshly resolved `origin/main` only after that
   remote and action are separately approved. It never replaces the task pin.
-- Missing or unresolved bases fail closed. Do not substitute an implicit branch
-  or save a count baseline.
+- Missing or unresolved bases and all type-aware warnings fail closed. Do not
+  substitute an implicit branch, disable type-aware analysis, or save a count
+  baseline.
 
 ## Editor resolution
 
