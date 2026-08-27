@@ -126,8 +126,9 @@ function sanitizeDiagnostic(input: string): string | null {
     .replace(/\b(authorization|password|secret|token|api[_-]?key)\s*[:=]\s*\S+/gi, "$1=<redacted>")
     .replace(/https?:\/\/[^\s/@]+:[^\s/@]+@/gi, "https://<redacted>@")
   const withoutAbsolutePaths = withoutCredentials
-    .replace(/\b[A-Za-z]:\\[^\s"'`,;:)]+/g, "<redacted-path>")
-    .replace(/(^|[\s("'=:])\/(?:[^/\s"'`,;:()]+\/)*[^/\s"'`,;:()]*/gm, "$1<redacted-path>")
+    .replace(/\b[A-Za-z]:\\[^\r\n]*/g, "<redacted-path>")
+    .replace(/\\\\[^\r\n]*/g, "<redacted-path>")
+    .replace(/\/[^\r\n]*/g, "<redacted-path>")
   const bounded = withoutAbsolutePaths.trim().slice(0, 1_000)
   return bounded.length === 0 ? null : bounded
 }

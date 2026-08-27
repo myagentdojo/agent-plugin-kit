@@ -53,6 +53,26 @@ const expectedReasonCodes = [
   "internal-error",
 ] as const
 
+type ExpectedReasonCode = (typeof expectedReasonCodes)[number]
+
+const expectedRepairHints: Record<Exclude<ExpectedReasonCode, "policy-accepted">, string> = {
+  "introduced-findings": "Remove or narrowly justify every introduced finding, then rerun the same comparison.",
+  "native-fail-verdict": "Repair the error-severity introduced findings, then rerun the same comparison.",
+  "comparison-base-required": "Supply an immutable commit, or HEAD for a dirty turn.",
+  "comparison-base-unavailable": "Correct or fetch the named commit, then rerun with the same task scope.",
+  "local-fallow-missing": "Run the repository Bun install and restore the pinned Fallow dependency.",
+  "fallow-version-mismatch": "Restore the exact Fallow manifest and lockfile pin.",
+  "native-launch-failed": "Repair local executable permissions or platform installation, then rerun.",
+  "native-output-missing": "Inspect the bounded native diagnostics, repair the native failure, then rerun.",
+  "native-output-not-json": "Inspect the bounded diagnostics and restore the pinned Fallow output contract.",
+  "native-output-schema-mismatch": "Restore Fallow 3.19.0 or update this contract through a new reviewed plan.",
+  "type-aware-incomplete": "Restore complete TypeScript Go analysis before judging findings.",
+  "native-exit-mismatch": "Treat the run as unreliable and restore agreement between the native envelope and exit.",
+  "native-operational-error": "Repair the reported Fallow resource, coverage, network, security, or upload condition.",
+  "native-exit-undocumented": "Review the installed Fallow contract before retrying this undocumented native exit.",
+  "internal-error": "Repair the policy Adapter through a focused failing test; do not infer a Fallow verdict.",
+}
+
 function successDocument(verdict: "pass" | "warn" | "fail" = "pass"): JsonRecord {
   return {
     kind: "audit",
@@ -183,11 +203,19 @@ async function runScenario(
   return { ...result, envelope: JSON.parse(outputLines[0] ?? "null") as JsonRecord }
 }
 
-function expectReason(observation: ProcessObservation, reasonCode: string, decision: string, exitCode: number): void {
+function expectReason(
+  observation: ProcessObservation,
+  reasonCode: ExpectedReasonCode,
+  decision: string,
+  exitCode: number,
+): void {
   expect(observation.exitCode).toBe(exitCode)
   expect(observation.stderr).toBe("")
   expect(observation.envelope.reason_code).toBe(reasonCode)
   expect(observation.envelope.decision).toBe(decision)
+  expect(observation.envelope.repair_hint).toBe(
+    reasonCode === "policy-accepted" ? null : expectedRepairHints[reasonCode],
+  )
   expect(Object.keys(observation.envelope)).toEqual([
     "kind",
     "schema_version",
@@ -381,6 +409,14 @@ test("keeps handled process output pure, bounded, redacted, and repairable", asy
   const reasonCodeDeclaration = policySource.match(/type ReasonCode =([\s\S]*?)\n\ntype JsonRecord/)?.[1] ?? ""
   const declaredReasonCodes = [...reasonCodeDeclaration.matchAll(/"([^"]+)"/g)].map((match) => match[1]).sort()
   expect(declaredReasonCodes).toEqual([...expectedReasonCodes].sort())
+  expect(Object.keys(expectedRepairHints).sort()).toEqual(
+    expectedReasonCodes.filter((reasonCode) => reasonCode !== "policy-accepted").sort(),
+  )
+  for (const repairHint of Object.values(expectedRepairHints)) {
+    expect(repairHint).not.toMatch(/\b(?:bun|npm|git|fallow)\s/)
+    expect(repairHint).not.toMatch(/\/(?:[^/\r\n]+\/)+[^/\r\n]+/)
+    expect(repairHint).not.toMatch(/\b[A-Za-z]:\\/)
+  }
 
   const launchFailure = await runScenario(
     { exitCode: 0, stdout: successDocument() },
@@ -392,10 +428,14 @@ test("keeps handled process output pure, bounded, redacted, and repairable", asy
 
   const hostile = [
     `\u001b[31mfailed\u001b[0m at /custom/root/private/file token=super-secret ${"x".repeat(2_000)}`,
+    "comma,/srv/shared/config.ts:7:4",
+    "bracket[/Library/Application Support/Fallow/config.json:2:1]",
+    "file URL file:///Users/example/My Folder/fallow.ts:5:6",
     "    at run (/usr/local/lib/runner.ts:42:1)",
     "    at async /Library/Application Support/Fallow/worker.js:8:2",
     "0: 0x0123 - /opt/fallow/bin/fallow",
-    "Windows source C:\\private\\fallow\\runner.ts:9:3",
+    "Windows source [C:\\Program Files\\Fallow\\runner.ts:9:3]",
+    "UNC source \\\\server\\shared folder\\runner.ts:4:2",
   ].join("\n")
   const result = await runScenario({
     exitCode: 3,
@@ -406,8 +446,8 @@ test("keeps handled process output pure, bounded, redacted, and repairable", asy
   const diagnostic = String(result.envelope.native_stderr)
   expect(diagnostic.length).toBeLessThanOrEqual(1_000)
   expect(diagnostic).not.toContain("\u001b")
-  expect(diagnostic).not.toMatch(/\/(?:[^/\s]+\/)+[^\s]+/)
-  expect(diagnostic).not.toMatch(/\b[A-Za-z]:\\/)
+  expect(diagnostic).not.toContain("/")
+  expect(diagnostic).not.toMatch(/(?:\b[A-Za-z]:\\|\\\\)/)
   expect(diagnostic).not.toMatch(/(?:^|\n)\s*(?:at\s|stack backtrace:|\d+:\s+0x)/i)
   expect(diagnostic).not.toContain("super-secret")
   expect(String(result.envelope.repair_hint)).not.toMatch(/\b(?:bun|npm|git|fallow)\s/)

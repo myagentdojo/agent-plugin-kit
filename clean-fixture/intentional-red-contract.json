@@ -17,6 +17,7 @@
       "bun.lock",
       "bunfig.toml",
       ".fallowrc.json",
+      ".vscode/settings.json",
       ".agents/skills/fallow/SKILL.md",
       ".agents/skills/fallow/agents/openai.yaml",
       ".claude/skills/fallow/SKILL.md",

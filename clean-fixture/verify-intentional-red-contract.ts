@@ -610,6 +610,12 @@ function verifyIntentionalRedStaticContract(root = repositoryRoot): void {
   if (JSON.stringify(readJson(join(root, ".fallowrc.json"))) !== JSON.stringify(expectedFallowConfig)) {
     fail("root .fallowrc.json must retain the exact accepted new-only type-aware policy")
   }
+  if (
+    JSON.stringify(readJson(join(root, ".vscode/settings.json"))) !==
+    JSON.stringify({ "fallow.changedSince": "HEAD" })
+  ) {
+    fail("VS Code settings must retain only the accepted HEAD dirty-turn comparison")
+  }
   const gitignoreLines = readFileSync(join(root, ".gitignore"), "utf8").split("\n")
   if (gitignoreLines.filter((line) => line === "/.fallow/").length !== 1) {
     fail("root .gitignore must own exactly one /.fallow/ runtime-state rule")
@@ -1023,6 +1029,9 @@ function verifyStaticSensitivity(): void {
     const config = readJson<Record<string, unknown>>(path)
     config.audit = { gate: "all" }
     writeJson(path, config)
+  })
+  expectStaticRejection("VS Code Fallow comparison base drifted", (root) => {
+    writeJson(join(root, ".vscode/settings.json"), { "fallow.changedSince": "origin/main" })
   })
   expectStaticRejection("installed Fallow skill version drifted", (root) => {
     const path = join(root, ".agents/skills/fallow/SKILL.md")

@@ -65,17 +65,21 @@ be introduced and therefore refused.
 
 VS Code must resolve both `node_modules/.bin/fallow` and
 `node_modules/.bin/fallow-lsp` from this repository. One root `.fallowrc.json`
-governs the root plus all ten workspace packages.
+governs the root plus all ten workspace packages. Tracked
+`.vscode/settings.json` supplies only `fallow.changedSince: "HEAD"` because
+this repository has no upstream from which the editor can infer a comparison.
 
-After dependency setup, restart the Fallow language server once and verify:
+After final dependency, policy, and editor setup, restart or reload the Fallow
+language server and verify:
 
 - CLI and LSP both report 3.19.0 from the repository;
-- the root config reaches 11 roots and ten workspaces; and
+- the root config reaches 11 roots and ten workspaces;
+- `Fallow: Audit Changed Files` returns a parsed verdict against `HEAD`; and
 - no PATH mismatch, managed-download 404, missing-config warning, or package
   dependency-location warning remains.
 
-If project-binary resolution fails, stop. Do not add `.vscode/settings.json`,
-change global PATH, or set `fallow.lspPath` or `fallow.configPath`.
+If project-binary resolution fails, stop. Do not change global PATH, set
+`fallow.lspPath` or `fallow.configPath`, or add another editor override.
 
 ## Runtime state and repair
 
