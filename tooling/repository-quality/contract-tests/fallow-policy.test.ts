@@ -96,6 +96,27 @@ function successDocument(verdict: "pass" | "warn" | "fail" = "pass"): JsonRecord
   }
 }
 
+function emptyDeltaDocument(): JsonRecord {
+  return {
+    kind: "audit",
+    schema_version: 10,
+    version: "3.19.0",
+    command: "audit",
+    verdict: "pass",
+    changed_files_count: 0,
+    base_ref: "HEAD",
+    attribution: { ...zeroAttribution },
+    summary: {
+      dead_code_issues: 0,
+      dead_code_has_errors: false,
+      complexity_findings: 0,
+      max_cyclomatic: null,
+      duplication_clone_groups: 0,
+    },
+    _meta: { telemetry: { analysis_run_id: "run_fixture" } },
+  }
+}
+
 function cloneDocument(document: JsonRecord): JsonRecord {
   return structuredClone(document)
 }
@@ -241,6 +262,16 @@ test("accepts a clean pass", async () => {
   expectReason(result, "policy-accepted", "accepted", 0)
   expect(result.envelope.repair_hint).toBeNull()
   expect(result.envelope.fallow).toEqual(native)
+
+  const emptyDelta = emptyDeltaDocument()
+  const emptyResult = await runScenario({ exitCode: 0, stdout: emptyDelta })
+  expectReason(emptyResult, "policy-accepted", "accepted", 0)
+  expect(emptyResult.envelope.fallow).toEqual(emptyDelta)
+
+  const falseEmptyDelta = cloneDocument(emptyDelta)
+  falseEmptyDelta.changed_files_count = 1
+  const falseEmptyResult = await runScenario({ exitCode: 0, stdout: falseEmptyDelta })
+  expectReason(falseEmptyResult, "native-output-schema-mismatch", "error", 2)
 })
 
 test("accepts a warning verdict with zero introduced findings", async () => {

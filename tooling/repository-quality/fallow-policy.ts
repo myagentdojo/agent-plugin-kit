@@ -162,7 +162,7 @@ type AuditEvidence = {
   document: JsonRecord
   verdict: "pass" | "warn" | "fail"
   introducedFindings: number
-  typeAwareComplete: boolean
+  analysisStatus: "complete-type-aware" | "incomplete-type-aware" | "empty-delta"
 }
 
 type NativeEvidence =
@@ -222,22 +222,60 @@ function hasExpectedAuditShape(shape: AuditShape): boolean {
   return [hasExpectedAttribution(shape.attribution), hasExpectedTypeAwareIdentity(shape.typeAware)].every(Boolean)
 }
 
-function decodeAuditEvidence(document: JsonRecord, baseRef: string): NativeEvidence {
-  if (!hasExpectedAuditHeader(document, baseRef)) {
-    return { kind: "unusable", reasonCode: "native-output-schema-mismatch", document }
-  }
+function isExactEmptyDelta(document: JsonRecord): boolean {
+  if (!isRecord(document.attribution) || !isRecord(document.summary) || !isRecord(document._meta)) return false
+  const attribution = document.attribution
+  const summary = document.summary
+  return [
+    document.verdict === "pass",
+    document.changed_files_count === 0,
+    hasExpectedAttribution(attribution),
+    [...introducedCountKeys, ...inheritedCountKeys].every((key) => attribution[key] === 0),
+    summary.dead_code_issues === 0,
+    summary.dead_code_has_errors === false,
+    summary.complexity_findings === 0,
+    summary.max_cyclomatic === null,
+    summary.duplication_clone_groups === 0,
+    document._meta.type_aware === undefined,
+  ].every(Boolean)
+}
+
+function decodeEmptyDeltaEvidence(document: JsonRecord): AuditEvidence | null {
+  return isExactEmptyDelta(document)
+    ? {
+        kind: "audit",
+        document,
+        verdict: "pass",
+        introducedFindings: 0,
+        analysisStatus: "empty-delta",
+      }
+    : null
+}
+
+function decodeTypeAwareAuditEvidence(document: JsonRecord): AuditEvidence | null {
   const shape = extractAuditShape(document)
-  if (shape === null) return { kind: "unusable", reasonCode: "native-output-schema-mismatch", document }
-  if (!hasExpectedAuditShape(shape)) {
-    return { kind: "unusable", reasonCode: "native-output-schema-mismatch", document }
-  }
+  if (shape === null || !hasExpectedAuditShape(shape)) return null
   return {
     kind: "audit",
     document,
     verdict: document.verdict as AuditEvidence["verdict"],
     introducedFindings: introducedFindingCount(document),
-    typeAwareComplete: isTypeAwareComplete(shape.typeAware),
+    analysisStatus: isTypeAwareComplete(shape.typeAware) ? "complete-type-aware" : "incomplete-type-aware",
   }
+}
+
+function decodeAuditEvidence(document: JsonRecord, baseRef: string): NativeEvidence {
+  if (!hasExpectedAuditHeader(document, baseRef)) {
+    return { kind: "unusable", reasonCode: "native-output-schema-mismatch", document }
+  }
+  return (
+    decodeEmptyDeltaEvidence(document) ??
+    decodeTypeAwareAuditEvidence(document) ?? {
+      kind: "unusable",
+      reasonCode: "native-output-schema-mismatch",
+      document,
+    }
+  )
 }
 
 function isStructurallyValidError(document: JsonRecord): boolean {
@@ -356,7 +394,7 @@ function classifyNativeErrorExit(
 
 function validateAuditExecution(evidence: AuditEvidence, nativeExit: number): ReasonCode | null {
   if (!documentedNativeExits.has(nativeExit)) return "native-exit-undocumented"
-  if (!evidence.typeAwareComplete) return "type-aware-incomplete"
+  if (evidence.analysisStatus === "incomplete-type-aware") return "type-aware-incomplete"
   return nativeExit === expectedAuditExit(evidence.verdict) ? null : "native-exit-mismatch"
 }
 
