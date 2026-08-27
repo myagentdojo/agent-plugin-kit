@@ -11,21 +11,22 @@ claim about caller-captured records. It creates no reconstruction operation.
 
 It constrains seven existing Interface owners and creates no new owner:
 
-- `src/modules/maintenance-command-contract/interface.ts` owns command,
-  result, failure, retry, transaction, Next Action, and Result Code meaning.
-- `src/adapters/maintenance-command-facade/interface.ts` owns the public
+- `src/modules/maintenance-command-contract/` owns command, result, failure,
+  retry, transaction, Next Action, Result Code, and trusted command-binding
+  meaning.
+- `src/adapters/maintenance-command-facade/` owns the public
   process observation, Diagnostic Record, Event Record, and Event Acceptance
   Interface.
-- `src/modules/qualification-evidence/interface.ts` owns Evidence Cell,
+- `src/modules/qualification-evidence/` owns Evidence Cell,
   Verification Profile, reduction, and Qualification Result meaning.
-- `src/modules/plugin-payload-production/interface.ts` owns payload request and
+- `src/modules/plugin-payload-production/` owns payload request and
   result meaning.
-- `src/modules/release-and-git-engine/interface.ts` owns repository, release,
+- `src/modules/release-and-git-engine/` owns repository, release,
   package, workflow, candidate, request, and approval meaning.
-- `src/modules/harness-journeys/interface.ts` owns harness request, transition,
+- `src/modules/harness-journeys/` owns harness wire request, trusted transition,
   approval, inspection, and result meaning.
-- `src/modules/canary-qualification/interface.ts` owns canary candidate, plan,
-  authority, and result meaning.
+- `src/modules/canary-qualification/` owns canary candidate, plan, protected
+  authority reference and resolution, authority, and result meaning.
 
 It contains no schema, no Implementation, and no test. It does two things a
 purely additive proposal cannot do, and both are stated as such below: it
@@ -42,7 +43,13 @@ manifest, schema, or test change is admitted.
   `noFallthroughCasesInSwitch`, and `noImplicitOverride` and adds
   `exactOptionalPropertyTypes` and `noImplicitReturns` before public contract
   Implementation begins. Any unrelated diagnostic stops that bounded
-  transition rather than authorizing broad repair.
+  transition rather than authorizing broad repair. The first read-only
+  TypeScript 7.0.2 probe found exactly two transition diagnostics and admits
+  only those two repairs: the intentional RED observability fixture assembly
+  in `src/adapters/maintenance-command-facade/contract-tests/observability.test.ts`
+  and the ADR 0003 Repository Quality Tooling call in
+  `tooling/repository-quality/fallow-policy.ts`. Any additional diagnostic
+  stops the transition.
 - Enabling `exactOptionalPropertyTypes` changes the meaning of every existing
   optional key, so that transition is a contract change and not a compiler
   setting. The Optional keys and JSON round trip rule below states the
@@ -89,12 +96,10 @@ manifest, schema, or test change is admitted.
   declared type exactly.
 - Where inference widens a declared type, the declared type stays
   authoritative for compile time and the schema stays authoritative for
-  runtime. The named cases today are the template-literal types
-  `sha256:${string}` and `cell:${string}` in
-  `src/modules/qualification-evidence/interface.ts` and
-  `` `${string}.${ResultCode}` `` in
-  `src/modules/maintenance-command-contract/interface.ts`. Widening any of
-  these to `string` is a contract regression, not an inference detail.
+  runtime. Zod 4 can preserve the current `sha256:${string}`,
+  `cell:${string}`, and `` `${string}.${ResultCode}` `` template-literal
+  types with `z.templateLiteral`; the bidirectional assertion remains required
+  so a future schema or library change cannot silently widen them to `string`.
 - Every Public Serialized Value carries a compile-time bidirectional
   equivalence assertion: the declared type must be assignable to the inferred
   type and the inferred type must be assignable to the declared type. Either
@@ -107,13 +112,16 @@ manifest, schema, or test change is admitted.
 
 ### Optional keys and JSON round trip
 
-- Every optional key on a Public Serialized Value is declared as exactly one
+- Every optional key on a Public Serialized Value is normalized to exactly one
   of two spellings. An omissible key may be absent and is never present with
   the value `undefined`. A nullable key is always present and carries an
   explicit `null`. The existing Interfaces already use both spellings:
   `EvidenceLineage.release` is omissible; `EvidenceCell.observable` is
-  nullable. This decision preserves each existing spelling and adds no third
-  form.
+  nullable. The current `NextAction.commandId?: MaintenanceCommand["command"]
+  | null` is a third form and is corrected at Implementation admission to the
+  always-present nullable spelling, matching Result Vocabulary projection.
+  Pinned literals that currently omit `commandId` are respecified in the same
+  Verification Transition Contract checkpoint.
 - No Public Serialized Value carries `undefined` as a value at any depth. That
   rule is what makes `exactOptionalPropertyTypes` safe to enable without
   changing wire meaning.
@@ -134,27 +142,29 @@ manifest, schema, or test change is admitted.
 - Validation runs once at untrusted ingress and once at public serialized
   egress. Internal typed calls between owners are not revalidated.
 - Domain-only internal types remain ordinary TypeScript and gain no schema.
+- Every existing `interface.ts` stays declaration-only apart from its existing
+  sentinel constants. It imports no Zod and no validator. Each owner places
+  runtime validators in one private owner-local sibling file beside
+  `interface.ts`, following the existing private runtime-file pattern. The
+  exact sibling filename is selected in the accepted schema pass.
+- Validator dependency direction is one way: the private sibling imports Zod
+  and its owner's declared types; `interface.ts` never imports the sibling.
+  Maintenance Command Contract and the facade may compose validators through
+  repository-relative imports. A Plugin Consumer cannot import a validator
+  through an accepted package subpath.
 - `src/interface.ts` stays type-only. It exports no schema and no runtime
   value, so the root export gains no runtime surface and no Zod import.
-- `./plugin-payload-production`, `./release-and-git-engine`,
-  `./maintenance-command-contract`, `./harness-journeys`,
-  `./canary-qualification`, and `./qualification-evidence` are accepted public
-  subpaths that resolve directly to their owners' `interface.ts` files. Any
-  validator exported there is therefore versioned public subpath API with
-  compatibility obligations, not an owner-private helper. The current exports
-  map admits no way to publish an owner's validator on one of those files while
-  keeping it private, so this decision accepts the public consequence rather
-  than pretending it away. The exact exported validator names are selected in
-  the accepted schema pass and must be added to the accepted subpath
-  type-export catalog in
-  `clean-fixture/personal-verification-profile/contract-tests/fixtures/plugin-consumer.ts`.
+- The accepted package subpaths continue to resolve directly to declaration-
+  only `interface.ts` files. Owner-Local Validators add no exported name, no
+  compatibility surface, and no subpath type-export catalog entry. Their
+  sibling files enter the installed inventory only through the reviewed ADR
+  0003 respecification.
 - The Maintenance Command Facade Adapter Interface stays outside root exports
   under ADR 0002, and
   `clean-fixture/verify-intentional-red-contract.ts` statically rejects an
   eleventh root export. Facade schemas are therefore owner-private and add no
   caller surface.
-- Publishing validators on the six accepted subpaths adds no new export entry.
-  The nine public subpaths and the ten-entry exports map are unchanged.
+- The nine public subpaths and the ten-entry exports map are unchanged.
 
 ### Nested command validation composition
 
@@ -162,19 +172,36 @@ manifest, schema, or test change is admitted.
   environment, and envelope syntax. JSON loaded by the facade enters as
   `unknown`; the facade owns no nested Module meaning.
 - Maintenance Command Contract composes its Command Vocabulary discriminator
-  with the Owner-Local Validators exported by Plugin Payload Production,
-  Release and Git Engine, Harness Journeys, and Canary Qualification.
+  with private Owner-Local Validators imported relatively from Plugin Payload
+  Production, Release and Git Engine, Harness Journeys, and Canary
+  Qualification.
 - Each governing Module validates only the nested Public Serialized Values it
   owns. Maintenance reuses those validators and does not copy their shape.
   The facade does not duplicate the validation, and downstream typed calls do
   not revalidate the trusted value.
 - Structural validation cannot manufacture `AdmittedIdentity`,
-  `ProtectedCanaryAuthority`, or another protected authority. The governing
-  owner admits or brands a structurally valid value through its existing
-  authority Seam.
-- This composition adds no Adapter, shared schema Module, internal path, root
-  export, or duplicate validator. Exact validator names remain deferred to the
-  accepted schema pass.
+  `ProtectedCanaryAuthority`, or another protected capability. Each JSON-backed
+  command therefore has a declared unbranded Wire Command type containing only
+  Public Serialized Values. A successful parse yields that Wire Command, never
+  a capability-bearing `MaintenanceCommand`.
+- Admission Bootstrap runs before any Kit Repository Implementation executes.
+  Maintenance Command Contract owns one trusted command-binding step that
+  attaches the run's `AdmittedIdentity` to an admitted harness Wire Command.
+  The binder verifies that any candidate carried by the wire value or approval
+  agrees with the admitted identity and refuses disagreement. It never brands
+  a parsed `CandidateIdentity`.
+- Canary Qualification declares a protected Authority Source Seam. The
+  `--authority <FILE>` argument is an opaque protected-file reference resolved
+  by that Seam for the selected Canary Candidate. The file contents are never
+  parsed or cast as `ProtectedCanaryAuthority`; only a successful protected-
+  source resolution supplies that capability to the trusted binder.
+- The binder is the only route from a parsed Wire Command to the existing
+  capability-bearing `MaintenanceCommand`. Its exact call shape is selected in
+  the accepted Interface pass; no new owner or public export is created.
+- This composition adds no Adapter, shared schema Module, root export, or
+  duplicate validator. It adds only owner-local private validator siblings and
+  the named protected Authority Source Seam. Exact filenames and validator
+  names remain deferred to the accepted schema pass.
 
 ### Ingress strictness and egress projection
 
@@ -208,16 +235,19 @@ Two distinct paths exist and this decision keeps them distinct.
   keys are `schema_version`, `status`, `run_id`, and, on the stderr error
   envelope, `record_type` and `message`. Its `data` object is owned by
   Maintenance Command Contract and carries `contract_id`,
-  `result_schema_version`, and the Result Vocabulary fields.
+  `result_schema_version`, and the Result Vocabulary fields. The stderr
+  envelope also carries the Maintenance-owned closed `error` object, including
+  `schemaVersion`, `hintVersion`, `code`, and `agentActions`; strict egress
+  validation covers that object rather than treating it as an undeclared key.
 - `MaintenanceOutcome` therefore never crosses stdout by itself. The facade
   projects it into the versioned envelope above, so Facade Envelope Version is
   carried by the envelope `schema_version` and Result Schema Version is
   carried by `data.result_schema_version`.
-- Hint Version has one declared serialized carrier today, the `versions`
-  object inside the help discovery payload. No Command Result envelope carries
-  a hint version key. This decision adds no key; it records that any new
-  carrier is an Interface change owned by Maintenance Command Contract and is
-  not proposed here.
+- Hint Version has two declared serialized carriers today: the `versions`
+  object inside the help discovery payload and `error.hintVersion` inside the
+  stderr error envelope. Result Schema Version is carried independently by
+  `data.result_schema_version`; the error detail object's own schema is carried
+  by `error.schemaVersion`. This decision adds no version carrier.
 - The `agent` payload carried as `data.result` stays a command-scoped open
   record. The envelope schema owns its presence, not its interior. At egress
   it must be JSON-representable, already redacted by the step above, and
@@ -499,6 +529,9 @@ This proposal claims none of the following, at any Proof Layer:
 - semantic truth: a successful parse proves shape and version agreement only.
   It never proves that a value is accurate, current, complete, or produced by
   the owner it names.
+- capability issuance from serialized input. No JSON, schema, assertion, or
+  caller-supplied field can create `AdmittedIdentity` or
+  `ProtectedCanaryAuthority`.
 
 ## Implementation admission prerequisites
 
@@ -519,10 +552,18 @@ test change is made. Neither is optional and neither is a formality.
    Contract
    Tests, or adding an exact-version agreement check each require that
    contract to be re-scoped in the same reviewed checkpoint, which is what its
-   own first-GREEN transition rule already demands. The two Interface
-   amendments named by this decision, the Maintenance-owned Failure Class
-   vocabulary and the Maintenance-owned Qualification Refusal Code to Result
-   Code and Exit Family mapping, are re-scoped in that same checkpoint.
+   own first-GREEN transition rule already demands. That checkpoint inventories
+   every Interface and contract amendment named here: Maintenance-owned
+   Failure Class vocabulary; Maintenance-owned Qualification Refusal Code to
+   Result Code and Exit Family mapping; the `EvidenceCell` and Reduced Claim
+   discriminated unions; `QualificationEvidence.reduce` returning
+   `QualificationOutcome`; new Qualification Evidence accepted-subpath type
+   names; the unbranded Wire Command and trusted command-binding split; the
+   Canary Authority Source Seam and protected-file reference; nullable
+   `NextAction.commandId`; private owner-local validator siblings and their
+   installed inventory; the stderr `error` object version carriers; and the two
+   named TypeScript strictness repairs. No unnamed count or source-closure
+   change is admitted.
 2. A matching respecification of the accepted P3 Full Test Design's
    Qualification Evidence brief. That brief pins the reducer as the place
    where a cell is validated without trusting `assertedStatus`, and pins the
@@ -544,9 +585,15 @@ perturbation that must turn that group RED.
    without coercion or defaulting, no raw input or raw Zod detail escapes,
    invalid egress fails closed, the bidirectional equivalence assertion holds,
    the JSON round trip holds, and no cross-field vocabulary reconciliation
-   occurs. Perturbations: admit one extra key at strict ingress; enable one
-   coercion; widen one template-literal schema to `string`; spell one optional
-   key so it can carry `undefined`; leak raw validation detail into a refusal.
+   occurs. The Maintenance selector additionally proves every JSON-backed
+   command's unbranded Wire Command, exactly-once validator composition, one
+   trusted bind after successful Admission, candidate agreement, and the
+   impossibility of supplying either protected capability on the wire.
+   Perturbations: admit one extra key at strict ingress; enable one coercion;
+   widen one template-literal schema to `string`; spell one optional key so it
+   can carry `undefined`; leak raw validation detail into a refusal; accept a
+   serialized `identity` or `authority`; bind a raw `CandidateIdentity`; bypass
+   or invoke one nested validator twice; or bind before Admission succeeds.
 2. **Evidence-state contracts.** Owner: Qualification Evidence. Selector:
    `bun run test:intentional-red:qualification-evidence`. Proves every
    accepted Evidence Cell and Reduced Claim variant, per-cell mismatch refusal
@@ -572,13 +619,17 @@ perturbation that must turn that group RED.
    `bun run test:intentional-red:clean-fixture` together with
    `bun run test:intentional-red:maintenance-cli:process`. Proves a
    production-only install with no hoisting assumption, one real parse through
-   each schema owner, exact stdout, stderr, Exit Code, and redaction bytes.
+   each schema owner, private validator sibling installation without a new
+   package export, exact stdout, stderr, Exit Code, and redaction bytes. It also
+   proves that `--authority <FILE>` passes only an opaque reference to the
+   Canary Authority Source Seam and never parses file contents as authority.
    Perturbations: remove Zod from the root Package Identity's production
    dependencies and require the production-only install to fail, which is the
    Locality control; make Admission Bootstrap resolve or import Zod and
    require both the static rejection and the public-process sentinel to fail,
-   which is the Admission non-resolution control; drift the exact Zod version
-   between the root manifest and one Owner Manifest.
+   which is the Admission non-resolution control; expose one private validator
+   through the package exports map; parse an authority file as a capability;
+   drift the exact Zod version between the root manifest and one Owner Manifest.
 
 That gate proves serialized-value validation, discriminated public state, and
 Logical Record Correlation. It proves neither reconstruction, durable replay,
@@ -639,6 +690,10 @@ Recorded so that acceptance is informed rather than optimistic:
   not contradict, but the Non-Claim's wording must be reread at acceptance.
 - Parse cost and startup weight at the Admission-adjacent binary are
   unmeasured.
+- The Admission-to-Maintenance binding step is the Kit's capability trust
+  boundary. Until its capability-negative and exactly-once composition tests
+  are admitted, a binder that accepts a parsed `CandidateIdentity` as admitted
+  could evade ordinary schema proof.
 - Failure Class ownership is decided but not yet expressed in source. Until the
   named Interface amendment is admitted,
   `src/adapters/maintenance-command-facade/interface.ts` still declares
@@ -657,7 +712,11 @@ Named and deliberately unresolved:
   it is exported on the accepted `./maintenance-command-contract` subpath or
   reached through an indexed access
 - the exact `unknown` sub-discriminator key and its two tokens
-- the exact validator export names added to the accepted subpath catalog
+- the exact private owner-local validator sibling filename and exported names
+  used only by repository-relative composition
+- the exact Wire Command type names and trusted command-binding call shape
+- the exact Canary Authority Source Seam and protected-file reference type
+  names; the accepted meaning of `--authority <FILE>` is not deferred
 - the exact injected time and identifier Seam names and shapes
 - the reviewed `agent` payload version-key spelling
 - downstream GitHub Issue dependency and status changes
@@ -674,6 +733,10 @@ Named and deliberately unresolved:
 - A serialized value has one runtime validator and one declared type, proved
   equivalent at compile time, so no second type source appears and no declared
   type is silently widened.
+- Wire Commands contain ordinary validated data only. Maintenance Command
+  Contract binds the already-admitted identity and Canary Qualification's
+  protected-source authority after validation; neither capability is
+  serializable or structurally manufactured.
 - Qualification Evidence gains a refusal channel it does not have today, so
   `QualificationEvidence.reduce` changes shape at Implementation and the
   accepted subpath type-export catalog changes with it.
@@ -697,7 +760,9 @@ Named and deliberately unresolved:
   [`docs/agents/README.md`](../agents/README.md) indexes agent documents
   rather than Accepted Decisions and needs no change.
 - Admission Bootstrap keeps its dependency-free property and cannot resolve or
-  import Zod, so Admission is unaffected by this proposal.
+  import Zod. Release and Git Engine's declaration-only `interface.ts` remains
+  inside the pinned Admission source closure while its private validator sibling
+  remains outside that closure.
 - Qualification Evidence keeps Proof Layer non-promotion. A passing parse is
   in-process evidence and never promotes a Clean Fixture, hosted, or
   Fresh-Native claim.

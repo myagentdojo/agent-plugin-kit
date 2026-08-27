@@ -449,16 +449,42 @@ _Avoid_: Internal typed value, shared schema package, inferred type as the sole
 source of truth
 
 **Owner-Local Validator**:
-The runtime validator exported by the same Interface that owns a Public
-Serialized Value. It narrows an `unknown` value once without moving domain
-meaning into a caller, Adapter, or shared schema owner.
+The runtime validator held in a private sibling file by the same Module or
+Adapter that owns a Public Serialized Value. It narrows an `unknown` value once
+without moving domain meaning into a caller, Adapter, shared schema owner, or
+public package subpath. The owner's `interface.ts` remains declaration-only.
 _Avoid_: Validation helper, central schema registry, caller-owned schema
 
 **Validation Composition**:
 The reuse of governing Owner-Local Validators when one public value contains
 values owned by other Modules. Composition preserves each owner's meaning and
-adds no duplicate validator or new Seam.
+adds no duplicate validator or shared schema owner.
 _Avoid_: Schema duplication, Facade validation policy, shared schema Module
+
+**Wire Command**:
+An unbranded Public Serialized Value parsed from CLI or file input. It contains
+ordinary data only and can never carry Admitted Identity, Protected Canary
+Authority, or another protected capability.
+_Avoid_: Maintenance Command, serialized capability, typed command cast
+
+**Trusted Command Binding**:
+The Maintenance Command Contract step that combines one successfully parsed
+Wire Command with the run's already-admitted identity and, where required, a
+protected capability obtained through its governing Seam. It verifies candidate
+agreement and is the only route to a capability-bearing Maintenance Command.
+_Avoid_: Validation, branding parsed input, command hydration
+
+**Canary Authority Reference**:
+The opaque protected-file reference accepted from `--authority <FILE>`. The
+reference is ordinary wire data; it is resolved by Canary Qualification's
+Authority Source Seam and is never itself Protected Canary Authority.
+_Avoid_: Serialized authority, authority payload, authority JSON
+
+**Canary Authority Source**:
+The Canary Qualification Seam that resolves a Canary Authority Reference
+against a protected source and either refuses it or supplies Protected Canary
+Authority to Trusted Command Binding.
+_Avoid_: Authority parser, caller-provided capability, Zod authority schema
 
 **Logical Record**:
 One Diagnostic Record or Event Record assigned a sequence within a run. A
