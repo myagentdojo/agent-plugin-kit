@@ -46,3 +46,12 @@ surface.
   caller surface.
 - A shared version rule enters repository checks only after more than one Owner
   Manifest declares the same third-party dependency.
+
+## Amendment by ADR 0004
+
+Accepted ADR 0004 introduces one distribution-specific exception for Zod. The
+root Package Identity and every importing Owner Manifest declare the same exact
+Zod version because the root Package Identity is what a Git-installing Plugin
+Consumer resolves. This root declaration supplies distribution, not runtime
+ownership. Each importing Source Tree owner still owns its private validator
+and dependency use; Admission Bootstrap remains dependency-free.

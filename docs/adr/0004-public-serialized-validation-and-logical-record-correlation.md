@@ -1,10 +1,10 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Own Public Serialized Validation and Logical Record Correlation
 
-This is a proposal for review, not an Accepted Decision. It records how the
+This Accepted Decision records how the
 existing public TypeScript surfaces should own serialized-value validation,
 state correlation, and exhaustive handling, and what the Kit Repository may
 claim about caller-captured records. It creates no reconstruction operation.
@@ -29,13 +29,21 @@ It constrains seven existing Interface owners and creates no new owner:
   authority reference and resolution, authority, and result meaning.
 
 It contains no schema, no Implementation, and no test. It does two things a
-purely additive proposal cannot do, and both are stated as such below: it
+purely additive decision cannot do, and both are stated as such below: it
 amends `docs/adr/0002-owner-manifests-and-dependency-locality.md`, and it
 requires a respecified Verification Transition Contract under
 `docs/adr/0003-repository-quality-and-verification-transition.md` before any
 manifest, schema, or test change is admitted.
 
-## Proposed decision
+## Decision
+
+Nathan accepted this decision on 28 August 2026. Fresh Sol High and Fable 5
+extra-high reviewers independently inspected immutable Kit commit
+`b47396abca2321ce3199e147430ed6824e7a96bc` and both returned `ship`. The Fable
+review identified one non-blocking glossary precision, applied in this
+acceptance checkpoint: trusted plan acceptance is required where a command
+obtains a protected capability through a Seam, rather than for every possible
+binding.
 
 ### TypeScript boundary
 
@@ -807,9 +815,9 @@ Named and deliberately unresolved:
 - Root `CONTEXT.md` and `CONTEXT-MAP.md` record the corrected Failure Class
   ownership, the Maintenance-owned refusal mapping, and the one-validator,
   one-declared-type Public Serialized Value rule in the same change as this
-  proposal.
-- At acceptance, the Accepted Decision index in
-  [`docs/agents/domain.md`](../agents/domain.md) gains the ADR 0004 row.
+  decision.
+- The Accepted Decision index in
+  [`docs/agents/domain.md`](../agents/domain.md) includes the ADR 0004 row.
   [`docs/agents/README.md`](../agents/README.md) indexes agent documents
   rather than Accepted Decisions and needs no change.
 - Admission Bootstrap keeps its dependency-free property and cannot resolve or

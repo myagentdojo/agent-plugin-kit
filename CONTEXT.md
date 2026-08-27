@@ -486,9 +486,9 @@ _Avoid_: Wire Fragment, inherited version, implicit compatibility
 **Trusted Command Binding**:
 The Maintenance Command Contract sequence that takes one successfully parsed
 Wire Command, proves candidate agreement with the run's already-admitted
-identity, proves trusted acceptance of the inspected plan, and only then obtains
-any protected capability through its governing Seam. It is the only route to a
-capability-bearing Maintenance Command.
+identity, and, where the command obtains a protected capability through a Seam,
+proves trusted acceptance of the inspected plan before obtaining that
+capability. It is the only route to a capability-bearing Maintenance Command.
 _Avoid_: Validation, branding parsed input, command hydration
 
 **Canary Authority Reference**:

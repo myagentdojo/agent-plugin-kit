@@ -24,6 +24,7 @@ root context insufficient.
 | [`0001-language-to-topology.md`](../adr/0001-language-to-topology.md) | Ubiquitous Language to Repository Topology. |
 | [`0002-owner-manifests-and-dependency-locality.md`](../adr/0002-owner-manifests-and-dependency-locality.md) | Owner Manifests and owner-local dependency Locality. |
 | [`0003-repository-quality-and-verification-transition.md`](../adr/0003-repository-quality-and-verification-transition.md) | Repository Quality Tooling, Verification Transition Contract, and Clean Fixture evidence ownership. |
+| [`0004-public-serialized-validation-and-logical-record-correlation.md`](../adr/0004-public-serialized-validation-and-logical-record-correlation.md) | Owner-local Public Serialized Value validation, trusted capability binding, and Logical Record Correlation. |
 
 ## Accepted structure
 
