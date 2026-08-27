@@ -450,7 +450,7 @@ test("includes an untracked TypeScript source in the real new-only audit", async
   await observe(["git", "commit", "-qm", "fixture baseline"], { cwd: root })
   await writeFile(join(root, "src/untracked.ts"), "type Hidden = string\nexport const reveal = (value: Hidden): Hidden => value\n")
   const result = await observe(
-    ["bun", "run", "--silent", join(root, "tooling/repository-quality/fallow-policy.ts"), "--changed-since", "HEAD"],
+    [process.execPath, "run", "--silent", join(root, "tooling/repository-quality/fallow-policy.ts"), "--changed-since", "HEAD"],
     { cwd: root },
   )
   expect(result.stderr).toBe("")
