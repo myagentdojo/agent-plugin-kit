@@ -180,28 +180,43 @@ manifest, schema, or test change is admitted.
   The facade does not duplicate the validation, and downstream typed calls do
   not revalidate the trusted value.
 - Structural validation cannot manufacture `AdmittedIdentity`,
-  `ProtectedCanaryAuthority`, or another protected capability. Each JSON-backed
-  command therefore has a declared unbranded Wire Command type containing only
-  Public Serialized Values. A successful parse yields that Wire Command, never
-  a capability-bearing `MaintenanceCommand`.
+  `ProtectedCanaryAuthority`, or another protected capability. Maintenance
+  Command Contract therefore owns one explicitly versioned, unbranded Wire
+  Command union. Each command variant contains only ordinary data and
+  unversioned owner-local Wire Fragments. A successful parse yields that Wire
+  Command, never a capability-bearing `MaintenanceCommand`.
+- The Facade loads each command-specific file as `unknown`, assembles one
+  `schemaVersion`-carrying Wire Command candidate from argv and those unknown
+  fragments, and passes that candidate to Maintenance validation. It does not
+  interpret a fragment independently. Maintenance selects the command version
+  and discriminator, then composes each governing owner validator exactly once.
 - Admission Bootstrap runs before any Kit Repository Implementation executes.
   Maintenance Command Contract owns one trusted command-binding step that
   attaches the run's `AdmittedIdentity` to an admitted harness Wire Command.
   The binder verifies that any candidate carried by the wire value or approval
   agrees with the admitted identity and refuses disagreement. It never brands
   a parsed `CandidateIdentity`.
-- Canary Qualification declares a protected Authority Source Seam. The
-  `--authority <FILE>` argument is an opaque protected-file reference resolved
-  by that Seam for the selected Canary Candidate. The file contents are never
-  parsed or cast as `ProtectedCanaryAuthority`; only a successful protected-
-  source resolution supplies that capability to the trusted binder.
+- Canary qualification follows one fixed trust order: parse the Wire Command;
+  prove its Canary Candidate agrees with the run's `AdmittedIdentity`; obtain
+  the `CanaryPlan` through `CanaryQualification.inspect`; receive trusted caller
+  acceptance of that inspected plan; only then resolve the opaque protected-
+  file reference from `--authority <FILE>` for that admitted candidate and
+  accepted plan. The file contents are never parsed or cast as
+  `ProtectedCanaryAuthority`; only successful protected-source resolution at
+  that point supplies the capability to the trusted binder. `qualify` retains
+  its accepted obligation to refresh the plan before using authority. Trusted
+  plan acceptance is process-local caller control, not a new wire field,
+  serialized approval, or retained capability. The Authority Source receives
+  the admitted candidate and exact accepted plan; candidate data never selects
+  the protected target.
 - The binder is the only route from a parsed Wire Command to the existing
   capability-bearing `MaintenanceCommand`. Its exact call shape is selected in
   the accepted Interface pass; no new owner or public export is created.
-- This composition adds no Adapter, shared schema Module, root export, or
-  duplicate validator. It adds only owner-local private validator siblings and
-  the named protected Authority Source Seam. Exact filenames and validator
-  names remain deferred to the accepted schema pass.
+- This composition adds no owner, shared schema Module, root export, or
+  duplicate validator. It adds private validator siblings and one owner-local
+  Canary Qualification Adapter under that Module's future `adapters/` path to
+  implement the Authority Source Seam. Exact filenames, validator names, and
+  Adapter call shape remain deferred to the accepted Interface pass.
 
 ### Ingress strictness and egress projection
 
@@ -382,14 +397,23 @@ channels and are not merged.
 
 ### Schema versions
 
-- Only explicit schema versions are supported. Each owner keeps the field
-  spelling its Interface already uses: `schema_version` on the facade wire
-  records, `schemaVersion` on the Maintenance and Qualification Evidence
-  envelopes. Unifying that spelling would change an Interface and is not
-  proposed here.
-- An unknown version value receives a structured refusal.
-- A newly supported version requires a separate owner-local schema and a
-  deliberate union. No automatic migration, upgrade, or fallback is accepted.
+- Only explicit schema versions are supported for Public Serialized Values.
+  The Maintenance-owned Wire Command carries `schemaVersion: 1`; that one
+  version governs its command discriminator and every nested Wire Fragment.
+  Plugin Payload Production, Release and Git Engine, Harness Journeys, and
+  Canary Qualification fragments do not gain independent version keys merely
+  because their validators participate in Maintenance composition.
+- A Wire Fragment is never interpreted without its enclosing Wire Command
+  version. If an owner-local value later crosses another Seam independently,
+  that new Public Serialized Value must earn its own explicit version carrier.
+- Existing egress values keep the field spelling their Interface already uses:
+  `schema_version` on Facade records and `schemaVersion` on Maintenance and
+  Qualification Evidence values. Unifying that spelling would change an
+  Interface and is not proposed here.
+- An unknown Wire Command or independently versioned value receives a
+  structured refusal. A newly supported version requires a separate schema and
+  deliberate union at the owner of that version carrier. No automatic
+  migration, upgrade, or fallback is accepted.
 
 ### Dependency Locality and Git-distributed resolution
 
@@ -558,7 +582,8 @@ test change is made. Neither is optional and neither is a formality.
    Result Code and Exit Family mapping; the `EvidenceCell` and Reduced Claim
    discriminated unions; `QualificationEvidence.reduce` returning
    `QualificationOutcome`; new Qualification Evidence accepted-subpath type
-   names; the unbranded Wire Command and trusted command-binding split; the
+   names; the Maintenance-owned versioned Wire Command, unversioned Wire
+   Fragments, and trusted command-binding split; the
    Canary Authority Source Seam and protected-file reference; nullable
    `NextAction.commandId`; private owner-local validator siblings and their
    installed inventory; the stderr `error` object version carriers; and the two
@@ -580,20 +605,25 @@ perturbation that must turn that group RED.
 
 1. **Owner-local schema contracts.** Owner: each of the seven Interface
    owners. Selector: that owner's admitted focused Contract Test script.
-   Proves one supported version parses, an unknown version is refused, an
-   extra declared envelope key is refused, a wrong field type is refused
+   Proves every owner fragment under Maintenance Wire Command version 1 and
+   every independently versioned owner value; an unknown enclosing or
+   independent version is refused; an extra declared envelope key is refused;
+   a wrong field type is refused
    without coercion or defaulting, no raw input or raw Zod detail escapes,
    invalid egress fails closed, the bidirectional equivalence assertion holds,
    the JSON round trip holds, and no cross-field vocabulary reconciliation
    occurs. The Maintenance selector additionally proves every JSON-backed
    command's unbranded Wire Command, exactly-once validator composition, one
-   trusted bind after successful Admission, candidate agreement, and the
-   impossibility of supplying either protected capability on the wire.
+   trusted bind after successful Admission, candidate agreement, inspected-plan
+   acceptance before authority resolution, and the impossibility of supplying
+   either protected capability on the wire.
    Perturbations: admit one extra key at strict ingress; enable one coercion;
    widen one template-literal schema to `string`; spell one optional key so it
    can carry `undefined`; leak raw validation detail into a refusal; accept a
    serialized `identity` or `authority`; bind a raw `CandidateIdentity`; bypass
-   or invoke one nested validator twice; or bind before Admission succeeds.
+   or invoke one nested validator twice; bind before Admission succeeds;
+   resolve authority before candidate agreement or inspected-plan acceptance;
+   or interpret a Wire Fragment without its enclosing version.
 2. **Evidence-state contracts.** Owner: Qualification Evidence. Selector:
    `bun run test:intentional-red:qualification-evidence`. Proves every
    accepted Evidence Cell and Reduced Claim variant, per-cell mismatch refusal
@@ -623,6 +653,8 @@ perturbation that must turn that group RED.
    package export, exact stdout, stderr, Exit Code, and redaction bytes. It also
    proves that `--authority <FILE>` passes only an opaque reference to the
    Canary Authority Source Seam and never parses file contents as authority.
+   The recording Adapter proves the fixed order `parse`, `candidate-agreement`,
+   `inspect`, `plan-acceptance`, `authority-resolution`, `bind`, `qualify`.
    Perturbations: remove Zod from the root Package Identity's production
    dependencies and require the production-only install to fail, which is the
    Locality control; make Admission Bootstrap resolve or import Zod and

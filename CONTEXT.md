@@ -438,13 +438,14 @@ observed without waiting for event delivery or settlement.
 _Avoid_: Delivery receipt, awaited transport
 
 **Public Serialized Value**:
-A versioned value crossing an untrusted ingress or serialized egress at an
-existing Interface. Its owner validates it once and holds exactly one runtime
-validator and exactly one declared TypeScript type, proved bidirectionally
-equivalent at compile time. `z.infer` is authoritative only where it reproduces
-the declared type exactly; where inference widens, the declared type stays
-authoritative for compile time and the validator stays authoritative for
-runtime.
+A version-controlled value crossing an untrusted ingress or serialized egress
+at an existing Interface. Its schema version is carried either by the value's
+own envelope or by the enclosing Wire Command under which a Wire Fragment is
+interpreted. Its owner validates it once and holds exactly one runtime validator
+and exactly one declared TypeScript type, proved bidirectionally equivalent at
+compile time. `z.infer` is authoritative only where it reproduces the declared
+type exactly; where inference widens, the declared type stays authoritative for
+compile time and the validator stays authoritative for runtime.
 _Avoid_: Internal typed value, shared schema package, inferred type as the sole
 source of truth
 
@@ -462,16 +463,25 @@ adds no duplicate validator or shared schema owner.
 _Avoid_: Schema duplication, Facade validation policy, shared schema Module
 
 **Wire Command**:
-An unbranded Public Serialized Value parsed from CLI or file input. It contains
-ordinary data only and can never carry Admitted Identity, Protected Canary
+A Maintenance-owned, explicitly versioned, unbranded Public Serialized Value
+assembled from CLI and file input. It contains ordinary data and owner-local
+Wire Fragments only, and can never carry Admitted Identity, Protected Canary
 Authority, or another protected capability.
 _Avoid_: Maintenance Command, serialized capability, typed command cast
 
+**Wire Fragment**:
+An unversioned owner-local component interpreted only inside one explicitly
+versioned Wire Command. Its governing Module owns its declared type and
+validator; it has no independent compatibility claim unless it later crosses a
+different Seam as its own Public Serialized Value.
+_Avoid_: Independent envelope, unversioned public contract, shared wire type
+
 **Trusted Command Binding**:
-The Maintenance Command Contract step that combines one successfully parsed
-Wire Command with the run's already-admitted identity and, where required, a
-protected capability obtained through its governing Seam. It verifies candidate
-agreement and is the only route to a capability-bearing Maintenance Command.
+The Maintenance Command Contract sequence that takes one successfully parsed
+Wire Command, proves candidate agreement with the run's already-admitted
+identity, proves trusted acceptance of the inspected plan, and only then obtains
+any protected capability through its governing Seam. It is the only route to a
+capability-bearing Maintenance Command.
 _Avoid_: Validation, branding parsed input, command hydration
 
 **Canary Authority Reference**:
@@ -481,9 +491,10 @@ Authority Source Seam and is never itself Protected Canary Authority.
 _Avoid_: Serialized authority, authority payload, authority JSON
 
 **Canary Authority Source**:
-The Canary Qualification Seam that resolves a Canary Authority Reference
-against a protected source and either refuses it or supplies Protected Canary
-Authority to Trusted Command Binding.
+The Canary Qualification Seam whose owner-local Adapter resolves a Canary
+Authority Reference against a protected source only after candidate agreement
+and inspected-plan acceptance, then either refuses it or supplies Protected
+Canary Authority to Trusted Command Binding.
 _Avoid_: Authority parser, caller-provided capability, Zod authority schema
 
 **Logical Record**:
