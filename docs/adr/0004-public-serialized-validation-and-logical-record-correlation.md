@@ -2,14 +2,14 @@
 status: proposed
 ---
 
-# Own Public Serialized Validation and Claim Only Transient Reconstruction
+# Own Public Serialized Validation and Logical Record Correlation
 
 This is a proposal for review, not an Accepted Decision. It records how the
 existing public TypeScript surfaces should own serialized-value validation,
 state correlation, and exhaustive handling, and what the Kit Repository may
-claim about rebuilding a run from observed records.
+claim about caller-captured records. It creates no reconstruction operation.
 
-It constrains three existing Interface owners and creates no new owner:
+It constrains seven existing Interface owners and creates no new owner:
 
 - `src/modules/maintenance-command-contract/interface.ts` owns command,
   result, failure, retry, transaction, Next Action, and Result Code meaning.
@@ -18,6 +18,14 @@ It constrains three existing Interface owners and creates no new owner:
   Interface.
 - `src/modules/qualification-evidence/interface.ts` owns Evidence Cell,
   Verification Profile, reduction, and Qualification Result meaning.
+- `src/modules/plugin-payload-production/interface.ts` owns payload request and
+  result meaning.
+- `src/modules/release-and-git-engine/interface.ts` owns repository, release,
+  package, workflow, candidate, request, and approval meaning.
+- `src/modules/harness-journeys/interface.ts` owns harness request, transition,
+  approval, inspection, and result meaning.
+- `src/modules/canary-qualification/interface.ts` owns canary candidate, plan,
+  authority, and result meaning.
 
 It contains no schema, no Implementation, and no test. It does two things a
 purely additive proposal cannot do, and both are stated as such below: it
@@ -120,31 +128,53 @@ manifest, schema, or test change is admitted.
 
 ### Validation ownership and placement
 
-- Each of the three owners above declares owner-local Zod schemas limited to
-  its own public serialized values. No fourth owner and no shared schema
+- Each of the seven owners above declares Owner-Local Validators limited to
+  its own Public Serialized Values. No eighth owner and no shared schema
   package is created.
 - Validation runs once at untrusted ingress and once at public serialized
   egress. Internal typed calls between owners are not revalidated.
 - Domain-only internal types remain ordinary TypeScript and gain no schema.
 - `src/interface.ts` stays type-only. It exports no schema and no runtime
   value, so the root export gains no runtime surface and no Zod import.
-- `./maintenance-command-contract` and `./qualification-evidence` are accepted
-  public subpaths that resolve directly to those two `interface.ts` files.
-  Any schema exported there is therefore versioned public subpath API with
+- `./plugin-payload-production`, `./release-and-git-engine`,
+  `./maintenance-command-contract`, `./harness-journeys`,
+  `./canary-qualification`, and `./qualification-evidence` are accepted public
+  subpaths that resolve directly to their owners' `interface.ts` files. Any
+  validator exported there is therefore versioned public subpath API with
   compatibility obligations, not an owner-private helper. The current exports
-  map admits no way to publish an owner's schema on one of those files while
+  map admits no way to publish an owner's validator on one of those files while
   keeping it private, so this decision accepts the public consequence rather
-  than pretending it away. The exact exported schema names are selected in the
-  accepted schema pass and must be added to the accepted subpath type-export
-  catalog in
+  than pretending it away. The exact exported validator names are selected in
+  the accepted schema pass and must be added to the accepted subpath
+  type-export catalog in
   `clean-fixture/personal-verification-profile/contract-tests/fixtures/plugin-consumer.ts`.
 - The Maintenance Command Facade Adapter Interface stays outside root exports
   under ADR 0002, and
   `clean-fixture/verify-intentional-red-contract.ts` statically rejects an
   eleventh root export. Facade schemas are therefore owner-private and add no
   caller surface.
-- Publishing schemas on the two accepted subpaths adds no new export entry.
+- Publishing validators on the six accepted subpaths adds no new export entry.
   The nine public subpaths and the ten-entry exports map are unchanged.
+
+### Nested command validation composition
+
+- The Maintenance Command Facade Adapter parses argv, file-location, stdin,
+  environment, and envelope syntax. JSON loaded by the facade enters as
+  `unknown`; the facade owns no nested Module meaning.
+- Maintenance Command Contract composes its Command Vocabulary discriminator
+  with the Owner-Local Validators exported by Plugin Payload Production,
+  Release and Git Engine, Harness Journeys, and Canary Qualification.
+- Each governing Module validates only the nested Public Serialized Values it
+  owns. Maintenance reuses those validators and does not copy their shape.
+  The facade does not duplicate the validation, and downstream typed calls do
+  not revalidate the trusted value.
+- Structural validation cannot manufacture `AdmittedIdentity`,
+  `ProtectedCanaryAuthority`, or another protected authority. The governing
+  owner admits or brands a structurally valid value through its existing
+  authority Seam.
+- This composition adds no Adapter, shared schema Module, internal path, root
+  export, or duplicate validator. Exact validator names remain deferred to the
+  accepted schema pass.
 
 ### Ingress strictness and egress projection
 
@@ -246,34 +276,66 @@ channels and are not merged.
   cell, and a mixed unresolved set. The exact code tokens are selected in the
   accepted schema pass. There is no code for status and observable mismatch,
   because that case is refused earlier by the two mechanisms above.
-- When a Qualification refusal crosses the public process, the facade maps it
-  to an existing Result Code and Exit Family. The mapping lives with the
-  facade; the refusal meaning stays with Qualification Evidence.
+- When a Qualification refusal crosses the public process, Maintenance Command
+  Contract owns the mapping from each Qualification Refusal Code to an existing
+  Result Code and Exit Family. Result Code and Exit Family are its sealed
+  Result Vocabulary, already declared in
+  `src/modules/maintenance-command-contract/result-vocabulary.ts`, and the
+  Maintenance Command Facade Adapter owns envelopes and parsing but no command
+  or result policy. Placing the mapping at the facade would give an Adapter a
+  result-policy decision its Interface does not own.
+- The refusal meaning stays with Qualification Evidence. The facade projects
+  the already-mapped outcome into the versioned envelope and selects nothing.
+- Declaring that mapping is a Maintenance Command Contract Interface and Result
+  Vocabulary change. It is named here and gated: it is not authorized by this
+  proposal, and it routes through the respecified Verification Transition
+  Contract named below, like every other count or surface change.
 
 ### Failure Class ownership
 
-- The closed agent-facing Failure Class vocabulary has seven values. Six of
-  them, `usage`, `refusal`, `transient`, `continuation`, `recovery`, and
-  `unexpected`, are owned by Maintenance Command Contract and are the only
-  values a `MaintenanceError` may carry.
-- The seventh value, `event_delivery`, is owned by the Maintenance Command
-  Facade Adapter. It exists only on `DiagnosticRecord.failure_class` and
-  `EventRecord.failure_class`, it names Event Adapter refusal, and no
-  `MaintenanceError` carries it. No other Adapter adds a value.
-- This reconciles the executable source with root `CONTEXT.md`, which is
-  corrected in the same change. It is the honest reading of
-  `src/modules/maintenance-command-contract/interface.ts`, whose `FailureClass`
-  union has six members, and
-  `src/adapters/maintenance-command-facade/interface.ts`, whose
-  `ObservableFailureClass` adds the seventh.
-- Counter-evidence is recorded rather than suppressed. The help discovery
-  payload published under `contract_id`
-  `agent-plugin-kit.maintenance-command-result` already lists a Next Action
-  whose `failure_class` is `event_delivery`, which is Maintenance-owned
-  discovery content carrying a facade-owned value. If an accepted domain
-  review decides that payload proves Maintenance ownership, the seventh value
-  moves into the owner union and this decision is amended. Nothing here
-  depends on that outcome.
+- The closed agent-facing Failure Class vocabulary has seven values and
+  Maintenance Command Contract owns all seven. Ownership is decided here rather
+  than left contested, because a vocabulary with two candidate owners has no
+  owner.
+- Six of them, `usage`, `refusal`, `transient`, `continuation`, `recovery`, and
+  `unexpected`, are the primary meanings and are the only values a
+  `MaintenanceError` may carry.
+- The seventh value, `event_delivery`, is observation-only. It names Event
+  Adapter refusal, exists only on `DiagnosticRecord.failure_class` and
+  `EventRecord.failure_class`, and is carried by no `MaintenanceError`. The
+  Maintenance Command Facade Adapter projects it onto those records and owns
+  neither the token nor its meaning. No Adapter adds a value.
+- The deciding evidence is Maintenance-owned executable source, not a
+  preference. `src/modules/maintenance-command-contract/result-vocabulary.ts`
+  already publishes the Next Action `events.inspect-configuration` with
+  `failureClass: "event_delivery"` inside `failureNextActionProjection`, and
+  that projection is exactly what the help discovery payload under
+  `contract_id` `agent-plugin-kit.maintenance-command-result` serializes as a
+  `next_actions` row. A Result Vocabulary value that Maintenance already
+  declares and publishes cannot be owned by the Adapter that renders it. That
+  makes Maintenance Command Contract the deepest single owner, and it dissolves
+  the earlier reading of that payload as counter-evidence.
+- One declaration site disagrees with this ownership today, and the required
+  Interface amendment is named rather than assumed.
+  `src/adapters/maintenance-command-facade/interface.ts` declares
+  `type ObservableFailureClass = MaintenanceError["failureClass"] | "event_delivery"`,
+  which adds the seventh value at the Adapter. At Implementation admission,
+  `src/modules/maintenance-command-contract/interface.ts` declares the sealed
+  seven-value Failure Class vocabulary together with the six-value subset that
+  `MaintenanceError` carries; `ObservableFailureClass` becomes an alias for the
+  Maintenance-owned seven-value vocabulary and adds nothing of its own; and the
+  appended literal row in `failureNextActionProjection` is typed by that
+  vocabulary rather than by a bare string literal.
+- That amendment is gated, not authorized here. It changes a Module Interface,
+  so it routes through the respecified Verification Transition Contract named
+  below. Whether the seven-value vocabulary is exported by name on the accepted
+  `./maintenance-command-contract` subpath, which would add that name to the
+  accepted subpath type-export catalog in
+  `clean-fixture/personal-verification-profile/contract-tests/fixtures/plugin-consumer.ts`,
+  or is reached through an indexed access on an already-exported type, is a
+  deferred naming choice made in the accepted schema pass.
+- Root `CONTEXT.md` and `CONTEXT-MAP.md` record this single owner in the same
+  change as this proposal.
 
 ### Field-scoped vocabulary reading
 
@@ -331,20 +393,19 @@ question, because the resolution facts are already knowable.
   the respecified Verification Transition Contract named below, not a promise
   made by this decision.
 
-### Transient reconstruction
+### Logical Record Correlation
 
-- The Kit claims only transient within-run reconstruction from records the
-  caller already captured. No positive replayable property is introduced.
-- The Maintenance Command Facade Adapter Interface owns this wire-level
-  semantic because it already owns Diagnostic Record and Event Record. It
-  creates no root TypeScript export and no retained reconstruction service.
-  An independent caller or Contract Test may reduce captured public records;
-  the production Kit need not expose a reconstruction function.
-- Reconstruction is one call over one caller-supplied set of records. It takes
-  the complete set the caller captured, returns one ordered interpretation,
-  and keeps nothing between calls. There is no session, no accumulation across
-  calls, and no incremental feed.
-- Reconstruction orders only observed records. `sequence` is unique and
+- The Kit claims only the within-run correlation invariants carried by records
+  the caller already captured. No replayable or reconstruction property is
+  introduced.
+- The Maintenance Command Facade Adapter Interface owns these wire-level
+  invariants because it already owns Diagnostic Record and Event Record. It
+  creates no reconstruction operation, reducer, root TypeScript export, or
+  retained state owner.
+- Callers and Contract Tests inspect caller-captured records directly. A
+  test-owned reducer is not production proof and cannot become the contract
+  surface.
+- Correlation orders only observed records. `sequence` is unique and
   monotonic for each distinct Logical Record within one `run_id`, across both
   Diagnostic Records and Event Records. Two distinct Logical Records cannot
   share a sequence within one run.
@@ -371,19 +432,19 @@ question, because the resolution facts are already knowable.
 - The primary command envelope owns terminal outcome. Event Acceptance
   reports only the synchronous result of `EventAdapter.accept` and supplies
   no delivery, settlement, terminal-outcome, or completeness claim.
-- Reconstruction claims no completeness. A reconstructed run is an
-  interpretation of what the caller captured, never proof that the capture was
-  whole.
+- Logical Record Correlation claims no completeness. A caller-captured record
+  set is evidence only of what the caller captured, never proof that the
+  capture was whole.
 - `sequence` alone determines within-run ordering. Identifiers are opaque and
   timestamps are observational; neither orders a run.
 - The Maintenance Command Facade Adapter Interface owns future injected time
   and identifier Seams for deterministic record production under proof. The
   existing `EventDeliveryClock` is a delay clock, not a time source. Exact
   Seam names and shapes remain deferred; neither becomes a root export.
-- Reconstruction is a pure operation over caller-supplied, already-redacted
-  in-memory records. The Kit retains no reconstruction state, existing
-  streams and sinks remain caller-owned, and persisted retention is zero
-  days. There is no persistent replay of any kind.
+- The Kit retains no correlation state beyond producing each already-redacted
+  record. Existing streams and sinks remain caller-owned, and persisted
+  retention is zero days. There is no reconstruction or persistent replay of
+  any kind.
 
 ### Event identity
 
@@ -430,7 +491,7 @@ This proposal claims none of the following, at any Proof Layer:
   transport outcome
 - deduplication or exactly-once behaviour
 - effect idempotency in general, for events and for commands alike
-- completeness of any observed or reconstructed record set
+- completeness of any caller-captured record set
 - retained state, durable queue, persistent telemetry, or analytics
 - raw production event or log storage
 - cross-run equality or ordering of identifiers or timestamps
@@ -458,7 +519,10 @@ test change is made. Neither is optional and neither is a formality.
    Contract
    Tests, or adding an exact-version agreement check each require that
    contract to be re-scoped in the same reviewed checkpoint, which is what its
-   own first-GREEN transition rule already demands.
+   own first-GREEN transition rule already demands. The two Interface
+   amendments named by this decision, the Maintenance-owned Failure Class
+   vocabulary and the Maintenance-owned Qualification Refusal Code to Result
+   Code and Exit Family mapping, are re-scoped in that same checkpoint.
 2. A matching respecification of the accepted P3 Full Test Design's
    Qualification Evidence brief. That brief pins the reducer as the place
    where a cell is validated without trusting `assertedStatus`, and pins the
@@ -473,8 +537,8 @@ Implementation admission requires four independently observable proof groups.
 Each names its owner, its focused selector, and at least one disposable
 perturbation that must turn that group RED.
 
-1. **Owner-local schema contracts.** Owner: each of the three Interface
-   owners. Selector: that owner's existing focused Contract Test script.
+1. **Owner-local schema contracts.** Owner: each of the seven Interface
+   owners. Selector: that owner's admitted focused Contract Test script.
    Proves one supported version parses, an unknown version is refused, an
    extra declared envelope key is refused, a wrong field type is refused
    without coercion or defaulting, no raw input or raw Zod detail escapes,
@@ -491,16 +555,18 @@ perturbation that must turn that group RED.
    forbidden observable; give a skip cell a Proof Layer; accept a zero-cell
    claim instead of refusing it; accept an out-of-profile claim; let a
    resolving cell resolve from an incomparable Proof Layer.
-3. **Transient reconstruction contracts.** Owner: Maintenance Command Facade
+3. **Logical Record Correlation contracts.** Owner: Maintenance Command Facade
    Adapter. Selector:
    `bun run test:intentional-red:maintenance-cli:observability`. Proves one
    shared within-run sequence space, gaps remaining gaps, duplicate
-   observations preserving identity and sequence, one-call reconstruction with
-   no retained state, terminal outcome only from the primary envelope, and an
-   independently observable redaction step order. Perturbations: sort by
+   observations preserving identity and sequence, terminal outcome only from
+   the primary envelope, no reconstruction operation or retained state owner,
+   and an independently observable redaction step order. Tests invoke the
+   Facade and inspect the records they capture directly. Perturbations: sort by
    timestamp; infer a missing record; renumber sequence at `reset()`; convert
    a retry into a second Logical Record; treat Event Acceptance as terminal;
-   derive ordering from `event_id`.
+   derive ordering from `event_id`; substitute a test-owned reducer for direct
+   Facade evidence.
 4. **Public-process and Clean Fixture contracts.** Owner: Clean Fixture, with
    the facade for stream and envelope bytes. Selector:
    `bun run test:intentional-red:clean-fixture` together with
@@ -515,9 +581,9 @@ perturbation that must turn that group RED.
    between the root manifest and one Owner Manifest.
 
 That gate proves serialized-value validation, discriminated public state, and
-transient reconstruction. It proves neither durable replay nor delivery. Every
-path above stays absent until its owning gate under the intentional RED rule
-in `AGENTS.md`.
+Logical Record Correlation. It proves neither reconstruction, durable replay,
+nor delivery. Every path above stays absent until its owning gate under the
+intentional RED rule in `AGENTS.md`.
 
 One existing defect must be repaired inside group 3 rather than carried
 forward: the current redaction Contract Test asserts `redactionContract.order`
@@ -573,8 +639,11 @@ Recorded so that acceptance is informed rather than optimistic:
   not contradict, but the Non-Claim's wording must be reread at acceptance.
 - Parse cost and startup weight at the Admission-adjacent binary are
   unmeasured.
-- Whether `event_delivery` belongs to the facade or to Maintenance Command
-  Contract remains contested by the help discovery payload noted above.
+- Failure Class ownership is decided but not yet expressed in source. Until the
+  named Interface amendment is admitted,
+  `src/adapters/maintenance-command-facade/interface.ts` still declares
+  `event_delivery` locally, so the executable source and this decision disagree
+  on the declaration site while agreeing on the owner.
 
 ## Deferred choices
 
@@ -583,10 +652,13 @@ Named and deliberately unresolved:
 - the exact Zod 4 version string, pinned identically in every declaring
   manifest at Implementation admission
 - the exact Qualification Refusal Code tokens
+- the exact Result Code and Exit Family each Qualification Refusal Code maps to
+- the exact Maintenance-owned Failure Class vocabulary type name, and whether
+  it is exported on the accepted `./maintenance-command-contract` subpath or
+  reached through an indexed access
 - the exact `unknown` sub-discriminator key and its two tokens
-- the exact schema export names added to the accepted subpath catalog
+- the exact validator export names added to the accepted subpath catalog
 - the exact injected time and identifier Seam names and shapes
-- any owner-local reconstruction input or result type names
 - the reviewed `agent` payload version-key spelling
 - downstream GitHub Issue dependency and status changes
 - schema, test, manifest, dependency, and lockfile Implementation
@@ -596,8 +668,9 @@ Named and deliberately unresolved:
 - Validation, TypeScript type ownership, and refusal meaning stay with the
   Module or Adapter that already owns the serialized value. Ownership remains
   deep and singular, and orchestration owns no tool contract.
-- Transient Reconstruction stays a Facade wire-contract property, not a new
-  Module, service, root export, queue, or retained state owner.
+- Logical Record Correlation stays a Facade wire-contract property. It is not a
+  reconstruction operation, Module, service, reducer, root export, queue, or
+  retained state owner.
 - A serialized value has one runtime validator and one declared type, proved
   equivalent at compile time, so no second type source appears and no declared
   type is silently widened.
@@ -609,8 +682,16 @@ Named and deliberately unresolved:
 - ADR 0003's Verification Transition Contract must be respecified before the
   first manifest, schema, or test change, and the accepted P3 Qualification
   Evidence brief must be respecified with it.
-- Root `CONTEXT.md` records the corrected Failure Class ownership in the same
-  change as this proposal.
+- Qualification Refusal Code to Result Code and Exit Family mapping stays with
+  Maintenance Command Contract, so the Maintenance Command Facade Adapter gains
+  no result policy and keeps projecting only what an owner already decided.
+- Failure Class has one owner. Maintenance Command Contract owns all seven
+  values; the facade declaration site is amended at Implementation admission
+  rather than left as a second owner.
+- Root `CONTEXT.md` and `CONTEXT-MAP.md` record the corrected Failure Class
+  ownership, the Maintenance-owned refusal mapping, and the one-validator,
+  one-declared-type Public Serialized Value rule in the same change as this
+  proposal.
 - At acceptance, the Accepted Decision index in
   [`docs/agents/domain.md`](../agents/domain.md) gains the ADR 0004 row.
   [`docs/agents/README.md`](../agents/README.md) indexes agent documents

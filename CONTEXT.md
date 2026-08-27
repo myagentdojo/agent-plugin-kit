@@ -413,14 +413,15 @@ Non-Claim.
 _Avoid_: Unreachable branch, omitted branch
 
 **Failure Class**:
-The closed agent-facing failure vocabulary of seven values. Maintenance Command
-Contract owns the six primary meanings `usage`, `refusal`, `transient`,
-`continuation`, `recovery`, and `unexpected`, which are the only values a
-Maintenance Error carries. The Maintenance Command Facade Adapter owns exactly
-one observation-only value, `event_delivery`, for Event Adapter refusal on a
-Diagnostic Record or Event Record. No Maintenance Error carries it and no other
-Adapter adds a value.
-_Avoid_: Exit Family, error message, a second Adapter-owned failure class
+The closed agent-facing failure vocabulary of seven values, owned entirely by
+Maintenance Command Contract. Six are primary meanings, `usage`, `refusal`,
+`transient`, `continuation`, `recovery`, and `unexpected`, and are the only
+values a Maintenance Error carries. The seventh, `event_delivery`, is
+observation-only: it names Event Adapter refusal, appears only on a Diagnostic
+Record or Event Record, and is carried by no Maintenance Error. The Maintenance
+Command Facade Adapter projects Failure Class onto those records and owns no
+value. No Adapter adds a value.
+_Avoid_: Exit Family, error message, an Adapter-owned failure class
 
 **Diagnostic Record**:
 The closed redacted stderr projection accepted by the Diagnostic Adapter Seam.
@@ -438,9 +439,26 @@ _Avoid_: Delivery receipt, awaited transport
 
 **Public Serialized Value**:
 A versioned value crossing an untrusted ingress or serialized egress at an
-existing Interface. Its owner validates it once and owns both its schema and
-derived TypeScript type.
-_Avoid_: Internal typed value, shared schema package
+existing Interface. Its owner validates it once and holds exactly one runtime
+validator and exactly one declared TypeScript type, proved bidirectionally
+equivalent at compile time. `z.infer` is authoritative only where it reproduces
+the declared type exactly; where inference widens, the declared type stays
+authoritative for compile time and the validator stays authoritative for
+runtime.
+_Avoid_: Internal typed value, shared schema package, inferred type as the sole
+source of truth
+
+**Owner-Local Validator**:
+The runtime validator exported by the same Interface that owns a Public
+Serialized Value. It narrows an `unknown` value once without moving domain
+meaning into a caller, Adapter, or shared schema owner.
+_Avoid_: Validation helper, central schema registry, caller-owned schema
+
+**Validation Composition**:
+The reuse of governing Owner-Local Validators when one public value contains
+values owned by other Modules. Composition preserves each owner's meaning and
+adds no duplicate validator or new Seam.
+_Avoid_: Schema duplication, Facade validation policy, shared schema Module
 
 **Logical Record**:
 One Diagnostic Record or Event Record assigned a sequence within a run. A
@@ -448,11 +466,13 @@ repeated observation with the same logical identity and sequence is a
 duplicate observation, not a second Logical Record.
 _Avoid_: Delivery attempt, log line
 
-**Transient Reconstruction**:
-The pure interpretation of caller-captured, already-redacted Logical Records
-within one run. It retains no Kit state and makes no durable replay,
-completeness, delivery, or cross-run ordering claim.
-_Avoid_: Replay, retained event store
+**Logical Record Correlation**:
+The Facade-owned ordering, identity, gap, duplicate, and terminal-outcome
+invariants carried by caller-captured Diagnostic Records and Event Records
+within one run. Callers judge those records directly; the Kit exposes no
+reconstruction operation and claims no replay, completeness, delivery, or
+cross-run ordering.
+_Avoid_: Transient Reconstruction, replay, retained event store, record reducer
 
 **Facade Envelope Version**:
 The independently incremented version of the public process envelope.
