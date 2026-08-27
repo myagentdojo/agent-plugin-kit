@@ -354,6 +354,15 @@ test("classifies every documented operational native exit and preserves evidence
   expect(stderrOnly.envelope.fallow).toBeNull()
   const mismatch = await runScenario({ exitCode: 3, stdout: { error: true, message: "network", exit_code: 4 } })
   expectReason(mismatch, "native-exit-mismatch", "error", 2)
+  const baseShapedMismatch = await runScenario({
+    exitCode: 2,
+    stdout: {
+      error: true,
+      message: "could not determine changed files for base ref 'missing'. Verify the ref exists",
+      exit_code: 3,
+    },
+  })
+  expectReason(baseShapedMismatch, "native-exit-mismatch", "error", 2)
   const undocumented = await runScenario({ exitCode: 9, stdout: { error: true, message: "unknown", exit_code: 9 } })
   expectReason(undocumented, "native-exit-undocumented", "error", 2)
 }, 20_000)
@@ -485,6 +494,7 @@ test("keeps handled process output pure, bounded, redacted, and repairable", asy
     "0: 0x0123 - /opt/fallow/bin/fallow",
     "Windows source [C:\\Program Files\\Fallow\\runner.ts:9:3]",
     "UNC source \\\\server\\shared folder\\runner.ts:4:2",
+    "Authorization: Bearer bearer-super-secret",
   ].join("\n")
   const result = await runScenario({
     exitCode: 3,
@@ -499,6 +509,7 @@ test("keeps handled process output pure, bounded, redacted, and repairable", asy
   expect(diagnostic).not.toMatch(/(?:\b[A-Za-z]:\\|\\\\)/)
   expect(diagnostic).not.toMatch(/(?:^|\n)\s*(?:at\s|stack backtrace:|\d+:\s+0x)/i)
   expect(diagnostic).not.toContain("super-secret")
+  expect(diagnostic).not.toContain("bearer-super-secret")
   expect(String(result.envelope.repair_hint)).not.toMatch(/\b(?:bun|npm|git|fallow)\s/)
 })
 

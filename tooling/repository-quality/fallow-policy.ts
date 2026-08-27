@@ -123,6 +123,7 @@ function sanitizeDiagnostic(input: string): string | null {
   )
   const withoutStackTrace = stripStackTrace(withoutTerminalEscapes)
   const withoutCredentials = withoutStackTrace
+    .replace(/\bauthorization\s*[:=]\s*(?:bearer|basic|digest|token)?\s*[^\r\n]*/gi, "authorization=<redacted>")
     .replace(/\b(authorization|password|secret|token|api[_-]?key)\s*[:=]\s*\S+/gi, "$1=<redacted>")
     .replace(/https?:\/\/[^\s/@]+:[^\s/@]+@/gi, "https://<redacted>@")
   const withoutAbsolutePaths = withoutCredentials
@@ -391,9 +392,16 @@ function classifyNativeErrorPrecedence(
   context: NativeEnvelopeContext,
 ): ReasonCode | null {
   if ([context.nativeExit, evidence.declaredExit].some(isPolicyOutcomeExit)) return "native-output-schema-mismatch"
-  if (context.nativeExit === 2 && isComparisonBaseError(evidence.document, context.nativeStderr)) {
-    return "comparison-base-unavailable"
-  }
+  return classifyExitTwoPrecedence(evidence, context)
+}
+
+function classifyExitTwoPrecedence(
+  evidence: Extract<NativeEvidence, { kind: "error" }>,
+  context: NativeEnvelopeContext,
+): ReasonCode | null {
+  if (context.nativeExit !== 2) return null
+  if (evidence.declaredExit !== context.nativeExit) return "native-exit-mismatch"
+  if (isComparisonBaseError(evidence.document, context.nativeStderr)) return "comparison-base-unavailable"
   return null
 }
 
