@@ -464,9 +464,10 @@ _Avoid_: Schema duplication, Facade validation policy, shared schema Module
 
 **Wire Command**:
 A Maintenance-owned, explicitly versioned, unbranded Public Serialized Value
-assembled from CLI and file input. It contains ordinary data and owner-local
-Wire Fragments only, and can never carry Admitted Identity, Protected Canary
-Authority, or another protected capability.
+assembled from CLI and file input. It contains ordinary data, owner-local Wire
+Fragments, and explicitly enumerated Nested Public Serialized Values, and can
+never carry Admitted Identity, Protected Canary Authority, or another protected
+capability.
 _Avoid_: Maintenance Command, serialized capability, typed command cast
 
 **Wire Fragment**:
@@ -475,6 +476,12 @@ versioned Wire Command. Its governing Module owns its declared type and
 validator; it has no independent compatibility claim unless it later crosses a
 different Seam as its own Public Serialized Value.
 _Avoid_: Independent envelope, unversioned public contract, shared wire type
+
+**Nested Public Serialized Value**:
+A value with its own schema-version carrier embedded inside another versioned
+Public Serialized Value. The enclosing and nested versions are validated
+independently and their accepted combinations are explicit.
+_Avoid_: Wire Fragment, inherited version, implicit compatibility
 
 **Trusted Command Binding**:
 The Maintenance Command Contract sequence that takes one successfully parsed

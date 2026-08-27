@@ -183,13 +183,16 @@ manifest, schema, or test change is admitted.
   `ProtectedCanaryAuthority`, or another protected capability. Maintenance
   Command Contract therefore owns one explicitly versioned, unbranded Wire
   Command union. Each command variant contains only ordinary data and
-  unversioned owner-local Wire Fragments. A successful parse yields that Wire
-  Command, never a capability-bearing `MaintenanceCommand`.
+  unversioned owner-local Wire Fragments plus the existing explicitly
+  versioned approval values enumerated below. A successful parse yields that
+  Wire Command, never a capability-bearing `MaintenanceCommand`.
 - The Facade loads each command-specific file as `unknown`, assembles one
   `schemaVersion`-carrying Wire Command candidate from argv and those unknown
   fragments, and passes that candidate to Maintenance validation. It does not
-  interpret a fragment independently. Maintenance selects the command version
-  and discriminator, then composes each governing owner validator exactly once.
+  interpret a fragment or approval independently. Maintenance selects the outer
+  command version and discriminator first, then composes each governing owner
+  validator exactly once. An unrecognized outer version is refused before any
+  nested parse.
 - Admission Bootstrap runs before any Kit Repository Implementation executes.
   Maintenance Command Contract owns one trusted command-binding step that
   attaches the run's `AdmittedIdentity` to an admitted harness Wire Command.
@@ -403,9 +406,21 @@ channels and are not merged.
   Plugin Payload Production, Release and Git Engine, Harness Journeys, and
   Canary Qualification fragments do not gain independent version keys merely
   because their validators participate in Maintenance composition.
+- Three existing approval documents remain independently versioned Nested
+  Public Serialized Values: `ReleaseCandidateApproval`,
+  `ClaudeTransitionApproval`, and `CodexTransitionApproval`, each with its
+  current owner-required `schemaVersion: 1`. Their accepted CLI files keep that
+  field. Wire Command version 1 explicitly accepts only approval version 1.
+- Outer and nested version failures are distinct. An unknown Wire Command
+  version is a Maintenance-owned structured refusal before nested validation.
+  Under recognized Wire Command version 1, an unknown approval version is an
+  owner-mapped nested-value refusal composed by Maintenance. Neither failure
+  triggers migration, fallback, trusted binding, inspection, or effects.
 - A Wire Fragment is never interpreted without its enclosing Wire Command
-  version. If an owner-local value later crosses another Seam independently,
-  that new Public Serialized Value must earn its own explicit version carrier.
+  version. A Nested Public Serialized Value is never treated as a Wire Fragment
+  and retains its independent carrier. If another owner-local value later
+  crosses a different Seam independently, that new Public Serialized Value must
+  earn its own explicit version carrier.
 - Existing egress values keep the field spelling their Interface already uses:
   `schema_version` on Facade records and `schemaVersion` on Maintenance and
   Qualification Evidence values. Unifying that spelling would change an
@@ -583,7 +598,8 @@ test change is made. Neither is optional and neither is a formality.
    discriminated unions; `QualificationEvidence.reduce` returning
    `QualificationOutcome`; new Qualification Evidence accepted-subpath type
    names; the Maintenance-owned versioned Wire Command, unversioned Wire
-   Fragments, and trusted command-binding split; the
+   Fragments, retained independently versioned approval inputs, explicit
+   outer-versus-inner version compatibility, and trusted command-binding split; the
    Canary Authority Source Seam and protected-file reference; nullable
    `NextAction.commandId`; private owner-local validator siblings and their
    installed inventory; the stderr `error` object version carriers; and the two
@@ -606,8 +622,11 @@ perturbation that must turn that group RED.
 1. **Owner-local schema contracts.** Owner: each of the seven Interface
    owners. Selector: that owner's admitted focused Contract Test script.
    Proves every owner fragment under Maintenance Wire Command version 1 and
-   every independently versioned owner value; an unknown enclosing or
-   independent version is refused; an extra declared envelope key is refused;
+   every independently versioned owner value; all three version-1 approvals are
+   accepted only under the explicit version-1 outer variants; an unknown outer
+   version is refused before nested parsing; an unknown nested approval version
+   under recognized outer version 1 receives the governing owner-mapped refusal;
+   an extra declared envelope key is refused;
    a wrong field type is refused
    without coercion or defaulting, no raw input or raw Zod detail escapes,
    invalid egress fails closed, the bidirectional equivalence assertion holds,
@@ -623,7 +642,9 @@ perturbation that must turn that group RED.
    serialized `identity` or `authority`; bind a raw `CandidateIdentity`; bypass
    or invoke one nested validator twice; bind before Admission succeeds;
    resolve authority before candidate agreement or inspected-plan acceptance;
-   or interpret a Wire Fragment without its enclosing version.
+   interpret a Wire Fragment without its enclosing version; strip an existing
+   approval version; accept an approval version not listed for outer version 1;
+   or inspect a nested value before refusing an unknown outer version.
 2. **Evidence-state contracts.** Owner: Qualification Evidence. Selector:
    `bun run test:intentional-red:qualification-evidence`. Proves every
    accepted Evidence Cell and Reduced Claim variant, per-cell mismatch refusal
