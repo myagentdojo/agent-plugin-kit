@@ -105,18 +105,29 @@ function isInlineBaseRef(argument: string): boolean {
   return argument.startsWith("--changed-since=")
 }
 
+const stackTraceLinePatterns = [/^\s*at\s/i, /^\s*stack backtrace:/i, /^\s*\d+:\s+0x[0-9a-f]+\b/i]
+
+function isDiagnosticMessageLine(line: string): boolean {
+  return !stackTraceLinePatterns.some((pattern) => pattern.test(line))
+}
+
+function stripStackTrace(input: string): string {
+  return input.split("\n").filter(isDiagnosticMessageLine).join("\n")
+}
+
 function sanitizeDiagnostic(input: string): string | null {
   const ansiEscape = String.fromCharCode(27)
   const withoutTerminalEscapes = input.replaceAll(
     new RegExp(`${ansiEscape}\\[[0-?]*[ -/]*[@-~]`, "g"),
     "",
   )
-  const withoutCredentials = withoutTerminalEscapes
+  const withoutStackTrace = stripStackTrace(withoutTerminalEscapes)
+  const withoutCredentials = withoutStackTrace
     .replace(/\b(authorization|password|secret|token|api[_-]?key)\s*[:=]\s*\S+/gi, "$1=<redacted>")
     .replace(/https?:\/\/[^\s/@]+:[^\s/@]+@/gi, "https://<redacted>@")
   const withoutAbsolutePaths = withoutCredentials
     .replace(/\b[A-Za-z]:\\[^\s"'`,;:)]+/g, "<redacted-path>")
-    .replace(/\/(?:Users|home|private|tmp|var|Volumes|opt|etc)(?:\/[^\s"'`,;:)]+)+/g, "<redacted-path>")
+    .replace(/(^|[\s("'=:])\/(?:[^/\s"'`,;:()]+\/)*[^/\s"'`,;:()]*/gm, "$1<redacted-path>")
   const bounded = withoutAbsolutePaths.trim().slice(0, 1_000)
   return bounded.length === 0 ? null : bounded
 }

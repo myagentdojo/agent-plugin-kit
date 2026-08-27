@@ -34,6 +34,25 @@ const zeroAttribution = {
   styling_inherited: 0,
 }
 
+const expectedReasonCodes = [
+  "policy-accepted",
+  "introduced-findings",
+  "native-fail-verdict",
+  "comparison-base-required",
+  "comparison-base-unavailable",
+  "local-fallow-missing",
+  "fallow-version-mismatch",
+  "native-launch-failed",
+  "native-output-missing",
+  "native-output-not-json",
+  "native-output-schema-mismatch",
+  "type-aware-incomplete",
+  "native-exit-mismatch",
+  "native-operational-error",
+  "native-exit-undocumented",
+  "internal-error",
+] as const
+
 function successDocument(verdict: "pass" | "warn" | "fail" = "pass"): JsonRecord {
   return {
     kind: "audit",
@@ -358,7 +377,26 @@ test("includes an untracked TypeScript source in the real new-only audit", async
 })
 
 test("keeps handled process output pure, bounded, redacted, and repairable", async () => {
-  const hostile = `\u001b[31mfailed\u001b[0m at /Users/example/private/file token=super-secret ${"x".repeat(2_000)}`
+  const policySource = await readFile(policySourcePath, "utf8")
+  const reasonCodeDeclaration = policySource.match(/type ReasonCode =([\s\S]*?)\n\ntype JsonRecord/)?.[1] ?? ""
+  const declaredReasonCodes = [...reasonCodeDeclaration.matchAll(/"([^"]+)"/g)].map((match) => match[1]).sort()
+  expect(declaredReasonCodes).toEqual([...expectedReasonCodes].sort())
+
+  const launchFailure = await runScenario(
+    { exitCode: 0, stdout: successDocument() },
+    { executable: "directory" },
+  )
+  expectReason(launchFailure, "native-launch-failed", "error", 2)
+  const missingOutput = await runScenario({ exitCode: 0 })
+  expectReason(missingOutput, "native-output-missing", "error", 2)
+
+  const hostile = [
+    `\u001b[31mfailed\u001b[0m at /custom/root/private/file token=super-secret ${"x".repeat(2_000)}`,
+    "    at run (/usr/local/lib/runner.ts:42:1)",
+    "    at async /Library/Application Support/Fallow/worker.js:8:2",
+    "0: 0x0123 - /opt/fallow/bin/fallow",
+    "Windows source C:\\private\\fallow\\runner.ts:9:3",
+  ].join("\n")
   const result = await runScenario({
     exitCode: 3,
     stdout: { error: true, message: "resource failure", exit_code: 3 },
@@ -368,7 +406,9 @@ test("keeps handled process output pure, bounded, redacted, and repairable", asy
   const diagnostic = String(result.envelope.native_stderr)
   expect(diagnostic.length).toBeLessThanOrEqual(1_000)
   expect(diagnostic).not.toContain("\u001b")
-  expect(diagnostic).not.toContain("/Users/example")
+  expect(diagnostic).not.toMatch(/\/(?:[^/\s]+\/)+[^\s]+/)
+  expect(diagnostic).not.toMatch(/\b[A-Za-z]:\\/)
+  expect(diagnostic).not.toMatch(/(?:^|\n)\s*(?:at\s|stack backtrace:|\d+:\s+0x)/i)
   expect(diagnostic).not.toContain("super-secret")
   expect(String(result.envelope.repair_hint)).not.toMatch(/\b(?:bun|npm|git|fallow)\s/)
 })
