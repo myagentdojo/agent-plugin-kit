@@ -6,8 +6,8 @@ status: proposed
 
 This is a proposal for review, not an Accepted Decision. It records how the
 existing public TypeScript surfaces should own serialized-value validation,
-and what the Kit Repository may claim about rebuilding a run from observed
-records.
+state correlation, and exhaustive handling, and what the Kit Repository may
+claim about rebuilding a run from observed records.
 
 It constrains three existing Interface owners and creates no new owner:
 
@@ -22,6 +22,40 @@ It constrains three existing Interface owners and creates no new owner:
 It contains no schema, no Implementation, and no test.
 
 ## Proposed decision
+
+### TypeScript boundary
+
+- Repository TypeScript keeps `strict`, `noUncheckedIndexedAccess`,
+  `noFallthroughCasesInSwitch`, and `noImplicitOverride` and adds
+  `exactOptionalPropertyTypes` and `noImplicitReturns` before public contract
+  Implementation begins. Any unrelated diagnostic stops that bounded
+  transition rather than authorizing broad repair.
+- External input, persisted state, CLI payloads, model output, and tool output
+  enter their owning Interface as `unknown`. One successful owner-local parse
+  produces the trusted value used by internal typed calls.
+- Every public state union uses a literal discriminator and exhaustive
+  handling with `never` or an equivalent checked rule.
+
+### Discriminated public state
+
+- `MaintenanceOutcome` and `EventDeliveryResult` keep their existing literal
+  `status` discriminators.
+- `EvidenceCell` keeps its accepted wire fields and becomes a union whose
+  `assertedStatus` and observable form agree: `proved` permits only
+  `observed`; `not-proved` permits only `failure` or `proved-absence`; and
+  `unknown` permits either a true skip or an `unavailable` or `unknown`
+  observation. A skip has null Proof Layer and observable plus one Skip
+  Rationale. Every non-skip has a non-null Proof Layer and observable plus a
+  null Skip Rationale.
+- The reduced claim becomes a `status`-discriminated union. `proved` carries
+  an `observed` kind and non-null Proof Layer. `not-proved` carries
+  `observed`, `failure`, or `proved-absence` plus a non-null Proof Layer.
+  `unknown` distinguishes a true skip with no Proof Layer and one Skip
+  Rationale from an `unavailable` or `unknown` observation with a non-null
+  Proof Layer and no Skip Rationale.
+- These variants preserve the accepted reduction truth table, profile order,
+  Proof Layer non-promotion, Non-Claims, receipt digests, and Evidence Cell
+  identifiers. They add no caller-selected final Claim Status.
 
 ### Validation ownership and placement
 
@@ -80,18 +114,26 @@ It contains no schema, no Implementation, and no test.
 
 - The Kit claims only transient within-run reconstruction from records the
   caller already captured. No positive replayable property is introduced.
+- The Maintenance Command Facade Adapter Interface owns this wire-level
+  semantic because it already owns Diagnostic Record and Event Record. It
+  creates no root TypeScript export and no retained reconstruction service.
+  An independent caller or Contract Test may reduce captured public records;
+  the production Kit need not expose a reconstruction function.
 - Reconstruction orders only observed records. `sequence` is unique and
-  monotonic within one `run_id`. Gaps are allowed and are never filled by
-  inference.
+  monotonic for each distinct logical record within one `run_id`, across both
+  Diagnostic Records and Event Records. A repeated observation of the same
+  logical Event Record preserves its original `event_id` and `sequence` and
+  is therefore a duplicate, not a second logical record. Gaps are allowed and
+  are never filled by inference.
 - The primary command envelope owns terminal outcome. Event Acceptance
-  reports a synchronous ownership transfer and supplies no completeness
-  claim.
+  reports only the synchronous result of `EventAdapter.accept` and supplies
+  no delivery, settlement, terminal-outcome, or completeness claim.
 - `sequence` alone determines within-run ordering. Identifiers are opaque and
   timestamps are observational; neither orders a run.
-- Clock and identifier sources are injected so reconstruction is
-  deterministic under proof. The existing `EventDeliveryClock` is a delay
-  clock, not a time source, so the injected time and identifier Seam does not
-  exist yet.
+- The Maintenance Command Facade Adapter Interface owns future injected time
+  and identifier Seams for deterministic record production under proof. The
+  existing `EventDeliveryClock` is a delay clock, not a time source. Exact
+  Seam names and shapes remain deferred; neither becomes a root export.
 - Reconstruction is a pure operation over caller-supplied, already-redacted
   in-memory records. The Kit retains no reconstruction state, existing
   streams and sinks remain caller-owned, and persisted retention is zero
@@ -106,6 +148,25 @@ It contains no schema, no Implementation, and no test.
   `MaintenanceError` remains unrelated command-retry metadata. It is not an
   event deduplication key.
 
+### Public process and repair meaning
+
+- The existing public process split remains authoritative: deterministic
+  machine envelopes use stdout, structured redacted diagnostics use stderr,
+  and Event Adapter records use their caller-owned sink. Human text remains
+  inside the machine envelope rather than becoming a competing stdout mode.
+- Existing Result Code and Exit Code ownership, Command Preview, Transaction
+  State, Retry Safety, and one Next Action remain with Maintenance Command
+  Contract. This decision creates no competing error, repair, or exit
+  vocabulary.
+- `unchanged`, `completed`, `partially-completed`, and `unknown` remain the
+  countable transaction outcomes. A command-specific repair may earn
+  repetition safety through its governing Interface and Contract Tests, but
+  this decision makes no general effect-idempotency promise.
+- Event delivery attempts do not create new logical Event Records. Attempt
+  count remains an Event Delivery result, not an Event Record field. Step,
+  duration, token usage, and model-quality fields remain absent until an
+  owning Interface earns them.
+
 ## Non-Claims
 
 This proposal claims none of the following, at any Proof Layer:
@@ -118,9 +179,10 @@ This proposal claims none of the following, at any Proof Layer:
 - raw production event or log storage
 - cross-run equality or ordering of identifiers or timestamps
 
-## Future proof gate
+## Implementation admission proof gate
 
-Acceptance requires three Proof Layers, each with negative controls:
+Implementation admission requires three Proof Layers, each with negative
+controls:
 
 - Owner-local Contract Tests for schema behaviour and transient
   reconstruction semantics.
@@ -129,7 +191,8 @@ Acceptance requires three Proof Layers, each with negative controls:
 - Clean Fixture tests for production-only Zod resolution and an actual parse
   through each owner.
 
-That gate proves serialized-value validation and transient reconstruction. It
+That gate proves serialized-value validation, discriminated public state, and
+transient reconstruction. It
 proves neither durable replay nor delivery. Every path above stays absent
 until its owning gate under the intentional RED rule in `AGENTS.md`.
 
@@ -159,6 +222,8 @@ Named and deliberately unresolved:
 - the exact Zod version
 - the exact stable validation Result Codes
 - the exact schema export names
+- the exact injected time and identifier Seam names and shapes
+- any owner-local reconstruction input or result type names
 - downstream GitHub Issue dependency and status changes
 - schema, test, manifest, dependency, and lockfile Implementation
 
@@ -177,6 +242,8 @@ Two questions surfaced by this review and left open:
 - Validation, TypeScript type ownership, and refusal meaning stay with the
   Module or Adapter that already owns the serialized value. Ownership remains
   deep and singular, and orchestration owns no tool contract.
+- Transient Reconstruction stays a Facade wire-contract property, not a new
+  Module, service, root export, queue, or retained state owner.
 - The schema becomes the single source of type truth for a serialized value,
   so no second type source appears beside an existing Interface.
 - ADR 0002 dependency Locality is applied, not amended. Its version-agreement

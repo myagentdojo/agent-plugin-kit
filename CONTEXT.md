@@ -430,9 +430,27 @@ Adapter Seam.
 _Avoid_: Diagnostic Record, arbitrary payload
 
 **Event Acceptance**:
-The synchronous `accepted` or `refused` ownership transfer observed without
-waiting for event settlement.
+The synchronous `accepted` or `refused` result of `EventAdapter.accept`,
+observed without waiting for event delivery or settlement.
 _Avoid_: Delivery receipt, awaited transport
+
+**Public Serialized Value**:
+A versioned value crossing an untrusted ingress or serialized egress at an
+existing Interface. Its owner validates it once and owns both its schema and
+derived TypeScript type.
+_Avoid_: Internal typed value, shared schema package
+
+**Logical Record**:
+One Diagnostic Record or Event Record assigned a sequence within a run. A
+repeated observation with the same logical identity and sequence is a
+duplicate observation, not a second Logical Record.
+_Avoid_: Delivery attempt, log line
+
+**Transient Reconstruction**:
+The pure interpretation of caller-captured, already-redacted Logical Records
+within one run. It retains no Kit state and makes no durable replay,
+completeness, delivery, or cross-run ordering claim.
+_Avoid_: Replay, retained event store
 
 **Facade Envelope Version**:
 The independently incremented version of the public process envelope.
