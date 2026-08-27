@@ -11,16 +11,16 @@ import {
 } from "./fixtures/literal-command-results"
 
 test("help preserves runtime --help discovery and exits zero", async () => {
-  const facadeHelp = ["--run-id", "p3-help-literal", "--help"] as const
+  const facadeHelp = ["--run-id", "contract-help-literal", "--help"] as const
   const actual = await createPublicProcessAdapter().invoke(facadeHelp)
 
-  expect(facadeHelp).toEqual(["--run-id", "p3-help-literal", "--help"])
+  expect(facadeHelp).toEqual(["--run-id", "contract-help-literal", "--help"])
   expect(resultVocabulary.find(({ resultCode }) => resultCode === literalHelpPreview.resultCode)?.exitClass).toBe(0)
   expect(actual, "contract-absent: help must preserve public process streams").toEqual(literalHelpProcess)
 })
 
 test("unknown usage is a typed exit-two refusal", async () => {
-  const actual = await createPublicProcessAdapter().invoke(["--run-id", "p3-help-literal", "unknown"])
+  const actual = await createPublicProcessAdapter().invoke(["--run-id", "contract-help-literal", "unknown"])
 
   expect(actual, "contract-absent: unknown usage must refuse through the public process").toEqual(literalUsageProcess)
 })

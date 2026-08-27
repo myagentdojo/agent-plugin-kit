@@ -24,7 +24,7 @@ export type SkipRationale = Readonly<{
 export const literalDeclaredUnreachableRationales = {
   "maintenance.runtime-failed": {
     ownerReason:
-      "No accepted argv, stdin, or named file can cause a pre-dispatch facade fault; unit fault Adapters retain containment proof.",
+      "No accepted argv, stdin, or named file can cause a pre-dispatch facade fault; owner-local fault Adapters retain containment proof.",
     governingInterface: "src/adapters/maintenance-command-facade/interface.ts",
   },
   "help.command-refused": {
@@ -69,7 +69,66 @@ export const literalBranchKinds = [
   "unexpected",
 ] as const
 
-export const literalStageCounts = { P4: 17, P5: 48, P6: 11, P7: 22, P9: 11 } as const
+export const literalImplementationDeferredCounts = {
+  "plugin-payload-production": 17,
+  "runtime-custody": 48,
+  "release-and-git-engine": 11,
+  "harness-journeys": 22,
+  "canary-qualification": 11,
+} as const
+
+export const literalDeferredOwnerProofs = {
+  "plugin-payload-production": {
+    controllingOwnerId: "plugin-payload-production",
+    futureSelector:
+      "bun test src/modules/plugin-payload-production/contract-tests/deterministic-plugin-payload.test.ts src/modules/plugin-payload-production/contract-tests/unsafe-inventory-refusal.test.ts",
+    expectedTestCount: 8,
+    skipRationale:
+      "Plugin Payload Production Implementation is absent under Intentional RED; supplying a request file proves facade loading only, not an owner outcome. Future selector: bun test src/modules/plugin-payload-production/contract-tests/deterministic-plugin-payload.test.ts src/modules/plugin-payload-production/contract-tests/unsafe-inventory-refusal.test.ts. Non-Claim: Intentional RED does not prove Plugin Payload Production result or effect through a real process.",
+    nonClaim:
+      "Intentional RED does not prove Plugin Payload Production result or effect through a real process.",
+  },
+  "runtime-custody": {
+    controllingOwnerId: "runtime-custody",
+    futureSelector:
+      "bun test src/modules/runtime-custody/contract-tests/run-and-repair.test.ts src/modules/runtime-custody/contract-tests/corrupt-custody-refusal.test.ts",
+    expectedTestCount: 12,
+    skipRationale:
+      "Runtime Custody Implementation is absent under Intentional RED; Runtime argv proves dispatch shape only, not custody outcome. Future selector: bun test src/modules/runtime-custody/contract-tests/run-and-repair.test.ts src/modules/runtime-custody/contract-tests/corrupt-custody-refusal.test.ts. Non-Claim: Intentional RED does not prove Runtime Custody result, refresh, download, lock, or repair through a real process.",
+    nonClaim:
+      "Intentional RED does not prove Runtime Custody result, refresh, download, lock, or repair through a real process.",
+  },
+  "release-and-git-engine": {
+    controllingOwnerId: "release-and-git-engine",
+    futureSelector:
+      "bun test src/modules/release-and-git-engine/contract-tests/candidate-admission-and-convergence.test.ts src/modules/release-and-git-engine/contract-tests/stale-candidate-approval.test.ts",
+    expectedTestCount: 12,
+    skipRationale:
+      "Release and Git Engine Implementation is absent under Intentional RED; request and approval files do not establish a release owner outcome. Future selector: bun test src/modules/release-and-git-engine/contract-tests/candidate-admission-and-convergence.test.ts src/modules/release-and-git-engine/contract-tests/stale-candidate-approval.test.ts. Non-Claim: Intentional RED does not prove Release and Git Engine inspection, mutation, or recovery through a real process.",
+    nonClaim:
+      "Intentional RED does not prove Release and Git Engine inspection, mutation, or recovery through a real process.",
+  },
+  "harness-journeys": {
+    controllingOwnerId: "harness-journeys",
+    futureSelector:
+      "bun test src/modules/harness-journeys/contract-tests/claude-journey-recovery.test.ts src/modules/harness-journeys/contract-tests/codex-checkout-isolation.test.ts",
+    expectedTestCount: 14,
+    skipRationale:
+      "Harness Journeys Implementation is absent under Intentional RED; request and approval files do not establish a Harness outcome. Future selector: bun test src/modules/harness-journeys/contract-tests/claude-journey-recovery.test.ts src/modules/harness-journeys/contract-tests/codex-checkout-isolation.test.ts. Non-Claim: Intentional RED does not prove Claude or Codex Harness transition, retry, continuation, or recovery through a real process.",
+    nonClaim:
+      "Intentional RED does not prove Claude or Codex Harness transition, retry, continuation, or recovery through a real process.",
+  },
+  "canary-qualification": {
+    controllingOwnerId: "canary-qualification",
+    futureSelector:
+      "bun test src/modules/canary-qualification/contract-tests/trusted-target-derivation.test.ts src/modules/canary-qualification/contract-tests/credential-removal.test.ts",
+    expectedTestCount: 10,
+    skipRationale:
+      "Canary Qualification Implementation is absent under Intentional RED; candidate and authority files do not establish a canary owner outcome. Future selector: bun test src/modules/canary-qualification/contract-tests/trusted-target-derivation.test.ts src/modules/canary-qualification/contract-tests/credential-removal.test.ts. Non-Claim: Intentional RED does not prove Canary Qualification inspection, protected effect, or recovery through a real process.",
+    nonClaim:
+      "Intentional RED does not prove Canary Qualification inspection, protected effect, or recovery through a real process.",
+  },
+} as const
 
 const inspectFamily = ["command-refused", "retry-deferred", "recovery-required", "runtime-failed"] as const
 const applyFamily = ["command-refused", "retry-deferred", "continuation-required", "recovery-required", "runtime-failed"] as const

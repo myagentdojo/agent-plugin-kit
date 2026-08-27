@@ -41,7 +41,7 @@ const diagnosticRecord = (
   level,
   category: ["agent-plugin-kit", "maintenance"] as const,
   event,
-  run_id: "p3-help-literal",
+  run_id: "contract-help-literal",
   command: "help",
   station_id: "help.previewed",
   result_code: "previewed",
@@ -52,10 +52,10 @@ const diagnosticRecord = (
 
 const eventRecord: EventRecord = Object.freeze({
   schema_version: 1,
-  event_id: "p3-help-literal.2",
+  event_id: "contract-help-literal.2",
   occurred_at: "2026-08-27T00:00:00.000Z",
   sequence: 2,
-  run_id: "p3-help-literal",
+  run_id: "contract-help-literal",
   command: "help",
   station_id: "help.previewed",
   outcome: "previewed",
@@ -91,7 +91,7 @@ async function facadeHarness(options: { eventAcceptance?: "accepted" | "refused"
     events: events.adapter,
   })
   const observation = await facade.invoke({
-    argv: options.argv ?? ["--events", "auto", "--run-id", "p3-help-literal", "help"],
+    argv: options.argv ?? ["--events", "auto", "--run-id", "contract-help-literal", "help"],
     environment: {
       AGENT_PLUGIN_KIT_EVENT_ENDPOINT: "http://127.0.0.1:9/events",
       AGENT_PLUGIN_KIT_EVENT_AUTH: "fixture-secret-must-not-cross",
@@ -142,7 +142,7 @@ test("buffer overflow drops oldest and emits one truncation record", () => {
   )
 })
 test("buffered context precedes trigger and primary error envelope is last", async () => {
-  const harness = await facadeHarness({ argv: ["--run-id", "p3-help-literal", "unknown"] })
+  const harness = await facadeHarness({ argv: ["--run-id", "contract-help-literal", "unknown"] })
   absent(
     harness && {
       diagnosticSequences: harness.diagnostics.records.map(({ sequence }) => sequence),

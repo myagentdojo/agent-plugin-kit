@@ -59,9 +59,10 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
 
 ## Checks
 
-- Complete gate: run `bun run check` from the repository root. It exits zero only
-  when formatting, types, structure, fixtures, and the exact intentional RED
-  contract all agree.
+- Complete gate: run `bun run check` from the repository root. It runs
+  `git diff --check`, Biome, TypeScript, structure verification, focused Fallow
+  policy Contract Tests, changed-code Fallow policy, and exact intentional RED
+  verification.
 - Changed-code quality: run
   `bun run --silent quality:fallow --changed-since HEAD` after a dirty
   code-changing turn. For comparison-base policy, JSON interpretation, editor

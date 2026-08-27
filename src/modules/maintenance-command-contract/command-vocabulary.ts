@@ -15,7 +15,7 @@ export type CommandDescriptor = {
 
 export const commandContractSchemaVersion = resultSchemaVersion
 
-const runId = "p3-help-literal"
+const runId = "contract-help-literal"
 
 export const commandVocabulary = [
   {

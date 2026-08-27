@@ -37,12 +37,12 @@ export const redactionContract = {
   leakedValues: [],
 } as const
 export const correlationContract = {
-  runIds: ["p3-help-literal", "p3-help-literal"],
+  runIds: ["contract-help-literal", "contract-help-literal"],
   sequences: [1, 2],
-  eventId: "p3-help-literal.2",
+  eventId: "contract-help-literal.2",
 } as const
 export const deliveryContract = {
-  eventId: "p3-help-literal.2",
+  eventId: "contract-help-literal.2",
   attemptTimeoutsMs: [250, 250],
   fakeClockAdvancesMs: [250, 250],
   maximumAttempts: 2,

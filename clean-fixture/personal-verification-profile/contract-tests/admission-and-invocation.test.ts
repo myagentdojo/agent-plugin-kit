@@ -47,7 +47,7 @@ test("public command invocation requires the same Admitted Identity", async () =
 })
 
 test("public command process preserves stdout stderr and exit", async () => {
-  const observed = await invokeMaintenanceProcess(["--run-id", "p3-help-literal", "--help"])
+  const observed = await invokeMaintenanceProcess(["--run-id", "contract-help-literal", "--help"])
 
   expect(observed, "contract-absent: public process observations must remain distinct").toEqual(literalProcessResult)
 })

@@ -120,7 +120,7 @@
         "path": "tooling/repository-quality/"
       }
     ],
-    "requiredAgentIndexPointers": ["docs/agents/fallow.md"]
+    "requiredAgentIndexLinks": ["[`fallow.md`](fallow.md)"]
   },
   "tests": {
     "kitInterface": {
@@ -254,6 +254,6 @@
       "linker semantics",
       "direct observation of network inactivity"
     ],
-    "firstP4GreenTransition": "The first P4 GREEN change must re-scope this intentional RED verifier in the same reviewed checkpoint."
+    "firstGreenImplementationTransition": "The first GREEN Implementation change must re-scope this intentional RED verifier in the same reviewed checkpoint."
   }
 }

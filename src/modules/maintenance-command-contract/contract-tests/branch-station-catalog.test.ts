@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
-import { branchStationCatalog, projectStationMap, stageDeferredOwnerStages } from "../branch-stations"
-import { literalBranchKinds, literalBranchStationIds, literalDeclaredUnreachableRationales, literalExitByResultCode, literalRepairRouteByResultCode, literalRepairRouteByStationId, literalRequiredStationIds, literalStageCounts } from "./fixtures/literal-branch-stations"
+import { branchStationCatalog, projectStationMap, deferredOwnerProofs } from "../branch-stations"
+import { literalBranchKinds, literalBranchStationIds, literalDeclaredUnreachableRationales, literalDeferredOwnerProofs, literalExitByResultCode, literalImplementationDeferredCounts, literalRepairRouteByResultCode, literalRepairRouteByStationId, literalRequiredStationIds } from "./fixtures/literal-branch-stations"
 
 const absent = (claim: string) => expect(projectStationMap, `contract-absent: ${claim}`).toBeDefined()
 
@@ -9,11 +9,11 @@ test("catalog declares exactly 118 deterministic station rows", () => {
   expect(branchStationCatalog.map(({ stationId }) => String(stationId))).toEqual([...literalBranchStationIds])
   absent("Station Map projection must consume the closed catalog")
 })
-test("required P3 scenarios are exactly help and usage", () => {
+test("required Intentional RED scenarios are exactly help and usage", () => {
   expect(branchStationCatalog.filter(({ reachability }) => reachability === "required").map(({ stationId }) => stationId)).toEqual([...literalRequiredStationIds])
   absent("required Branch Stations must project observed evidence")
 })
-test("declared unreachable rows are exactly five P3 and two P5", () => {
+test("declared unreachable rows retain the seven literal rationales", () => {
   const actual = Object.fromEntries(branchStationCatalog
     .filter(({ reachability }) => reachability === "declared-unreachable")
     .map(({ stationId, skipRationale, governingInterface }) => [stationId, {
@@ -35,16 +35,22 @@ test("each station preserves Result Vocabulary exit and failure meaning", () => 
   })).toBe(true)
   absent("Station Map must preserve Result Vocabulary ownership")
 })
-test("stage deferred counts are P4 17 P5 48 P6 11 P7 22 P9 11", () => {
-  const actual = Object.fromEntries(Object.entries(stageDeferredOwnerStages).map(([key, value]) => [key.slice(-2), value.stationIds.length]))
-  expect(actual).toEqual(literalStageCounts)
+test("implementation-deferred counts remain local to canonical controlling owners", () => {
+  const actual = Object.fromEntries(Object.entries(deferredOwnerProofs).map(([controllingOwnerId, value]) => [controllingOwnerId, value.stationIds.length]))
+  expect(actual).toEqual(literalImplementationDeferredCounts)
   absent("Station Map must expose every deferred station")
 })
-test("five owner-stage records retain selectors rationales and Non-Claims", () => {
-  expect(Object.values(stageDeferredOwnerStages)).toHaveLength(5)
-  expect(Object.values(stageDeferredOwnerStages).every(({ futureSelector, skipRationale, nonClaim }) => futureSelector.startsWith("bun test ") && skipRationale.length > 0 && nonClaim.startsWith("P3 claims no"))).toBe(true)
-  expect(Object.values(stageDeferredOwnerStages).every((record) => branchStationCatalog.filter(({ controllingOwnerId, owningStage, reachability }) => `${controllingOwnerId}@${owningStage}` === record.ownerStage && reachability === "stage-deferred").every(({ skipRationale }) => skipRationale?.includes(record.ownerStage.slice(-2)) && skipRationale.includes(record.futureSelector) && skipRationale.includes(record.nonClaim)))).toBe(true)
-  absent("Station Map must project exact owner-stage deferrals")
+test("five deferred owner proofs retain selectors rationales and Non-Claims", () => {
+  const actual = Object.fromEntries(Object.entries(deferredOwnerProofs).map(([ownerId, { controllingOwnerId, futureSelector, expectedTestCount, skipRationale, nonClaim }]) => [ownerId, {
+    controllingOwnerId,
+    futureSelector,
+    expectedTestCount,
+    skipRationale,
+    nonClaim,
+  }]))
+  expect(actual).toEqual(literalDeferredOwnerProofs)
+  expect(Object.values(deferredOwnerProofs).every((record) => branchStationCatalog.filter(({ controllingOwnerId, reachability }) => controllingOwnerId === record.controllingOwnerId && reachability === "implementation-deferred").every(({ skipRationale }) => skipRationale?.includes(record.futureSelector) && skipRationale.includes(record.nonClaim)))).toBe(true)
+  absent("Station Map must project exact implementation-deferred proof")
 })
 test("catalog never infers availability from request inputs", () => {
   expect(branchStationCatalog.every(({ governingInterface }) => governingInterface.endsWith("/interface.ts"))).toBe(true)

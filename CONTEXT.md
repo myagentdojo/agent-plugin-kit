@@ -345,7 +345,7 @@ _Avoid_: Event Module, durable queue
 
 **Branch Station**:
 One deterministic command and Result Code identity in the execution-only
-catalog, with its owner, stage, reachability, and Independent Observable.
+catalog, with its controlling owner, reachability, and Independent Observable.
 _Avoid_: Generic branch, test case
 
 **Station Map**:
@@ -374,7 +374,7 @@ Station.
 _Avoid_: Event ID, test name
 
 **Declared Branch Coverage**:
-The catalog count and status including visible stage-deferred and
+The catalog count and status including visible implementation-deferred and
 declared-unreachable Branch Stations.
 _Avoid_: Observed coverage, percentage
 
@@ -383,9 +383,10 @@ The count of required Branch Stations reconciled by qualifying `real_process`
 evidence.
 _Avoid_: Synthetic coverage, declared count
 
-**Stage-Deferred Branch**:
-A real Branch Station controlled by a later-stage owner whose Skip Rationale
-names that owner, stage, future selector, and Non-Claim.
+**Implementation-Deferred Branch**:
+A real Branch Station whose owner Implementation is absent under Intentional
+RED and whose Skip Rationale names the controlling owner, future selector, and
+Non-Claim.
 _Avoid_: Unreachable branch, omitted branch
 
 **Failure Class**:

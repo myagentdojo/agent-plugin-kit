@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { dirname, relative, resolve } from "node:path"
 import packageMetadata from "../package.json"
 import { staticModuleSpecifiers } from "./static-module-specifiers"
-import { branchStationCatalog, stageDeferredOwnerStages } from "../src/modules/maintenance-command-contract/branch-stations"
+import { branchStationCatalog, deferredOwnerProofs } from "../src/modules/maintenance-command-contract/branch-stations"
 import { commandContractSchemaVersion, commandVocabulary } from "../src/modules/maintenance-command-contract/command-vocabulary"
 import { errorSchemaVersion, exitFamilies, failureNextActionProjection, hintVersion, maintenanceCommandContractId, resultSchemaVersion } from "../src/modules/maintenance-command-contract/result-vocabulary"
 import { literalHelpProcess, literalUsageProcess } from "../src/modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results"
@@ -42,15 +42,15 @@ compare("declared_unreachable_rationales", Object.fromEntries(branchStationCatal
     governingInterface,
   }])), literalDeclaredUnreachableRationales)
 findings.push({
-  surface: "p5_runtime_failed_residual",
+  surface: "runtime_failed_residual",
   status: "aligned",
   detail:
     "Non-Claim: intentional RED does not prove runtime-failed residual mapping through a real process.",
 })
 
 const requiredScenarios = [
-  { stationId: "help.previewed", argv: ["--run-id", "p3-help-literal", "--help"], expected: literalHelpProcess },
-  { stationId: "maintenance.usage-refused", argv: ["--run-id", "p3-help-literal", "unknown"], expected: literalUsageProcess },
+  { stationId: "help.previewed", argv: ["--run-id", "contract-help-literal", "--help"], expected: literalHelpProcess },
+  { stationId: "maintenance.usage-refused", argv: ["--run-id", "contract-help-literal", "unknown"], expected: literalUsageProcess },
 ] as const
 const publicProcessDeadlineMs = 2_000
 const requiredObservations = requiredScenarios.map((scenario) => {
@@ -186,8 +186,8 @@ const report = {
   event_schema_version: 1,
   surface_findings: findings,
   declared_branch_coverage: branchStationCatalog.length,
-  stage_deferred_branch_coverage: branchStationCatalog.filter(({ reachability }) => reachability === "stage-deferred").length,
-  stage_deferred_owner_stages: Object.values(stageDeferredOwnerStages),
+  implementation_deferred_branch_coverage: branchStationCatalog.filter(({ reachability }) => reachability === "implementation-deferred").length,
+  deferred_owner_proofs: Object.values(deferredOwnerProofs),
   declared_unreachable_branch_coverage: branchStationCatalog.filter(({ reachability }) => reachability === "declared-unreachable").length,
   required_observed_branch_total: requiredObservedBranchTotal,
   observed_branch_coverage: observedBranchCoverage,

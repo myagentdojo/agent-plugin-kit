@@ -36,7 +36,7 @@ bun run check
 The check validates the current Interface and the exact RED Contract Test
 files, counts, and Admission Proof Layer owned by
 [`clean-fixture/intentional-red-contract.json`](clean-fixture/intentional-red-contract.json). It
-refuses premature later-stage Contract Tests, hosted workflows, or
+refuses premature future Contract Tests, hosted workflows, or
 Implementation paths.
 
 The exact intentional RED selector is:

@@ -18,12 +18,12 @@ Consumer rules: [`docs/agents/domain.md`](docs/agents/domain.md).
 The current Interface, Admission Bootstrap, Maintenance Command Contract,
 Qualification Evidence, and Clean Fixture Contract Test paths are current.
 Other Contract Test paths, every Implementation path, and hosted workflows are
-future and remain absent until their owning stage.
+future and remain absent until their owning artifact has real accepted content.
 
 | Question | Governing language | Accepted Decision | Current or future Interface or Adapter | Current or future Contract Tests or independent proof | Future Implementation |
 | --- | --- | --- | --- | --- | --- |
 | Where does package source live? | Source Tree | `docs/adr/0001-language-to-topology.md` | `src/interface.ts` | Owner-local paths below | `src/` |
-| Where is repository-wide quality policy owned? | Repository Quality Tooling | Repository policy, not package architecture | `tooling/repository-quality/` | `tooling/repository-quality/contract-tests/` | `tooling/repository-quality/fallow-policy.ts` |
+| Where is repository-wide quality policy owned? | Repository Quality Tooling | No Accepted Decision; policy guidance: [`docs/agents/fallow.md`](docs/agents/fallow.md) | `tooling/repository-quality/` | `tooling/repository-quality/contract-tests/` | `tooling/repository-quality/fallow-policy.ts` |
 | How is a Plugin Payload produced? | Plugin Payload Production | `docs/adr/0001-language-to-topology.md` | `src/modules/plugin-payload-production/interface.ts` | `src/modules/plugin-payload-production/contract-tests/` | `src/modules/plugin-payload-production/implementation/` |
 | Who owns the portable runtime? | Runtime Custody | `docs/adr/0001-language-to-topology.md` | `src/modules/runtime-custody/interface.ts` | `src/modules/runtime-custody/contract-tests/` | `src/modules/runtime-custody/implementation/` |
 | Who owns Admission, readiness, or Git convergence? | Release and Git Engine | `docs/adr/0001-language-to-topology.md` | `src/modules/release-and-git-engine/interface.ts` | `src/modules/release-and-git-engine/contract-tests/` | `src/modules/release-and-git-engine/implementation/` |

@@ -14,6 +14,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, extname, join, relative, resolve } from "node:path"
+import { literalDeferredOwnerProofs } from "../src/modules/maintenance-command-contract/contract-tests/fixtures/literal-branch-stations"
 import { staticModuleSpecifiers } from "./static-module-specifiers"
 
 type TestGroup = {
@@ -33,7 +34,7 @@ type IntentionalRedContract = {
       readonly term: string
       readonly path: string
     }[]
-    readonly requiredAgentIndexPointers: readonly string[]
+    readonly requiredAgentIndexLinks: readonly string[]
   }
   readonly tests: {
     readonly kitInterface: TestGroup
@@ -73,7 +74,7 @@ type IntentionalRedContract = {
     }
     readonly forbiddenSelfReports: readonly string[]
     readonly nonClaims: readonly string[]
-    readonly firstP4GreenTransition: string
+    readonly firstGreenImplementationTransition: string
   }
 }
 
@@ -121,11 +122,11 @@ function readContract(root: string): IntentionalRedContract {
     fail("intentional RED must retain exactly one Admission dependency-freedom sentinel")
   }
   if (
-    typeof contract.admission.firstP4GreenTransition !== "string" ||
-    !contract.admission.firstP4GreenTransition.includes("first P4 GREEN") ||
-    !contract.admission.firstP4GreenTransition.includes("same reviewed checkpoint")
+    typeof contract.admission.firstGreenImplementationTransition !== "string" ||
+    !contract.admission.firstGreenImplementationTransition.includes("first GREEN Implementation change") ||
+    !contract.admission.firstGreenImplementationTransition.includes("same reviewed checkpoint")
   ) {
-    fail("intentional RED contract must retain the first P4 GREEN transition rule")
+    fail("intentional RED contract must retain the first GREEN Implementation transition rule")
   }
   if (
     JSON.stringify(contract.admission.nonClaims) !==
@@ -524,7 +525,7 @@ function verifyIntentionalRedStaticContract(root = repositoryRoot): void {
     "Result Code", "Maintenance Outcome", "Maintenance Error",
     "Maintenance Command Facade Adapter", "Branch Station", "Station ID",
     "Station Map", "Declared Branch Coverage", "Observed Branch Coverage",
-    "Stage-Deferred Branch", "Failure Class", "Diagnostic Record",
+    "Implementation-Deferred Branch", "Failure Class", "Diagnostic Record",
     "Event Record", "Event Acceptance", "Facade Envelope Version",
     "Result Schema Version", "Hint Version", "Command Surface Alignment Proof",
   ]
@@ -585,8 +586,8 @@ function verifyIntentionalRedStaticContract(root = repositoryRoot): void {
     if (!agentCodeSpans.includes(command)) fail(`AGENTS.md is missing exact command ${command}`)
   }
   const agentIndex = readFileSync(join(root, "docs/agents/README.md"), "utf8")
-  for (const pointer of contract.structure.requiredAgentIndexPointers) {
-    if (!agentIndex.includes(pointer)) fail(`docs/agents/README.md is missing pointer ${pointer}`)
+  for (const link of contract.structure.requiredAgentIndexLinks) {
+    if (!agentIndex.includes(link)) fail(`docs/agents/README.md is missing exact link ${link}`)
   }
 
   const exactQualityScript = "bun run tooling/repository-quality/fallow-policy.ts"
@@ -913,12 +914,12 @@ function verifyStaticSensitivity(): void {
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, "export {}\n")
   })
-  expectStaticRejection("first P4 GREEN transition rule removed", (root) => {
+  expectStaticRejection("first GREEN Implementation transition rule removed", (root) => {
     const path = join(root, "clean-fixture/intentional-red-contract.json")
     const contract = readJson<Record<string, Record<string, unknown>>>(path)
     const admission = contract.admission
     if (admission === undefined) fail("intentional RED contract is missing Admission")
-    delete admission.firstP4GreenTransition
+    delete admission.firstGreenImplementationTransition
     writeJson(path, contract)
   })
   for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const) {
@@ -1013,9 +1014,9 @@ function verifyStaticSensitivity(): void {
     if (!row) fail("missing Repository Quality Tooling Context Map row in sensitivity fixture")
     writeFileSync(path, source.replace(row, row.replaceAll("tooling/repository-quality/", "tooling/fallow/")))
   })
-  expectStaticRejection("Fallow agent index pointer removed", (root) => {
+  expectStaticRejection("Fallow agent index target drifted", (root) => {
     const path = join(root, "docs/agents/README.md")
-    writeFileSync(path, readFileSync(path, "utf8").replace("docs/agents/fallow.md", "docs/agents/quality.md"))
+    writeFileSync(path, readFileSync(path, "utf8").replace("[`fallow.md`](fallow.md)", "[`fallow.md`](quality.md)"))
   })
   expectStaticRejection("root check dropped focused Fallow proof", (root) => {
     const path = join(root, "package.json")
@@ -1071,8 +1072,8 @@ function verifyRedContractShells(contract: IntentionalRedContract, root = reposi
         "command_contract_schema_version", "facade_envelope_schema_version",
         "result_schema_version", "error_schema_version", "hint_version",
         "diagnostic_schema_version", "event_schema_version", "surface_findings",
-        "declared_branch_coverage", "stage_deferred_branch_coverage",
-        "stage_deferred_owner_stages", "declared_unreachable_branch_coverage",
+        "declared_branch_coverage", "implementation_deferred_branch_coverage",
+        "deferred_owner_proofs", "declared_unreachable_branch_coverage",
         "required_observed_branch_total", "observed_branch_coverage", "stations",
         "root_consumers", "verdict",
       ].sort()
@@ -1092,24 +1093,40 @@ function verifyRedContractShells(contract: IntentionalRedContract, root = reposi
         result_code: string | null
         next_action_id: string | null
       }[]
-      const owners = record?.stage_deferred_owner_stages as unknown[]
+      const owners = record?.deferred_owner_proofs as unknown[]
+      const auditedDeferredOwnerProofs = Object.fromEntries(
+        (owners as {
+          controllingOwnerId: string
+          futureSelector: string
+          expectedTestCount: number
+          skipRationale: string
+          nonClaim: string
+        }[]).map(({ controllingOwnerId, futureSelector, expectedTestCount, skipRationale, nonClaim }) => [
+          controllingOwnerId,
+          { controllingOwnerId, futureSelector, expectedTestCount, skipRationale, nonClaim },
+        ]),
+      )
       const consumers = record?.root_consumers as Record<string, unknown>
+      const runtimeResidualFinding = findings.find(({ surface }) => surface === "runtime_failed_residual")
       const requiredRows = stations.filter(({ station_id }) => station_id === "help.previewed" || station_id === "maintenance.usage-refused")
       if (
         record?.package_identity !== "agent-plugin-kit" ||
         record?.command_contract_id !== "agent-plugin-kit.maintenance-command-result" ||
         ![record?.command_contract_schema_version, record?.result_schema_version, record?.facade_envelope_schema_version, record?.error_schema_version, record?.hint_version, record?.diagnostic_schema_version, record?.event_schema_version].every((version) => version === 1) ||
         record?.declared_branch_coverage !== 118 ||
-        record?.stage_deferred_branch_coverage !== 109 ||
+        record?.implementation_deferred_branch_coverage !== 109 ||
         record?.declared_unreachable_branch_coverage !== 7 ||
         record?.required_observed_branch_total !== 2 ||
         record?.observed_branch_coverage !== 0 ||
         stations.length !== 118 || owners.length !== 5 ||
+        JSON.stringify(auditedDeferredOwnerProofs) !== JSON.stringify(literalDeferredOwnerProofs) ||
         JSON.stringify(requiredRows) !== JSON.stringify([
-          { station_id: "help.previewed", status: "drifted", provenance: "real_process", argv: ["--run-id", "p3-help-literal", "--help"], exit_code: 1, deadline_ms: 2000, timed_out: false, descriptor_closure: "closed", result_code: null, next_action_id: null, skip_rationale: null },
-          { station_id: "maintenance.usage-refused", status: "drifted", provenance: "real_process", argv: ["--run-id", "p3-help-literal", "unknown"], exit_code: 1, deadline_ms: 2000, timed_out: false, descriptor_closure: "closed", result_code: null, next_action_id: null, skip_rationale: null },
+          { station_id: "help.previewed", status: "drifted", provenance: "real_process", argv: ["--run-id", "contract-help-literal", "--help"], exit_code: 1, deadline_ms: 2000, timed_out: false, descriptor_closure: "closed", result_code: null, next_action_id: null, skip_rationale: null },
+          { station_id: "maintenance.usage-refused", status: "drifted", provenance: "real_process", argv: ["--run-id", "contract-help-literal", "unknown"], exit_code: 1, deadline_ms: 2000, timed_out: false, descriptor_closure: "closed", result_code: null, next_action_id: null, skip_rationale: null },
         ]) ||
         JSON.stringify(findings.filter(({ status }) => status === "drifted").map(({ surface }) => surface)) !== JSON.stringify(["public_process"]) ||
+        runtimeResidualFinding?.status !== "aligned" ||
+        runtimeResidualFinding?.detail !== "Non-Claim: intentional RED does not prove runtime-failed residual mapping through a real process." ||
         record?.verdict !== "drifted" ||
         JSON.stringify(consumers.declared) !== JSON.stringify(consumers.discovered) ||
         JSON.stringify(consumers.discovered) !== JSON.stringify(consumers.typechecked) ||
@@ -1123,8 +1140,8 @@ function verifyRedContractShells(contract: IntentionalRedContract, root = reposi
       JSON.stringify(Object.keys(record ?? {}).sort()) !==
         JSON.stringify(["expected_cleanup_ledger", "expected_public_cli_executions", "fixed_help_argv", "observed_public_cli_executions", "proof", "run_id", "schema_version", "sentinel", "verdict"].sort()) ||
       record?.expected_public_cli_executions !== 4 ||
-      record?.observed_public_cli_executions !== 0 || record?.run_id !== "p3-help-literal" ||
-      JSON.stringify(record?.fixed_help_argv) !== JSON.stringify(["maintenance", "--json", "--run-id", "p3-local-link-help", "help"]) ||
+      record?.observed_public_cli_executions !== 0 || record?.run_id !== "contract-help-literal" ||
+      JSON.stringify(record?.fixed_help_argv) !== JSON.stringify(["maintenance", "--json", "--run-id", "local-link-help", "help"]) ||
       (record?.expected_cleanup_ledger as string[]).filter((entry) => entry.startsWith("execute:")).length !== 4 ||
       JSON.stringify((record?.expected_cleanup_ledger as string[]).slice(0, 2)) !== JSON.stringify(["ln:-s:package", "ln:-s:binary"]) ||
       JSON.stringify((record?.expected_cleanup_ledger as string[]).slice(-2)) !== JSON.stringify(["unlink:binary", "unlink:package"])
@@ -1207,12 +1224,26 @@ function verifyDynamicSensitivity(): void {
   })
   expectAuditRejection("required usage argv drift", (root) => {
     const path = join(root, "clean-fixture/audit-maintenance-cli.ts")
-    writeFileSync(path, readFileSync(path, "utf8").replace('["--run-id", "p3-help-literal", "unknown"]', '["--run-id", "p3-help-literal", "drifted"]'))
+    writeFileSync(path, readFileSync(path, "utf8").replace('["--run-id", "contract-help-literal", "unknown"]', '["--run-id", "contract-help-literal", "drifted"]'))
+  })
+  expectAuditRejection("runtime residual surface identifier drift", (root) => {
+    const path = join(root, "clean-fixture/audit-maintenance-cli.ts")
+    writeFileSync(path, readFileSync(path, "utf8").replace('surface: "runtime_failed_residual"', 'surface: "runtime-failure-residual"'))
+  })
+  expectAuditRejection("Deferred Owner rationale target drift", (root) => {
+    const path = join(root, "src/modules/maintenance-command-contract/branch-stations.ts")
+    writeFileSync(
+      path,
+      readFileSync(path, "utf8").replace(
+        "Runtime argv proves dispatch shape only, not custody outcome.",
+        "Runtime argv proves dispatch shape only, not custody outcome or result.",
+      ),
+    )
   })
   expectAuditRejection("declared-unreachable owner rationale drift", (root) => {
     const path = join(root, "src/modules/maintenance-command-contract/branch-stations.ts")
     writeFileSync(path, readFileSync(path, "utf8").replace(
-      "No accepted argv, stdin, or named file can cause a pre-dispatch facade fault; unit fault Adapters retain containment proof.",
+      "No accepted argv, stdin, or named file can cause a pre-dispatch facade fault; owner-local fault Adapters retain containment proof.",
       "",
     ))
   })

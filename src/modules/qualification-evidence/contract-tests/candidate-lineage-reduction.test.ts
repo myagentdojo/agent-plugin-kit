@@ -43,7 +43,7 @@ test("Candidate Identity digest disagreement is refused", () => {
   expect(reduceAttempt(personalProfile, cells), "contract-absent: candidate digest mismatch must refuse").toMatchObject({ kind: "refused" })
 })
 
-test("Candidate Identity component disagreement is refused", () => {
+test("Candidate Identity member disagreement is refused", () => {
   const cells = personalEvidenceCells()
   cells[0] = observedCell({
     lineage: {
@@ -51,7 +51,7 @@ test("Candidate Identity component disagreement is refused", () => {
       source: { ...candidate.source, commit: "2222222222222222222222222222222222222222" },
     },
   })
-  expect(reduceAttempt(personalProfile, cells), "contract-absent: lineage component mismatch must refuse").toMatchObject({ kind: "refused" })
+  expect(reduceAttempt(personalProfile, cells), "contract-absent: lineage member mismatch must refuse").toMatchObject({ kind: "refused" })
 })
 
 test("installed payload disagreement for one candidate is refused", () => {

@@ -15,7 +15,7 @@ test("local installation evidence cannot promote a hosted workflow claim", () =>
 
   expect(hostedEffectLedger).toEqual(before)
   const claim = actual?.claims.find((item) => item.claim === "workflow.called-revision")
-  expect(claim, "contract-absent: hosted workflow evidence must stay unknown without the P8 hosted Adapter owner").toMatchObject({ status: "unknown", actualProofLayer: null })
+  expect(claim, "contract-absent: hosted workflow evidence must stay unknown without hosted Reusable Workflow Adapter proof").toMatchObject({ status: "unknown", actualProofLayer: null })
   expect(actual?.counts).toMatchObject({ selected: 11, skipped: 7 })
 })
 

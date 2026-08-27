@@ -54,7 +54,6 @@ root context insufficient.
 └── clean-fixture/                        (independent proof)
 ```
 
-The Source Tree currently has nine private Owner Manifests. Future paths remain
-absent until their owning artifact has approved real content. Use the exact
+Future paths remain absent until their owning artifact has approved real content. Use the exact
 terms from `CONTEXT.md` in issues, filenames, test names, and proposals. Surface
 an ADR conflict instead of silently overriding it.

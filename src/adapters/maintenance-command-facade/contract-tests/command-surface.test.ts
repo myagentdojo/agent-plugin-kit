@@ -167,7 +167,7 @@ test("mutating routes own preview routes and effect classes", async () => {
   )
 })
 test("examples use fixed run IDs and safe placeholders", async () => {
-  expect(commandVocabulary.every(({ example }) => example.includes("p3-help-literal"))).toBe(true)
+  expect(commandVocabulary.every(({ example }) => example.includes("contract-help-literal"))).toBe(true)
   absent((await observeCommandSurface())?.parsedRoutes, commandVocabulary.map(({ route }) => route.join(" ")), "the facade must render deterministic safe examples")
 })
 test("closed lower snake case action vocabulary is discoverable", async () => {

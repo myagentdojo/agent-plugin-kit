@@ -1,6 +1,6 @@
 import { literalHelpProcess, literalUsageProcess } from "../../../../modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results"
 
-export const fixedRunId = "p3-help-literal"
+export const fixedRunId = "contract-help-literal"
 export const fixedHelpScenarios = [
   { label: "fixed-run no-command", argv: ["--run-id", fixedRunId], expected: literalHelpProcess },
   { label: "fixed-run namespaced help", argv: ["maintenance", "--run-id", fixedRunId, "help"], expected: literalHelpProcess },
