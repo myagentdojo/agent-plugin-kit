@@ -19,7 +19,12 @@ It constrains three existing Interface owners and creates no new owner:
 - `src/modules/qualification-evidence/interface.ts` owns Evidence Cell,
   Verification Profile, reduction, and Qualification Result meaning.
 
-It contains no schema, no Implementation, and no test.
+It contains no schema, no Implementation, and no test. It does two things a
+purely additive proposal cannot do, and both are stated as such below: it
+amends `docs/adr/0002-owner-manifests-and-dependency-locality.md`, and it
+requires a respecified Verification Transition Contract under
+`docs/adr/0003-repository-quality-and-verification-transition.md` before any
+manifest, schema, or test change is admitted.
 
 ## Proposed decision
 
@@ -30,6 +35,10 @@ It contains no schema, no Implementation, and no test.
   `exactOptionalPropertyTypes` and `noImplicitReturns` before public contract
   Implementation begins. Any unrelated diagnostic stops that bounded
   transition rather than authorizing broad repair.
+- Enabling `exactOptionalPropertyTypes` changes the meaning of every existing
+  optional key, so that transition is a contract change and not a compiler
+  setting. The Optional keys and JSON round trip rule below states the
+  required meaning for each optional serialized key.
 - External input, persisted state, CLI payloads, model output, and tool output
   enter their owning Interface as `unknown`. One successful owner-local parse
   produces the trusted value used by internal typed calls.
@@ -53,9 +62,61 @@ It contains no schema, no Implementation, and no test.
   `unknown` distinguishes a true skip with no Proof Layer and one Skip
   Rationale from an `unavailable` or `unknown` observation with a non-null
   Proof Layer and no Skip Rationale.
+- The `unknown` branch of both unions carries its own literal
+  sub-discriminator so that each union stays expressible as nested
+  discriminated unions rather than as a refinement over one flat object. The
+  exact sub-discriminator key and its two tokens are selected in the accepted
+  schema pass. A schema that expresses the split with a refinement instead of
+  a literal key does not satisfy this decision.
 - These variants preserve the accepted reduction truth table, profile order,
-  Proof Layer non-promotion, Non-Claims, receipt digests, and Evidence Cell
-  identifiers. They add no caller-selected final Claim Status.
+  input order, resolution precedence, Proof Layer non-promotion, Non-Claims,
+  receipt digests, and Evidence Cell identifiers. They add no caller-selected
+  final Claim Status.
+
+### Serialized type equivalence
+
+- A Public Serialized Value has exactly one runtime validator and exactly one
+  declared TypeScript type, held in proved agreement. `z.infer` is the
+  preferred type source and is authoritative only where it reproduces the
+  declared type exactly.
+- Where inference widens a declared type, the declared type stays
+  authoritative for compile time and the schema stays authoritative for
+  runtime. The named cases today are the template-literal types
+  `sha256:${string}` and `cell:${string}` in
+  `src/modules/qualification-evidence/interface.ts` and
+  `` `${string}.${ResultCode}` `` in
+  `src/modules/maintenance-command-contract/interface.ts`. Widening any of
+  these to `string` is a contract regression, not an inference detail.
+- Every Public Serialized Value carries a compile-time bidirectional
+  equivalence assertion: the declared type must be assignable to the inferred
+  type and the inferred type must be assignable to the declared type. Either
+  direction failing must fail `bun run typecheck`, so widening is caught by
+  the compiler and not by review.
+- The equivalence assertion is evaluated with `exactOptionalPropertyTypes`
+  enabled, so optional-key meaning is part of what it proves.
+- Zod 4 is the required major version. The exact version string is selected at
+  Implementation admission and pinned identically in every declaring manifest.
+
+### Optional keys and JSON round trip
+
+- Every optional key on a Public Serialized Value is declared as exactly one
+  of two spellings. An omissible key may be absent and is never present with
+  the value `undefined`. A nullable key is always present and carries an
+  explicit `null`. The existing Interfaces already use both spellings:
+  `EvidenceLineage.release` is omissible; `EvidenceCell.observable` is
+  nullable. This decision preserves each existing spelling and adds no third
+  form.
+- No Public Serialized Value carries `undefined` as a value at any depth. That
+  rule is what makes `exactOptionalPropertyTypes` safe to enable without
+  changing wire meaning.
+- Every Public Serialized Value satisfies a JSON round trip: serializing it
+  and parsing the result must produce a value that parses under the same
+  schema and is equivalent to the original. Because serialization drops an
+  `undefined`-valued key, the omissible spelling is what keeps that drop
+  meaning-preserving.
+- `FacadeInvocation.environment` is a process input, not a Public Serialized
+  Value. Its `string | undefined` interior stays as declared and is exempt
+  from the two rules above.
 
 ### Validation ownership and placement
 
@@ -64,40 +125,168 @@ It contains no schema, no Implementation, and no test.
   package is created.
 - Validation runs once at untrusted ingress and once at public serialized
   egress. Internal typed calls between owners are not revalidated.
-- Each owner exports its strict schemas from its existing `interface.ts` and
-  derives the corresponding TypeScript type with `z.infer`, so one serialized
-  value never gains a second type source.
 - Domain-only internal types remain ordinary TypeScript and gain no schema.
+- `src/interface.ts` stays type-only. It exports no schema and no runtime
+  value, so the root export gains no runtime surface and no Zod import.
+- `./maintenance-command-contract` and `./qualification-evidence` are accepted
+  public subpaths that resolve directly to those two `interface.ts` files.
+  Any schema exported there is therefore versioned public subpath API with
+  compatibility obligations, not an owner-private helper. The current exports
+  map admits no way to publish an owner's schema on one of those files while
+  keeping it private, so this decision accepts the public consequence rather
+  than pretending it away. The exact exported schema names are selected in the
+  accepted schema pass and must be added to the accepted subpath type-export
+  catalog in
+  `clean-fixture/personal-verification-profile/contract-tests/fixtures/plugin-consumer.ts`.
 - The Maintenance Command Facade Adapter Interface stays outside root exports
-  under ADR 0002. Its schemas are owner-private and add no caller surface.
+  under ADR 0002, and
+  `clean-fixture/verify-intentional-red-contract.ts` statically rejects an
+  eleventh root export. Facade schemas are therefore owner-private and add no
+  caller surface.
+- Publishing schemas on the two accepted subpaths adds no new export entry.
+  The nine public subpaths and the ten-entry exports map are unchanged.
 
-### Dependency Locality
+### Ingress strictness and egress projection
 
-- Every owner that imports Zod pins it as a production dependency in that
-  owner's Owner Manifest, under the rule accepted in ADR 0002.
-- Admission Bootstrap remains dependency-free and imports no schema.
-- Resolution assumes no hoisting. Clean Fixture proof must perform a
-  production-only install and execute a real parse through each owner.
-- Bundling is an explicit artifact choice. It is not an implicit guarantee,
-  and it is not decided here.
+Two distinct paths exist and this decision keeps them distinct.
+
+- Untrusted ingress: the value arrives as `unknown` and is parsed strictly.
+  Unknown keys are refused. There is no coercion, no default, no transform,
+  and no stripping of any kind. A key the schema does not declare produces a
+  structured refusal rather than a quietly narrower value.
+- Trusted serialized egress: the owner builds the declared allowlist, redacts
+  by removing every value outside it, validates the redacted projection,
+  freezes it, and then crosses the Seam. That pinned order,
+  `build-allowlist`, `redact`, `validate`, `freeze`, `cross-seam`, is
+  preserved exactly as
+  `src/adapters/maintenance-command-facade/contract-tests/observability.test.ts`
+  pins it. Validation runs on the redacted projection, never before it.
+- Allowlist removal is an owner-performed, declared step over a value the
+  owner produced. It is not schema stripping and it is not silent: the
+  allowlist is declared per named value and its effect is observable per named
+  value. The earlier "no silent stripping" rule applies to validation only.
+- After redaction, any key outside the declared envelope is a fail-closed
+  Implementation contract failure. Strict egress validation is what proves the
+  allowlist was complete.
+- Free-text is the residual. `DiagnosticRecord.message` cannot be proved
+  redacted by schema alone, so its redaction stays an owner obligation proved
+  by a hostile-value Contract Test rather than a schema claim.
+
+### Machine envelope and version carriers
+
+- The public process envelope is a Public Serialized Value. Its facade-owned
+  keys are `schema_version`, `status`, `run_id`, and, on the stderr error
+  envelope, `record_type` and `message`. Its `data` object is owned by
+  Maintenance Command Contract and carries `contract_id`,
+  `result_schema_version`, and the Result Vocabulary fields.
+- `MaintenanceOutcome` therefore never crosses stdout by itself. The facade
+  projects it into the versioned envelope above, so Facade Envelope Version is
+  carried by the envelope `schema_version` and Result Schema Version is
+  carried by `data.result_schema_version`.
+- Hint Version has one declared serialized carrier today, the `versions`
+  object inside the help discovery payload. No Command Result envelope carries
+  a hint version key. This decision adds no key; it records that any new
+  carrier is an Interface change owned by Maintenance Command Contract and is
+  not proposed here.
+- The `agent` payload carried as `data.result` stays a command-scoped open
+  record. The envelope schema owns its presence, not its interior. At egress
+  it must be JSON-representable, already redacted by the step above, and
+  deterministic for one command and one input, and it must carry its own
+  explicit version key. Whether each command's `agent` payload earns an
+  owner-local schema is a per-command decision deferred to that command's
+  Implementation.
+- One defect is recorded rather than resolved here: the observed `agent`
+  payloads disagree on version spelling. The help discovery payload uses
+  `schema_version` while the `payload:materialize` payload uses
+  `schemaVersion`. One reviewed decision by Maintenance Command Contract must
+  settle that spelling before the first `agent` payload schema is written.
 
 ### Refusal and failure meaning
 
 - Invalid ingress becomes an owner-mapped structured refusal that reuses the
-  stable existing Result Code and Exit Code semantics. It introduces no new
-  Failure Class.
+  stable existing Result Code and Exit Code semantics where the value crosses
+  the public process. It introduces no new Failure Class.
 - Invalid egress is a fail-closed Implementation contract failure, not a
   caller error.
 - Raw input and raw Zod error detail remain private. Neither reaches a
   Command Preview, a Command Result, an Event Record, or a Diagnostic Record.
 
-### Strictness
+Serialized per-cell rejection and multi-cell reducer refusal are separate
+channels and are not merged.
 
-- Public schemas are validation-only. They reject unknown fields and perform
-  no coercion, no defaults, no transforms, and no silent stripping.
-- Strictness applies to declared envelope keys. `CommandPreview.agent`,
-  `CommandResult.agent`, and `FacadeInvocation.environment` remain
-  deliberately open records whose interiors are not schema-owned.
+- Per-cell agreement between `assertedStatus`, observable kind, Proof Layer,
+  and Skip Rationale is enforced at the Qualification Evidence serialized
+  ingress schema, which parses `unknown`. Every negative control that pairs a
+  status with a forbidden observable, Proof Layer, or Skip Rationale runs
+  through that parse.
+- A cell that reaches `reduce` is already narrowed. `reduce` does not
+  re-validate per-cell agreement and does not need to trust
+  `assertedStatus`, because a disagreeing cell is unrepresentable in the
+  discriminated type and unparseable at ingress. That is the resolution of the
+  apparent conflict between a discriminated `EvidenceCell` and the accepted
+  rule that the reducer validates a cell without trusting `assertedStatus`:
+  the truth table is unchanged, and only its enforcement point moves from the
+  reducer to the owner's parse.
+- Multi-cell invariants stay inside `reduce`. They are Evidence Cell
+  identifier syntax and uniqueness within one input, input-order resolution
+  references, resolution validity against the Proof Layer partial order,
+  unresolved-set shape, cross-cell Candidate Lineage agreement, and
+  out-of-profile claims. A per-cell schema cannot reach any of them.
+- `QualificationEvidence.reduce` gains an owner-local discriminated refusal
+  channel, `QualificationOutcome`, discriminated by a literal `status` with
+  the tokens `reduced` and `refused`. It is not `MaintenanceOutcome`:
+  Qualification Evidence does not own Result Codes, Exit Codes, Station IDs,
+  or command meaning, and coupling the two would give it a second vocabulary
+  it cannot honour.
+- The refusal carries a stable owner-local Qualification Refusal Code drawn
+  from a sealed union, distinct from `ResultCode`. The required meanings are
+  an empty unresolved set for a selected claim, a claim outside the selected
+  profile, Candidate Lineage disagreement, a malformed or duplicated Evidence
+  Cell identifier, an invalid resolution reference, an unqualified resolving
+  cell, and a mixed unresolved set. The exact code tokens are selected in the
+  accepted schema pass. There is no code for status and observable mismatch,
+  because that case is refused earlier by the two mechanisms above.
+- When a Qualification refusal crosses the public process, the facade maps it
+  to an existing Result Code and Exit Family. The mapping lives with the
+  facade; the refusal meaning stays with Qualification Evidence.
+
+### Failure Class ownership
+
+- The closed agent-facing Failure Class vocabulary has seven values. Six of
+  them, `usage`, `refusal`, `transient`, `continuation`, `recovery`, and
+  `unexpected`, are owned by Maintenance Command Contract and are the only
+  values a `MaintenanceError` may carry.
+- The seventh value, `event_delivery`, is owned by the Maintenance Command
+  Facade Adapter. It exists only on `DiagnosticRecord.failure_class` and
+  `EventRecord.failure_class`, it names Event Adapter refusal, and no
+  `MaintenanceError` carries it. No other Adapter adds a value.
+- This reconciles the executable source with root `CONTEXT.md`, which is
+  corrected in the same change. It is the honest reading of
+  `src/modules/maintenance-command-contract/interface.ts`, whose `FailureClass`
+  union has six members, and
+  `src/adapters/maintenance-command-facade/interface.ts`, whose
+  `ObservableFailureClass` adds the seventh.
+- Counter-evidence is recorded rather than suppressed. The help discovery
+  payload published under `contract_id`
+  `agent-plugin-kit.maintenance-command-result` already lists a Next Action
+  whose `failure_class` is `event_delivery`, which is Maintenance-owned
+  discovery content carrying a facade-owned value. If an accepted domain
+  review decides that payload proves Maintenance ownership, the seventh value
+  moves into the owner union and this decision is amended. Nothing here
+  depends on that outcome.
+
+### Field-scoped vocabulary reading
+
+- Several sealed vocabularies share serialized tokens. `completed` is a Result
+  Code, a Transaction State, and an Event Record outcome. `previewed` is a
+  Result Code and an Event Record outcome. `unknown` is a Transaction State, a
+  Claim Status, and an Observation Kind.
+- A token's meaning is determined only by the field that carries it. No
+  consumer may reconcile, join, or infer one vocabulary's value from another
+  field, and agreement between two such fields is never a contract.
+- One Contract Test must prove that no cross-field reconciliation occurs, by
+  producing a record whose colliding fields deliberately disagree and showing
+  that each field keeps its own meaning.
 
 ### Schema versions
 
@@ -110,6 +299,38 @@ It contains no schema, no Implementation, and no test.
 - A newly supported version requires a separate owner-local schema and a
   deliberate union. No automatic migration, upgrade, or fallback is accepted.
 
+### Dependency Locality and Git-distributed resolution
+
+Resolution ownership is decided here rather than deferred to a hoisting
+question, because the resolution facts are already knowable.
+
+- The root Package Identity declares Zod as an exact-version production
+  dependency. Every Owner Manifest whose owner imports Zod declares the same
+  exact version. Both statements must hold; neither alone is sufficient.
+- The reason is that Owner Manifests are private and never published, while
+  the root Package Identity is what a Git-installing Plugin Consumer resolves.
+  `bunfig.toml` pins `[install] auto = "disable"`, so no auto-install rescues
+  a production dependency the root manifest does not declare.
+- Version agreement is exact string agreement across every declaring manifest.
+  No range, no resolution alias, and no Bun catalog is accepted; catalogs
+  remain absent under the intentional RED contract.
+- This deliberately amends ADR 0002. That decision reserved third-party
+  production dependencies to the Source Tree owner that needs them and used
+  `@logtape/logtape` as the precedent for facade-only ownership. Root now also
+  declares Zod, for the distribution reason above. The earlier claim that
+  "ADR 0002 dependency Locality is applied, not amended" was wrong and is
+  withdrawn. ADR 0002 gains the matching amendment note at acceptance.
+- Admission Bootstrap stays dependency-free, declares no Zod, imports no
+  schema, and must be unable to resolve Zod. That property is already machine
+  enforced and is proved again by a Clean Fixture non-resolution control.
+- Resolution assumes no hoisting. Clean Fixture proof must perform a
+  production-only install and execute a real parse through each owner.
+- Bundling is an explicit artifact choice. It is not an implicit guarantee,
+  and it is not decided here.
+- Exact-version agreement has no machine check today. Adding one is part of
+  the respecified Verification Transition Contract named below, not a promise
+  made by this decision.
+
 ### Transient reconstruction
 
 - The Kit claims only transient within-run reconstruction from records the
@@ -119,15 +340,40 @@ It contains no schema, no Implementation, and no test.
   creates no root TypeScript export and no retained reconstruction service.
   An independent caller or Contract Test may reduce captured public records;
   the production Kit need not expose a reconstruction function.
+- Reconstruction is one call over one caller-supplied set of records. It takes
+  the complete set the caller captured, returns one ordered interpretation,
+  and keeps nothing between calls. There is no session, no accumulation across
+  calls, and no incremental feed.
 - Reconstruction orders only observed records. `sequence` is unique and
-  monotonic for each distinct logical record within one `run_id`, across both
-  Diagnostic Records and Event Records. A repeated observation of the same
-  logical Event Record preserves its original `event_id` and `sequence` and
-  is therefore a duplicate, not a second logical record. Gaps are allowed and
-  are never filled by inference.
+  monotonic for each distinct Logical Record within one `run_id`, across both
+  Diagnostic Records and Event Records. Two distinct Logical Records cannot
+  share a sequence within one run.
+- A Diagnostic Record's logical identity is its `run_id` and `sequence` pair.
+  The facade assigns that pair once and never reassigns it.
+- `DiagnosticPipeline.reset()` discards buffered records without reallocating,
+  rewinding, or renumbering `sequence`. The accepted observability evidence
+  for that is the post-reset sequence pair `[2, 3]`: the discarded record keeps
+  its number and the next record continues from where the run had reached.
+- Gaps are allowed, are never filled by inference, and have named accepted
+  causes: a record dropped by the bounded 250-record buffer, which also emits
+  exactly one truncation record that is itself a Logical Record with its own
+  sequence; a record suppressed by the active Diagnostic Mode; an Event Record
+  refused at the Event Adapter Seam; and a caller-owned sink that drops what
+  it received.
+- A repeated observation of the same logical Event Record preserves its
+  original `event_id` and `sequence` and is therefore a duplicate, not a
+  second Logical Record.
+- Duplicates have one named producer, and it is never the Kit.
+  `EventAdapter.accept` is invoked exactly once per Logical Event Record.
+  Duplicate observations arise only in caller-owned territory: the caller's
+  sink, its transport, or an `EventDelivery` second attempt, which redelivers
+  the same Logical Record rather than creating a new one.
 - The primary command envelope owns terminal outcome. Event Acceptance
   reports only the synchronous result of `EventAdapter.accept` and supplies
   no delivery, settlement, terminal-outcome, or completeness claim.
+- Reconstruction claims no completeness. A reconstructed run is an
+  interpretation of what the caller captured, never proof that the capture was
+  whole.
 - `sequence` alone determines within-run ordering. Identifiers are opaque and
   timestamps are observational; neither orders a run.
 - The Maintenance Command Facade Adapter Interface owns future injected time
@@ -137,11 +383,18 @@ It contains no schema, no Implementation, and no test.
 - Reconstruction is a pure operation over caller-supplied, already-redacted
   in-memory records. The Kit retains no reconstruction state, existing
   streams and sinks remain caller-owned, and persisted retention is zero
-  days.
+  days. There is no persistent replay of any kind.
 
 ### Event identity
 
 - `event_id` provides logical identity and correlation only.
+- Opacity is a consumer obligation, not a producer guarantee. A consumer must
+  not parse, split, or derive `run_id`, `sequence`, or ordering from
+  `event_id`. The producer may derive it, and today's pinned fixture value
+  `contract-help-literal.2` is exactly such a derivation, so a rule stated as
+  a producer guarantee would already be false.
+- One Contract Test must use a non-derived `event_id` and prove that
+  correlation, ordering, and duplicate identity still hold.
 - A retry reuses the same `event_id` and the original `sequence`, so
   duplicate records may be observed.
 - The Maintenance `idempotencyKey` carried by `NextAction` and
@@ -161,7 +414,8 @@ It contains no schema, no Implementation, and no test.
 - `unchanged`, `completed`, `partially-completed`, and `unknown` remain the
   countable transaction outcomes. A command-specific repair may earn
   repetition safety through its governing Interface and Contract Tests, but
-  this decision makes no general effect-idempotency promise.
+  this decision makes no general effect-idempotency promise for commands or
+  for events.
 - Event delivery attempts do not create new logical Event Records. Attempt
   count remains an Event Delivery result, not an Event Record field. Step,
   duration, token usage, and model-quality fields remain absent until an
@@ -171,71 +425,171 @@ It contains no schema, no Implementation, and no test.
 
 This proposal claims none of the following, at any Proof Layer:
 
-- durable replay of a completed run
-- event delivery, delivery receipt, or awaited settlement
+- durable replay of a completed run, and persistent replay of any kind
+- event delivery, delivery receipt, awaited settlement, or any post-acceptance
+  transport outcome
 - deduplication or exactly-once behaviour
-- event effect idempotency
+- effect idempotency in general, for events and for commands alike
+- completeness of any observed or reconstructed record set
 - retained state, durable queue, persistent telemetry, or analytics
 - raw production event or log storage
 - cross-run equality or ordering of identifiers or timestamps
+- bundling, publication, or package-manager-wide resolution
+- semantic truth: a successful parse proves shape and version agreement only.
+  It never proves that a value is accurate, current, complete, or produced by
+  the owner it names.
+
+## Implementation admission prerequisites
+
+Two prerequisites must be satisfied before any manifest, schema, Interface, or
+test change is made. Neither is optional and neither is a formality.
+
+1. A reviewed Verification Transition Contract respecification under
+   `docs/adr/0003-repository-quality-and-verification-transition.md`. The
+   current intentional RED contract makes this work unrepresentable as written:
+   `clean-fixture/verify-intentional-red-contract.ts` statically rejects any
+   `dependencies`, `devDependencies`, `optionalDependencies`, or
+   `peerDependencies` entry on the Maintenance Command Facade Owner Manifest,
+   with one disposable perturbation per field; it pins the exact root `check`
+   composition; it pins the ten-entry exports map and rejects an eleventh
+   entry; and it pins the aggregate at 104 explicit Contract Tests across 17
+   files with zero passes, including the maintenance CLI group of 53 tests
+   across six files. Adding Zod to the facade Owner Manifest, adding schema
+   Contract
+   Tests, or adding an exact-version agreement check each require that
+   contract to be re-scoped in the same reviewed checkpoint, which is what its
+   own first-GREEN transition rule already demands.
+2. A matching respecification of the accepted P3 Full Test Design's
+   Qualification Evidence brief. That brief pins the reducer as the place
+   where a cell is validated without trusting `assertedStatus`, and pins the
+   exact two-file, fourteen-test split. This decision keeps the truth table
+   and moves its enforcement point to the owner's serialized parse, so the
+   brief must be respecified before the first test change rather than
+   silently diverged from.
 
 ## Implementation admission proof gate
 
-Implementation admission requires three Proof Layers, each with negative
-controls:
+Implementation admission requires four independently observable proof groups.
+Each names its owner, its focused selector, and at least one disposable
+perturbation that must turn that group RED.
 
-- Owner-local Contract Tests for schema behaviour and transient
-  reconstruction semantics.
-- Public-process tests for real CLI streams, envelopes, exits, redaction, and
-  refusal.
-- Clean Fixture tests for production-only Zod resolution and an actual parse
-  through each owner.
+1. **Owner-local schema contracts.** Owner: each of the three Interface
+   owners. Selector: that owner's existing focused Contract Test script.
+   Proves one supported version parses, an unknown version is refused, an
+   extra declared envelope key is refused, a wrong field type is refused
+   without coercion or defaulting, no raw input or raw Zod detail escapes,
+   invalid egress fails closed, the bidirectional equivalence assertion holds,
+   the JSON round trip holds, and no cross-field vocabulary reconciliation
+   occurs. Perturbations: admit one extra key at strict ingress; enable one
+   coercion; widen one template-literal schema to `string`; spell one optional
+   key so it can carry `undefined`; leak raw validation detail into a refusal.
+2. **Evidence-state contracts.** Owner: Qualification Evidence. Selector:
+   `bun run test:intentional-red:qualification-evidence`. Proves every
+   accepted Evidence Cell and Reduced Claim variant, per-cell mismatch refusal
+   at the serialized parse of `unknown`, and every Qualification Refusal Code
+   meaning through `QualificationOutcome`. Perturbations: pair a status with a
+   forbidden observable; give a skip cell a Proof Layer; accept a zero-cell
+   claim instead of refusing it; accept an out-of-profile claim; let a
+   resolving cell resolve from an incomparable Proof Layer.
+3. **Transient reconstruction contracts.** Owner: Maintenance Command Facade
+   Adapter. Selector:
+   `bun run test:intentional-red:maintenance-cli:observability`. Proves one
+   shared within-run sequence space, gaps remaining gaps, duplicate
+   observations preserving identity and sequence, one-call reconstruction with
+   no retained state, terminal outcome only from the primary envelope, and an
+   independently observable redaction step order. Perturbations: sort by
+   timestamp; infer a missing record; renumber sequence at `reset()`; convert
+   a retry into a second Logical Record; treat Event Acceptance as terminal;
+   derive ordering from `event_id`.
+4. **Public-process and Clean Fixture contracts.** Owner: Clean Fixture, with
+   the facade for stream and envelope bytes. Selector:
+   `bun run test:intentional-red:clean-fixture` together with
+   `bun run test:intentional-red:maintenance-cli:process`. Proves a
+   production-only install with no hoisting assumption, one real parse through
+   each schema owner, exact stdout, stderr, Exit Code, and redaction bytes.
+   Perturbations: remove Zod from the root Package Identity's production
+   dependencies and require the production-only install to fail, which is the
+   Locality control; make Admission Bootstrap resolve or import Zod and
+   require both the static rejection and the public-process sentinel to fail,
+   which is the Admission non-resolution control; drift the exact Zod version
+   between the root manifest and one Owner Manifest.
 
 That gate proves serialized-value validation, discriminated public state, and
-transient reconstruction. It
-proves neither durable replay nor delivery. Every path above stays absent
-until its owning gate under the intentional RED rule in `AGENTS.md`.
+transient reconstruction. It proves neither durable replay nor delivery. Every
+path above stays absent until its owning gate under the intentional RED rule
+in `AGENTS.md`.
 
-## Test Design acceptance question
+One existing defect must be repaired inside group 3 rather than carried
+forward: the current redaction Contract Test asserts `redactionContract.order`
+against itself, so the pinned step order is not independently observable. The
+repaired test must compare an order the pipeline actually produced against the
+literal contract order.
 
-Open question for the owning Test Design: what exact process promotes one
-observed public-process failure into a sanitized, minimal, code-owned
-deterministic fixture?
+## Failure-to-fixture promotion
 
-The answer must preserve this sequence in order:
+This is a decision, not an open question. It is owned by the accepted P3 Full
+Test Design and restated here in the terms this contract needs.
 
-1. Inspect real evidence.
+One observed public-process failure becomes durable regression evidence only
+through this exact route, in order:
+
+1. Inspect the private receipt.
 2. Classify one concrete failure.
 3. Remove private, secret, incidental, and unstable data.
-4. Promote a minimal fixture.
-5. Add a focused regression through the owning Interface or public process.
-6. Rerun the broader contract suite.
+4. Run the sanitization verifier over the candidate fixture.
+5. Promote the minimal sanitized value into the owning owner's
+   `contract-tests/fixtures/` directory.
+6. Add one focused regression through the owning Interface or public process,
+   whose expected value is produced independently of the Implementation whose
+   claim it supports.
+7. Rerun the broader contract suite.
 
-Raw receipts remain private XDG state. The promoted fixture is deterministic
-regression evidence. The answer must not introduce an LLM-as-judge oracle,
-persistent telemetry, analytics, durable event delivery, or durable replay.
+- The sanitization verifier carries two negative controls: a planted secret
+  and a planted private path. Either surviving promotion must turn the
+  promotion proof RED. A verifier that cannot fail proves nothing.
+- An LLM judgment is never the contract oracle, and no LLM-as-judge oracle,
+  persistent telemetry, analytics, durable event delivery, or durable replay
+  enters through this route.
+- Raw receipts remain private XDG state. The promoted fixture contains no
+  transcript, credential, private path, raw event stream, or mutable
+  remote-state snapshot.
+- Any new fixture path and the resulting test-count change are routed through
+  the respecified Verification Transition Contract under ADR 0003, like every
+  other count change.
+
+## Known residual risks
+
+Recorded so that acceptance is informed rather than optimistic:
+
+- `DiagnosticRecord.message` is free text and cannot be proved redacted by
+  schema alone.
+- Exact Zod version agreement across the root manifest and every declaring
+  Owner Manifest has no machine check until the respecified Verification
+  Transition Contract adds one.
+- `EvidenceCell.resolves` referential integrity is unreachable by a per-cell
+  schema and depends entirely on the multi-cell rules inside `reduce`.
+- Adding Zod changes installed content, while `installed dependency freedom`
+  is already a recorded Non-Claim of the intentional RED contract. The two do
+  not contradict, but the Non-Claim's wording must be reread at acceptance.
+- Parse cost and startup weight at the Admission-adjacent binary are
+  unmeasured.
+- Whether `event_delivery` belongs to the facade or to Maintenance Command
+  Contract remains contested by the help discovery payload noted above.
 
 ## Deferred choices
 
 Named and deliberately unresolved:
 
-- the exact Zod version
-- the exact stable validation Result Codes
-- the exact schema export names
+- the exact Zod 4 version string, pinned identically in every declaring
+  manifest at Implementation admission
+- the exact Qualification Refusal Code tokens
+- the exact `unknown` sub-discriminator key and its two tokens
+- the exact schema export names added to the accepted subpath catalog
 - the exact injected time and identifier Seam names and shapes
 - any owner-local reconstruction input or result type names
+- the reviewed `agent` payload version-key spelling
 - downstream GitHub Issue dependency and status changes
 - schema, test, manifest, dependency, and lockfile Implementation
-
-Two questions surfaced by this review and left open:
-
-- Zod would be the first third-party dependency declared by more than one
-  Owner Manifest, which is the exact condition ADR 0002 named for making
-  version agreement enforceable. The enforcement mechanism is not selected.
-- Owner Manifests are private and never published, while the root Package
-  Identity is Git-distributed. Whether a Plugin Consumer resolves Zod without
-  hoisting is what the Clean Fixture production-only install must falsify
-  before acceptance.
 
 ## Consequences
 
@@ -244,12 +598,25 @@ Two questions surfaced by this review and left open:
   deep and singular, and orchestration owns no tool contract.
 - Transient Reconstruction stays a Facade wire-contract property, not a new
   Module, service, root export, queue, or retained state owner.
-- The schema becomes the single source of type truth for a serialized value,
-  so no second type source appears beside an existing Interface.
-- ADR 0002 dependency Locality is applied, not amended. Its version-agreement
-  condition becomes live once Zod enters more than one Owner Manifest.
-- Admission Bootstrap keeps its dependency-free property, so Admission is
-  unaffected by this proposal.
+- A serialized value has one runtime validator and one declared type, proved
+  equivalent at compile time, so no second type source appears and no declared
+  type is silently widened.
+- Qualification Evidence gains a refusal channel it does not have today, so
+  `QualificationEvidence.reduce` changes shape at Implementation and the
+  accepted subpath type-export catalog changes with it.
+- ADR 0002 is amended, not merely applied. Root and every importing owner
+  declare Zod at one exact version.
+- ADR 0003's Verification Transition Contract must be respecified before the
+  first manifest, schema, or test change, and the accepted P3 Qualification
+  Evidence brief must be respecified with it.
+- Root `CONTEXT.md` records the corrected Failure Class ownership in the same
+  change as this proposal.
+- At acceptance, the Accepted Decision index in
+  [`docs/agents/domain.md`](../agents/domain.md) gains the ADR 0004 row.
+  [`docs/agents/README.md`](../agents/README.md) indexes agent documents
+  rather than Accepted Decisions and needs no change.
+- Admission Bootstrap keeps its dependency-free property and cannot resolve or
+  import Zod, so Admission is unaffected by this proposal.
 - Qualification Evidence keeps Proof Layer non-promotion. A passing parse is
   in-process evidence and never promotes a Clean Fixture, hosted, or
   Fresh-Native claim.

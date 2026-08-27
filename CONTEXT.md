@@ -413,12 +413,14 @@ Non-Claim.
 _Avoid_: Unreachable branch, omitted branch
 
 **Failure Class**:
-The closed agent-facing vocabulary owned once by Maintenance Command Contract:
-`usage`, `refusal`, `transient`, `continuation`, `recovery`, `unexpected`, or
-`event_delivery`. Primary Maintenance errors use the first six meanings; Event
-Adapter refusal uses `event_delivery`. Adapters may project this vocabulary but
-cannot extend it.
-_Avoid_: Exit Family, error message, Adapter-owned failure class
+The closed agent-facing failure vocabulary of seven values. Maintenance Command
+Contract owns the six primary meanings `usage`, `refusal`, `transient`,
+`continuation`, `recovery`, and `unexpected`, which are the only values a
+Maintenance Error carries. The Maintenance Command Facade Adapter owns exactly
+one observation-only value, `event_delivery`, for Event Adapter refusal on a
+Diagnostic Record or Event Record. No Maintenance Error carries it and no other
+Adapter adds a value.
+_Avoid_: Exit Family, error message, a second Adapter-owned failure class
 
 **Diagnostic Record**:
 The closed redacted stderr projection accepted by the Diagnostic Adapter Seam.
