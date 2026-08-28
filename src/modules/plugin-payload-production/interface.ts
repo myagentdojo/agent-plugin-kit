@@ -1,7 +1,5 @@
 import type { SourceIdentity } from "../release-and-git-engine/interface"
 
-type Sha256Digest = `sha256:${string}`
-
 export type PayloadProductionRequest = {
   repositoryRoot: string
   mode: "check" | "materialize" | "package"
@@ -10,7 +8,7 @@ export type PayloadProductionRequest = {
 
 export type PreparedPluginPayload = {
   regularFiles: readonly string[]
-  payloadSha256: Sha256Digest
+  payloadSha256: `sha256:${string}`
 }
 
 export type PayloadProductionResult = {

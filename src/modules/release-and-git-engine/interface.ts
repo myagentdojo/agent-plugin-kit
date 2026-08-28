@@ -1,29 +1,26 @@
-type Sha256Digest = `sha256:${string}`
-type FullCommitPin = string
-
 export type RepositoryIdentity = {
   origin: string
 }
 
 export type SourceIdentity = {
   repository: RepositoryIdentity
-  commit: FullCommitPin
+  commit: string
 }
 
 export type ReleaseIdentity = {
   reference: string
-  commit: FullCommitPin
+  commit: string
 }
 
 export type PackageIdentity = {
   repository: RepositoryIdentity
-  commit: FullCommitPin
+  commit: string
 }
 
 export type WorkflowIdentity = {
   repository: RepositoryIdentity
   path: string
-  commit: FullCommitPin
+  commit: string
 }
 
 export type CandidateIdentity = {
@@ -62,7 +59,7 @@ export type AdmissionRefusal = {
 
 export type PackageObservation = {
   identity: PackageIdentity
-  payloadSha256: Sha256Digest
+  payloadSha256: `sha256:${string}`
 }
 
 export type ReleaseRequest = {
@@ -77,7 +74,7 @@ export type ReleaseMutationRequest = ReleaseRequest & {
 export type ReleasePlan = {
   candidate: CandidateIdentity
   expectedEffectIds: readonly string[]
-  approvalDigest: Sha256Digest
+  approvalDigest: `sha256:${string}`
 }
 
 export type ReleaseResult = {
@@ -86,16 +83,14 @@ export type ReleaseResult = {
   remainingEffectIds: readonly string[]
 }
 
-type ApprovalDigest = `sha256:${string}`
-
 export type ReleaseCandidateApproval = {
   schemaVersion: 1
   issuer: "release-and-git-engine"
   candidate: CandidateIdentity
-  candidateIdentitySha256: ApprovalDigest
-  inspectedStateSha256: ApprovalDigest
-  expectedEffectsSha256: ApprovalDigest
-  digest: ApprovalDigest
+  candidateIdentitySha256: `sha256:${string}`
+  inspectedStateSha256: `sha256:${string}`
+  expectedEffectsSha256: `sha256:${string}`
+  digest: `sha256:${string}`
 }
 
 export interface ReleaseAndGitEngine {

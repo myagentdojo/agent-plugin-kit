@@ -17,6 +17,9 @@ export const expectedRootTypeExports = [
   "VerificationProfile",
   "EvidenceCell",
   "QualificationResult",
+  "QualificationRefusalCode",
+  "QualificationRefusal",
+  "QualificationOutcome",
   "RepositoryIdentity",
   "SourceIdentity",
   "ReleaseIdentity",
@@ -65,6 +68,7 @@ export const expectedSubpathTypeExports = {
   ],
   "./qualification-evidence": [
     "QualificationEvidence", "VerificationProfile", "EvidenceCell", "QualificationResult",
+    "QualificationRefusalCode", "QualificationRefusal", "QualificationOutcome",
   ],
   "./reusable-workflow-adapter": [
     "ReusableWorkflowAdapter", "ReusableWorkflowRequest", "ReusableWorkflowResult",

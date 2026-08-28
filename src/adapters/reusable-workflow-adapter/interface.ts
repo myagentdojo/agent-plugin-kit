@@ -2,12 +2,10 @@ import type { MaintenanceCommand } from "../../modules/maintenance-command-contr
 import type { CommandResult } from "../../modules/maintenance-command-contract/interface"
 import type { WorkflowIdentity } from "../../modules/release-and-git-engine/interface"
 
-type TrustedWorkflowEvent =
-  | { kind: "pull-request"; repository: string; headCommit: string }
-  | { kind: "workflow-dispatch"; repository: string; headCommit: string }
-
 export type ReusableWorkflowRequest = {
-  event: TrustedWorkflowEvent
+  event:
+    | { kind: "pull-request"; repository: string; headCommit: string }
+    | { kind: "workflow-dispatch"; repository: string; headCommit: string }
   workflow: WorkflowIdentity
   command: MaintenanceCommand
   inputs: Readonly<Record<string, string>>

@@ -4,8 +4,6 @@ import type {
 import { VerificationProfile } from "../../interface"
 import type { CandidateIdentity } from "../../../release-and-git-engine/interface"
 
-type VerificationClaim = EvidenceCell["claim"]
-
 export const candidate: CandidateIdentity = {
   source: {
     repository: { origin: "https://github.com/myagentdojo/example-plugin.git" },
@@ -108,15 +106,26 @@ export function publicEvidenceCells(): EvidenceCell[] {
 }
 
 export function skipCell(
-  claim: VerificationClaim,
+  claim:
+    | "kit.identity.admitted"
+    | "kit.command.invoked"
+    | "kit.package.full-commit-pin"
+    | "kit.workflow.full-commit-pin"
+    | "plugin-payload.installed"
+    | "runtime.supported-platform"
+    | "release.identity.published"
+    | "workflow.called-revision"
+    | "canary.hosted-qualified"
+    | "harness.claude.fresh-native"
+    | "harness.codex.fresh-native",
   id: `cell:${string}` = "cell:skip",
   skipRationale: EvidenceCell["skipRationale"] = "fresh-native-proof-not-run",
 ): EvidenceCell {
   return observedCell({
     id,
     claim,
-    actualProofLayer: null,
     assertedStatus: "unknown",
+    actualProofLayer: null,
     observable: null,
     skipRationale,
     nonClaims: [claim],

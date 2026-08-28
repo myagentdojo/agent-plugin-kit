@@ -1,17 +1,11 @@
 import { createHash } from "node:crypto"
 import type { AdmissionBootstrap } from "../../interface"
 
-type AdmissionTestEnvironment = {
-  maintenanceState: Uint8Array
-}
-
-type AdmissionTestAssembly = (
-  environment: AdmissionTestEnvironment,
-) => AdmissionBootstrap
-
-export function createAdmissionContractHarness(assemble?: AdmissionTestAssembly) {
+export function createAdmissionContractHarness(
+  assemble?: (environment: { maintenanceState: Uint8Array }) => AdmissionBootstrap,
+) {
   const durableBytes = new TextEncoder().encode("maintenance-state:unchanged\n")
-  const environment: AdmissionTestEnvironment = {
+  const environment = {
     maintenanceState: durableBytes,
   }
   const bootstrap = assemble?.(environment)

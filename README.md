@@ -40,20 +40,18 @@ bun run check
 
 The check validates the current Interface and the exact RED Contract Test
 files, counts, and Admission Proof Layer governed by Repository Quality
-Tooling. The current
-[`clean-fixture/intentional-red-contract.json`](clean-fixture/intentional-red-contract.json)
-path is a compatibility data location consumed by the Clean Fixture; it does
-not own repository transition policy. The check refuses premature future
-Contract Tests, hosted workflows, or Implementation paths.
+Tooling. The Repository Qualification contract owns current repository-byte
+truth; Clean Fixture remains an independent evidence source. The check refuses
+premature future Contract Tests, hosted workflows, or Implementation paths.
 
-The exact intentional RED selector is:
+The product RED selector is:
 
 ```sh
 bun run test:intentional-red
 ```
 
-It must match the canonical files and counts and fail only because the accepted
-production contracts are not implemented yet.
+It exercises the current product Contract Tests; Repository Qualification
+verifies their aggregate repository receipt.
 
 ## Run one owner's Contract Tests
 

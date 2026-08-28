@@ -57,29 +57,25 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   permits reviewed RED or GREEN repository states. Read
   `docs/adr/0003-repository-quality-and-verification-transition.md` before
   changing that contract, its verifier, or a Clean Fixture consumer.
-- Intentional RED gate: preserve
-  `clean-fixture/intentional-red-contract.json`. Keep later Contract Tests,
-  hosted workflows, and every Implementation path absent until their owning
-  gate.
+- Repository Qualification owns current repository-byte truth and the reviewed
+  RED or GREEN boundary. Keep later Contract Tests, hosted workflows, and every
+  Implementation path absent until their owning gate.
 
 ## Checks
 
 - Complete gate: run `bun run check` from the repository root. It runs
   `git diff --check`, Biome, TypeScript, structure verification, focused Fallow
-  policy Contract Tests, changed-code Fallow policy, and exact intentional RED
-  verification.
+  policy Contract Tests, changed-code Fallow policy, and Repository
+  Qualification verification.
 - Changed-code quality: run
   `bun run --silent quality:fallow --changed-since HEAD` after a dirty
   code-changing turn. For comparison-base policy, JSON interpretation, editor
   resolution, or repair, read `docs/agents/fallow.md`.
 - Focused quality Contract Tests: run `bun run test:quality:fallow-policy`.
-- Machine-pinned RED: run `bun run verify:intentional-red`. The verifier exits
-  zero only
-  after each child test process exits one with the exact expected
-  `contract-absent` failures.
-- Direct intentional RED: run `bun run test:intentional-red`. Read the exact expected files
-  and counts from `clean-fixture/intentional-red-contract.json`; exit one is evidence,
-  not a GREEN Implementation claim.
+- Repository Qualification: run `bun run verify:repository-qualification` for
+  the canonical current-repository receipt.
+- Product RED: run `bun run test:intentional-red` for the current product
+  Contract Tests; Repository Qualification owns the aggregate receipt.
 - Focused RED: run `bun run test:intentional-red:kit-interface`,
   `bun run test:intentional-red:admission-bootstrap`,
   `bun run test:intentional-red:maintenance-command-contract`,

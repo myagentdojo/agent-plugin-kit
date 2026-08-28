@@ -7,120 +7,126 @@ import type {
   WorkflowIdentity,
 } from "../release-and-git-engine/interface"
 
-type ProofLayer =
-  | "in-process"
-  | "public-process"
-  | "clean-fixture"
-  | "hosted"
-  | "fresh-native"
-
-type ClaimStatus = "proved" | "not-proved" | "unknown"
-
-type VerificationClaim =
-  | "kit.identity.admitted"
-  | "kit.command.invoked"
-  | "kit.package.full-commit-pin"
-  | "kit.workflow.full-commit-pin"
-  | "plugin-payload.installed"
-  | "runtime.supported-platform"
-  | "release.identity.published"
-  | "workflow.called-revision"
-  | "canary.hosted-qualified"
-  | "harness.claude.fresh-native"
-  | "harness.codex.fresh-native"
-
-type ObservationKind =
-  | "observed"
-  | "failure"
-  | "proved-absence"
-  | "unavailable"
-  | "unknown"
-
-type SkipRationale =
-  | "hosted-proof-not-run"
-  | "fresh-native-proof-not-run"
-  | "protected-authority-unavailable"
-  | "platform-not-selected"
-  | "host-unavailable"
-  | "not-applicable"
-
-type LineageMember =
-  | "source"
-  | "release"
-  | "package"
-  | "workflow"
-  | "installed-payload"
-  | "hosted-run"
-  | "platform"
-  | "receipt"
-
-type ReceiptReference = {
-  schemaVersion: 1
-  owner:
-    | "plugin-payload-production"
-    | "runtime-custody"
-    | "release-and-git-engine"
-    | "harness-journeys"
-    | "canary-qualification"
-    | "reusable-workflow-adapter"
-    | "clean-fixture"
-  receiptSchemaVersion: number
-  candidateIdentitySha256: `sha256:${string}`
-  digest: `sha256:${string}`
-}
-
-type EvidenceLineage = {
-  candidateIdentitySha256: `sha256:${string}`
-  source: SourceIdentity
-  release?: ReleaseIdentity
-  package?: PackageIdentity
-  workflow?: WorkflowIdentity
-  installedPayloadSha256?: `sha256:${string}`
-  hostedRun?: {
-    provider: "github-actions"
-    repository: RepositoryIdentity
-    runId: string
-    attempt: number
-    headCommit: string
-  }
-  platform?: {
-    os: "darwin" | "linux"
-    arch: "arm64" | "x64"
-    libc?: "glibc"
-  }
-}
-
-type IndependentObservable = {
-  kind: ObservationKind
-  code: string
-  digest?: `sha256:${string}`
-}
-
 export type EvidenceCell = {
   schemaVersion: 1
   id: `cell:${string}`
   candidate: CandidateIdentity
-  claim: VerificationClaim
-  actualProofLayer: ProofLayer | null
-  assertedStatus: ClaimStatus
-  observable: IndependentObservable | null
-  lineage: EvidenceLineage
-  skipRationale: SkipRationale | null
-  nonClaims: readonly VerificationClaim[]
-  receipt: ReceiptReference | null
+  claim:
+    | "kit.identity.admitted"
+    | "kit.command.invoked"
+    | "kit.package.full-commit-pin"
+    | "kit.workflow.full-commit-pin"
+    | "plugin-payload.installed"
+    | "runtime.supported-platform"
+    | "release.identity.published"
+    | "workflow.called-revision"
+    | "canary.hosted-qualified"
+    | "harness.claude.fresh-native"
+    | "harness.codex.fresh-native"
+  actualProofLayer:
+    | "in-process"
+    | "public-process"
+    | "clean-fixture"
+    | "hosted"
+    | "fresh-native"
+    | null
+  assertedStatus: "proved" | "not-proved" | "unknown"
+  observable: {
+    kind: "observed" | "failure" | "proved-absence" | "unavailable" | "unknown"
+    code: string
+    digest?: `sha256:${string}`
+  } | null
+  lineage: {
+    candidateIdentitySha256: `sha256:${string}`
+    source: SourceIdentity
+    release?: ReleaseIdentity
+    package?: PackageIdentity
+    workflow?: WorkflowIdentity
+    installedPayloadSha256?: `sha256:${string}`
+    hostedRun?: {
+      provider: "github-actions"
+      repository: RepositoryIdentity
+      runId: string
+      attempt: number
+      headCommit: string
+    }
+    platform?: {
+      os: "darwin" | "linux"
+      arch: "arm64" | "x64"
+      libc?: "glibc"
+    }
+  }
+  skipRationale:
+    | "hosted-proof-not-run"
+    | "fresh-native-proof-not-run"
+    | "protected-authority-unavailable"
+    | "platform-not-selected"
+    | "host-unavailable"
+    | "not-applicable"
+    | null
+  nonClaims: readonly (
+    | "kit.identity.admitted"
+    | "kit.command.invoked"
+    | "kit.package.full-commit-pin"
+    | "kit.workflow.full-commit-pin"
+    | "plugin-payload.installed"
+    | "runtime.supported-platform"
+    | "release.identity.published"
+    | "workflow.called-revision"
+    | "canary.hosted-qualified"
+    | "harness.claude.fresh-native"
+    | "harness.codex.fresh-native"
+  )[]
+  receipt: {
+    schemaVersion: 1
+    owner:
+      | "plugin-payload-production"
+      | "runtime-custody"
+      | "release-and-git-engine"
+      | "harness-journeys"
+      | "canary-qualification"
+      | "reusable-workflow-adapter"
+      | "clean-fixture"
+    receiptSchemaVersion: number
+    candidateIdentitySha256: `sha256:${string}`
+    digest: `sha256:${string}`
+  } | null
   resolves: readonly `cell:${string}`[]
-}
-
-type VerificationRequirement = {
-  claim: VerificationClaim
-  requiredProofLayer: ProofLayer
-  requiredLineage: readonly LineageMember[]
 }
 
 export type VerificationProfile = {
   schemaVersion: 1
   id: "personal" | "public"
-  requirements: readonly VerificationRequirement[]
+  requirements: readonly {
+    claim:
+      | "kit.identity.admitted"
+      | "kit.command.invoked"
+      | "kit.package.full-commit-pin"
+      | "kit.workflow.full-commit-pin"
+      | "plugin-payload.installed"
+      | "runtime.supported-platform"
+      | "release.identity.published"
+      | "workflow.called-revision"
+      | "canary.hosted-qualified"
+      | "harness.claude.fresh-native"
+      | "harness.codex.fresh-native"
+    requiredProofLayer:
+      | "in-process"
+      | "public-process"
+      | "clean-fixture"
+      | "hosted"
+      | "fresh-native"
+    requiredLineage: readonly (
+      | "source"
+      | "release"
+      | "package"
+      | "workflow"
+      | "installed-payload"
+      | "hosted-run"
+      | "platform"
+      | "receipt"
+    )[]
+  }[]
 }
 
 export const VerificationProfile = {
@@ -157,22 +163,56 @@ export const VerificationProfile = {
   },
 } as const satisfies Readonly<Record<"personal" | "public", VerificationProfile>>
 
-type ReducedClaim = {
-  claim: VerificationClaim
-  status: ClaimStatus
-  actualProofLayer: ProofLayer | null
-  observationKind: ObservationKind | null
-  skipRationale: SkipRationale | null
-  nonClaims: readonly VerificationClaim[]
-  receiptDigests: readonly `sha256:${string}`[]
-  evidenceCellIds: readonly `cell:${string}`[]
-}
-
 export type QualificationResult = {
   schemaVersion: 1
   candidate: CandidateIdentity
   profileId: "personal" | "public"
-  claims: readonly ReducedClaim[]
+  claims: readonly {
+    claim:
+      | "kit.identity.admitted"
+      | "kit.command.invoked"
+      | "kit.package.full-commit-pin"
+      | "kit.workflow.full-commit-pin"
+      | "plugin-payload.installed"
+      | "runtime.supported-platform"
+      | "release.identity.published"
+      | "workflow.called-revision"
+      | "canary.hosted-qualified"
+      | "harness.claude.fresh-native"
+      | "harness.codex.fresh-native"
+    status: "proved" | "not-proved" | "unknown"
+    actualProofLayer:
+      | "in-process"
+      | "public-process"
+      | "clean-fixture"
+      | "hosted"
+      | "fresh-native"
+      | null
+    observationKind: "observed" | "failure" | "proved-absence" | "unavailable" | "unknown" | null
+    skipRationale:
+      | "hosted-proof-not-run"
+      | "fresh-native-proof-not-run"
+      | "protected-authority-unavailable"
+      | "platform-not-selected"
+      | "host-unavailable"
+      | "not-applicable"
+      | null
+    nonClaims: readonly (
+      | "kit.identity.admitted"
+      | "kit.command.invoked"
+      | "kit.package.full-commit-pin"
+      | "kit.workflow.full-commit-pin"
+      | "plugin-payload.installed"
+      | "runtime.supported-platform"
+      | "release.identity.published"
+      | "workflow.called-revision"
+      | "canary.hosted-qualified"
+      | "harness.claude.fresh-native"
+      | "harness.codex.fresh-native"
+    )[]
+    receiptDigests: readonly `sha256:${string}`[]
+    evidenceCellIds: readonly `cell:${string}`[]
+  }[]
   counts: {
     selected: number
     covered: number
@@ -181,9 +221,55 @@ export type QualificationResult = {
     notProved: number
     unknown: number
   }
-  nonClaims: readonly VerificationClaim[]
+  nonClaims: readonly (
+    | "kit.identity.admitted"
+    | "kit.command.invoked"
+    | "kit.package.full-commit-pin"
+    | "kit.workflow.full-commit-pin"
+    | "plugin-payload.installed"
+    | "runtime.supported-platform"
+    | "release.identity.published"
+    | "workflow.called-revision"
+    | "canary.hosted-qualified"
+    | "harness.claude.fresh-native"
+    | "harness.codex.fresh-native"
+  )[]
   receiptDigests: readonly `sha256:${string}`[]
 }
+
+export type QualificationRefusalCode =
+  | "zero-cell"
+  | "out-of-profile"
+  | "lineage-disagreement"
+  | "invalid-cell-id"
+  | "invalid-resolution"
+  | "unqualified-resolution"
+  | "mixed-unresolved"
+
+export type QualificationRefusal = {
+  schemaVersion: 1
+  code: QualificationRefusalCode
+  claim:
+    | (
+        | "kit.identity.admitted"
+        | "kit.command.invoked"
+        | "kit.package.full-commit-pin"
+        | "kit.workflow.full-commit-pin"
+        | "plugin-payload.installed"
+        | "runtime.supported-platform"
+        | "release.identity.published"
+        | "workflow.called-revision"
+        | "canary.hosted-qualified"
+        | "harness.claude.fresh-native"
+        | "harness.codex.fresh-native"
+      )
+    | null
+  evidenceCellId: `cell:${string}` | null
+}
+
+export type QualificationOutcome =
+  | { status: "reduced"; result: QualificationResult }
+  | { status: "refused"; refusal: QualificationRefusal }
 
 export interface QualificationEvidence {
   reduce(input: {

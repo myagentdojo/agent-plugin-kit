@@ -30,8 +30,8 @@ surface.
 - A future exact `@logtape/logtape@2.3.1` pin belongs only to the facade Owner
   Manifest. It is absent in intentional RED and never belongs to root or
   Admission Bootstrap.
-- `clean-fixture/intentional-red-contract.json` owns the exact Admission manifest,
-  source, and Proof Layer enforcement. The behavioral source-level
+- The Repository Qualification contract owns the exact Admission manifest,
+  source, and Proof Layer declaration. The behavioral source-level
   dependency-free claim remains owned by the independent public-process
   sentinel, not a source scan.
 

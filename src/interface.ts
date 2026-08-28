@@ -21,6 +21,9 @@ export type {
 export type {
   EvidenceCell,
   QualificationEvidence,
+  QualificationOutcome,
+  QualificationRefusal,
+  QualificationRefusalCode,
   QualificationResult,
   VerificationProfile,
 } from "./modules/qualification-evidence/interface"

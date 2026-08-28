@@ -46,8 +46,8 @@ export type BranchStation = {
   expectedResultCode: ResultCode
   expectedExitClass: 0 | 1 | 2 | 20 | 21 | 22 | 23
   expectedEnvelopeStatus: "ok" | "error"
-  expectedRetrySafety: RetrySafety
-  expectedTransactionState: TransactionState
+  expectedRetrySafety: CommandPreview["retrySafety"]
+  expectedTransactionState: CommandPreview["transactionState"]
   controllingOwnerId: ControllingOwnerId
   reachability: StationReachability
   skipRationale: string | null

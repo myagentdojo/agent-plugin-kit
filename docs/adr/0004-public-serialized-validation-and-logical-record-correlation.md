@@ -168,10 +168,9 @@ binding.
   sibling files enter the installed inventory only through the reviewed ADR
   0003 respecification.
 - The Maintenance Command Facade Adapter Interface stays outside root exports
-  under ADR 0002, and
-  `clean-fixture/verify-intentional-red-contract.ts` statically rejects an
-  eleventh root export. Facade schemas are therefore owner-private and add no
-  caller surface.
+  under ADR 0002. Repository Qualification owns the current export-surface
+  declaration; Facade schemas therefore remain owner-private and add no caller
+  surface.
 - The nine public subpaths and the ten-entry exports map are unchanged.
 
 ### Nested command validation composition
@@ -585,18 +584,12 @@ This proposal claims none of the following, at any Proof Layer:
 Two prerequisites must be satisfied before any manifest, schema, Interface, or
 test change is made. Neither is optional and neither is a formality.
 
-1. A reviewed Verification Transition Contract respecification under
+1. A reviewed Repository Qualification declaration under
    `docs/adr/0003-repository-quality-and-verification-transition.md`. The
-   current intentional RED contract makes this work unrepresentable as written:
-   `clean-fixture/verify-intentional-red-contract.ts` statically rejects any
-   `dependencies`, `devDependencies`, `optionalDependencies`, or
-   `peerDependencies` entry on the Maintenance Command Facade Owner Manifest,
-   with one disposable perturbation per field; it pins the exact root `check`
-   composition; it pins the ten-entry exports map and rejects an eleventh
-   entry; and it pins the aggregate at 104 explicit Contract Tests across 17
-   files with zero passes, including the maintenance CLI group of 53 tests
-   across six files. Adding Zod to the facade Owner Manifest, adding schema
-   Contract
+   canonical contract at
+   `tooling/repository-quality/repository-qualification-contract.json` owns
+   this repository transition boundary and its independent RED or GREEN
+   receipt. Adding Zod to the facade Owner Manifest, adding schema Contract
    Tests, or adding an exact-version agreement check each require that
    contract to be re-scoped in the same reviewed checkpoint, which is what its
    own first-GREEN transition rule already demands. That checkpoint inventories
