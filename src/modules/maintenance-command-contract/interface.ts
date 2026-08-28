@@ -182,25 +182,9 @@ export type CommandPreview = {
   command: MaintenanceCommand["command"]
   effectClass: "inspect" | "repository-local" | "external"
   expectedEffectIds: readonly string[]
-  transactionState: "unchanged" | "completed" | "partially-completed" | "unknown"
-  retrySafety: "safe" | "unsafe" | "requires-fresh-inspection"
-  nextAction: {
-    id: string
-    action:
-      | "change_input"
-      | "contact_support"
-      | "inspect_state"
-      | "open_docs"
-      | "repair_state"
-      | "retry"
-      | "run_command"
-      | "select_command"
-      | "wait"
-    summary: string
-    commandId?: MaintenanceCommand["command"] | null
-    retryAfterMs?: number
-    idempotencyKey?: string
-  }
+  transactionState: MaintenanceError["transactionState"]
+  retrySafety: MaintenanceError["retrySafety"]
+  nextAction: MaintenanceError["nextAction"]
   human: string
   agent: Readonly<Record<string, unknown>>
   stderr: string
@@ -209,27 +193,11 @@ export type CommandPreview = {
 export type CommandResult = {
   schemaVersion: 1
   command: MaintenanceApplyRequest["command"]
-  transactionState: "unchanged" | "completed" | "partially-completed" | "unknown"
-  retrySafety: "safe" | "unsafe" | "requires-fresh-inspection"
+  transactionState: MaintenanceError["transactionState"]
+  retrySafety: MaintenanceError["retrySafety"]
   completedEffectIds: readonly string[]
   remainingEffectIds: readonly string[]
-  nextAction: {
-    id: string
-    action:
-      | "change_input"
-      | "contact_support"
-      | "inspect_state"
-      | "open_docs"
-      | "repair_state"
-      | "retry"
-      | "run_command"
-      | "select_command"
-      | "wait"
-    summary: string
-    commandId?: MaintenanceCommand["command"] | null
-    retryAfterMs?: number
-    idempotencyKey?: string
-  }
+  nextAction: MaintenanceError["nextAction"]
   human: string
   agent: Readonly<Record<string, unknown>>
   stderr: string

@@ -36,6 +36,7 @@
       "tooling/repository-quality/fallow-policy.ts",
       "tooling/repository-quality/contract-tests/fallow-policy.test.ts",
       "tooling/repository-quality/repository-qualification-contract.json",
+      "tooling/repository-quality/static-module-specifiers.ts",
       "tooling/repository-quality/verify-repository-qualification.ts",
       "tooling/repository-quality/contract-tests/repository-qualification.test.ts",
       "src/admission-bootstrap/interface.ts",
@@ -68,6 +69,7 @@
       "src/modules/maintenance-command-contract/contract-tests/fixtures/approval-digest-vectors.ts",
       "src/modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results.ts",
       "src/modules/maintenance-command-contract/contract-tests/adapters/mutation-recording-module-adapter.ts",
+      "src/modules/maintenance-command-contract/contract-tests/adapters/public-process-adapter.ts",
       "src/modules/qualification-evidence/contract-tests/candidate-lineage-reduction.test.ts",
       "src/modules/qualification-evidence/contract-tests/proof-layer-and-non-claim.test.ts",
       "src/modules/qualification-evidence/contract-tests/fixtures/evidence-cells.ts",
@@ -133,6 +135,7 @@
       "clean-fixture/public-verification-profile/contract-tests/hosted-runtime-platform-evidence.test.ts",
       "clean-fixture/public-verification-profile/contract-tests/hosted-workflow-identity.test.ts"
     ],
+    "forbidden_source_path_segments": ["implementation"],
     "required_agent_pointers": [
       "CONTEXT.md",
       "CONTEXT-MAP.md",
@@ -144,12 +147,17 @@
       "docs/agents/fallow.md",
       "tooling/repository-quality/repository-qualification-contract.json"
     ],
-    "required_context_terms": ["Repository Quality Tooling"],
+    "required_context_terms": ["Repository Quality Tooling", "Repository Qualification"],
     "required_context_map_routes": [
       {
         "question": "Where is repository-wide quality policy owned?",
         "term": "Repository Quality Tooling",
         "path": "tooling/repository-quality/"
+      },
+      {
+        "question": "What owns current repository-byte qualification?",
+        "term": "Repository Qualification",
+        "path": "tooling/repository-quality/repository-qualification-contract.json"
       }
     ],
     "required_agent_index_links": ["[`fallow.md`](fallow.md)"]
@@ -157,6 +165,7 @@
   "proof_groups": [
     {
       "id": "kit-interface",
+      "script": "test:intentional-red:kit-interface",
       "files": ["clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts"],
       "tests": 3,
       "passed": 0,
@@ -166,6 +175,7 @@
     },
     {
       "id": "admission-bootstrap",
+      "script": "test:intentional-red:admission-bootstrap",
       "files": [
         "src/admission-bootstrap/contract-tests/admitted-identity-before-execution.test.ts",
         "src/admission-bootstrap/contract-tests/identity-refusal.test.ts"
@@ -178,6 +188,7 @@
     },
     {
       "id": "maintenance-command-contract",
+      "script": "test:intentional-red:maintenance-command-contract",
       "files": [
         "src/modules/maintenance-command-contract/contract-tests/effect-class-and-retry-safety.test.ts",
         "src/modules/maintenance-command-contract/contract-tests/human-and-agent-result-vocabulary.test.ts",
@@ -191,6 +202,7 @@
     },
     {
       "id": "qualification-evidence",
+      "script": "test:intentional-red:qualification-evidence",
       "files": [
         "src/modules/qualification-evidence/contract-tests/candidate-lineage-reduction.test.ts",
         "src/modules/qualification-evidence/contract-tests/proof-layer-and-non-claim.test.ts"
@@ -203,6 +215,7 @@
     },
     {
       "id": "clean-fixture",
+      "script": "test:intentional-red:clean-fixture",
       "files": [
         "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
         "clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts",
@@ -220,6 +233,7 @@
     },
     {
       "id": "maintenance-cli-unit",
+      "script": "test:intentional-red:maintenance-cli:unit",
       "files": ["src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts"],
       "tests": 12,
       "passed": 0,
@@ -229,6 +243,7 @@
     },
     {
       "id": "maintenance-cli-catalog",
+      "script": "test:intentional-red:maintenance-cli:catalog",
       "files": ["src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts"],
       "tests": 8,
       "passed": 0,
@@ -238,6 +253,7 @@
     },
     {
       "id": "maintenance-cli-process",
+      "script": "test:intentional-red:maintenance-cli:process",
       "files": ["src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts"],
       "tests": 8,
       "passed": 0,
@@ -247,6 +263,7 @@
     },
     {
       "id": "maintenance-cli-observability",
+      "script": "test:intentional-red:maintenance-cli:observability",
       "files": ["src/adapters/maintenance-command-facade/contract-tests/observability.test.ts"],
       "tests": 12,
       "passed": 0,
@@ -256,6 +273,7 @@
     },
     {
       "id": "maintenance-cli-clean-fixture",
+      "script": "test:intentional-red:maintenance-cli:clean-fixture",
       "files": ["clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts"],
       "tests": 5,
       "passed": 0,
@@ -265,6 +283,7 @@
     },
     {
       "id": "maintenance-cli-local-link",
+      "script": "test:intentional-red:maintenance-cli:local-link",
       "files": ["clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts"],
       "tests": 8,
       "passed": 0,
@@ -274,6 +293,7 @@
     },
     {
       "id": "maintenance-cli",
+      "script": "test:intentional-red:maintenance-cli",
       "files": [
         "src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts",
         "src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
@@ -290,6 +310,26 @@
     }
   ],
   "aggregate": {
+    "script": "test:intentional-red",
+    "selected_files": [
+      "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
+      "src/admission-bootstrap/contract-tests/admitted-identity-before-execution.test.ts",
+      "src/admission-bootstrap/contract-tests/identity-refusal.test.ts",
+      "src/modules/maintenance-command-contract/contract-tests/effect-class-and-retry-safety.test.ts",
+      "src/modules/maintenance-command-contract/contract-tests/human-and-agent-result-vocabulary.test.ts",
+      "src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
+      "src/modules/qualification-evidence/contract-tests/candidate-lineage-reduction.test.ts",
+      "src/modules/qualification-evidence/contract-tests/proof-layer-and-non-claim.test.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/installation-evidence.test.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/fresh-native-non-claims.test.ts",
+      "clean-fixture/public-verification-profile/contract-tests/profile-non-promotion.test.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts",
+      "src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts",
+      "src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts",
+      "src/adapters/maintenance-command-facade/contract-tests/observability.test.ts"
+    ],
     "files": 17,
     "tests": 104,
     "passed": 0,
@@ -299,6 +339,7 @@
   },
   "admission": {
     "proof_layer": "public-process",
+    "first_green_implementation_transition": "The first GREEN Implementation change must re-scope this Repository Qualification contract in the same reviewed checkpoint.",
     "sentinel_file": "clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts",
     "sentinel_name": "public Admission source is dependency-free before maintenance execution",
     "sentinel_count": 1,
@@ -316,6 +357,12 @@
       "exports": {"./admission-bootstrap": "./src/admission-bootstrap/interface.ts"}
     },
     "forbidden_self_reports": ["admissionImportLedger", "importedOwners", "observeImport"],
+    "self_report_files": [
+      "src/admission-bootstrap/contract-tests/adapters/admission-contract-harness.ts",
+      "src/admission-bootstrap/contract-tests/admitted-identity-before-execution.test.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/adapters/contract-subjects.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts"
+    ],
     "non_claims": [
       "installed dependency freedom",
       "distribution",
@@ -323,6 +370,82 @@
       "direct observation of network inactivity"
     ]
   },
+  "fallow": {
+    "config_file": ".fallowrc.json",
+    "config": {
+      "$schema": "./node_modules/fallow/schema.json",
+      "typeAware": {"enabled": true, "require": "complete"},
+      "audit": {"gate": "new-only"},
+      "rules": {"private-type-leaks": "error"}
+    },
+    "vscode_settings_file": ".vscode/settings.json",
+    "vscode_settings": {"fallow.changedSince": "HEAD"},
+    "gitignore_file": ".gitignore",
+    "gitignore_line": "/.fallow/",
+    "skill_files": [".agents/skills/fallow/SKILL.md", ".claude/skills/fallow/SKILL.md"],
+    "skill_version_marker": "fallow:agent-install v1 skill=stub version=3.19.0",
+    "skill_target": "node_modules/fallow/skills/fallow/SKILL.md"
+  },
+  "workspace_selectors": [
+    {
+      "id": "admission-bootstrap",
+      "command": ["bun", "run", "--filter", "@agent-plugin-kit/admission-bootstrap", "test"],
+      "package_directory": "src/admission-bootstrap",
+      "files": [
+        "contract-tests/admitted-identity-before-execution.test.ts",
+        "contract-tests/identity-refusal.test.ts"
+      ],
+      "tests": 8,
+      "passed": 0,
+      "failed": 8,
+      "skipped": 0,
+      "failure_classes": {"contract-absent": 8}
+    },
+    {
+      "id": "maintenance-command-contract",
+      "command": ["bun", "run", "--filter", "@agent-plugin-kit/maintenance-command-contract", "test"],
+      "package_directory": "src/modules/maintenance-command-contract",
+      "files": [
+        "contract-tests/effect-class-and-retry-safety.test.ts",
+        "contract-tests/human-and-agent-result-vocabulary.test.ts",
+        "contract-tests/branch-station-catalog.test.ts"
+      ],
+      "tests": 24,
+      "passed": 0,
+      "failed": 24,
+      "skipped": 0,
+      "failure_classes": {"contract-absent": 24}
+    },
+    {
+      "id": "qualification-evidence",
+      "command": ["bun", "run", "--filter", "@agent-plugin-kit/qualification-evidence", "test"],
+      "package_directory": "src/modules/qualification-evidence",
+      "files": [
+        "contract-tests/candidate-lineage-reduction.test.ts",
+        "contract-tests/proof-layer-and-non-claim.test.ts"
+      ],
+      "tests": 14,
+      "passed": 0,
+      "failed": 14,
+      "skipped": 0,
+      "failure_classes": {"contract-absent": 14}
+    },
+    {
+      "id": "maintenance-command-facade",
+      "command": ["bun", "run", "--filter", "@agent-plugin-kit/maintenance-command-facade", "test"],
+      "package_directory": "src/adapters/maintenance-command-facade",
+      "files": [
+        "contract-tests/command-surface.test.ts",
+        "contract-tests/public-process.test.ts",
+        "contract-tests/observability.test.ts"
+      ],
+      "tests": 32,
+      "passed": 0,
+      "failed": 32,
+      "skipped": 0,
+      "failure_classes": {"contract-absent": 32}
+    }
+  ],
   "shells": {
     "maintenance_cli": {
       "script": "audit:maintenance-cli",
@@ -362,19 +485,40 @@
     "scripts": {
       "check": "git diff --check && bun run biome:check && bun run typecheck && bun run check:structure && bun run test:quality:fallow-policy && bun run test:quality:repository-qualification && bun run --silent quality:fallow --changed-since HEAD && bun run verify:repository-qualification",
       "check:structure": "bun run tooling/repository-quality/verify-repository-qualification.ts --structure-only",
+      "quality:fallow": "bun run tooling/repository-quality/fallow-policy.ts",
+      "test:quality:fallow-policy": "bun test tooling/repository-quality/contract-tests/fallow-policy.test.ts",
       "test:quality:repository-qualification": "bun test tooling/repository-quality/contract-tests/repository-qualification.test.ts",
-      "verify:repository-qualification": "bun run tooling/repository-quality/verify-repository-qualification.ts"
+      "verify:repository-qualification": "bun run tooling/repository-quality/verify-repository-qualification.ts",
+      "test:intentional-red": "bun test clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts src/admission-bootstrap/contract-tests/admitted-identity-before-execution.test.ts src/admission-bootstrap/contract-tests/identity-refusal.test.ts src/modules/maintenance-command-contract/contract-tests/effect-class-and-retry-safety.test.ts src/modules/maintenance-command-contract/contract-tests/human-and-agent-result-vocabulary.test.ts src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts src/modules/qualification-evidence/contract-tests/candidate-lineage-reduction.test.ts src/modules/qualification-evidence/contract-tests/proof-layer-and-non-claim.test.ts clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts clean-fixture/personal-verification-profile/contract-tests/installation-evidence.test.ts clean-fixture/personal-verification-profile/contract-tests/fresh-native-non-claims.test.ts clean-fixture/public-verification-profile/contract-tests/profile-non-promotion.test.ts clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts src/adapters/maintenance-command-facade/contract-tests/observability.test.ts",
+      "test:intentional-red:kit-interface": "bun test clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
+      "test:intentional-red:admission-bootstrap": "bun test src/admission-bootstrap/contract-tests/admitted-identity-before-execution.test.ts src/admission-bootstrap/contract-tests/identity-refusal.test.ts",
+      "test:intentional-red:maintenance-command-contract": "bun test src/modules/maintenance-command-contract/contract-tests/effect-class-and-retry-safety.test.ts src/modules/maintenance-command-contract/contract-tests/human-and-agent-result-vocabulary.test.ts src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
+      "test:intentional-red:qualification-evidence": "bun test src/modules/qualification-evidence/contract-tests/candidate-lineage-reduction.test.ts src/modules/qualification-evidence/contract-tests/proof-layer-and-non-claim.test.ts",
+      "test:intentional-red:clean-fixture": "bun test clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts clean-fixture/personal-verification-profile/contract-tests/installation-evidence.test.ts clean-fixture/personal-verification-profile/contract-tests/fresh-native-non-claims.test.ts clean-fixture/public-verification-profile/contract-tests/profile-non-promotion.test.ts clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts",
+      "test:intentional-red:maintenance-cli:unit": "bun test src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts",
+      "test:intentional-red:maintenance-cli:catalog": "bun test src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
+      "test:intentional-red:maintenance-cli:process": "bun test src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts",
+      "test:intentional-red:maintenance-cli:observability": "bun test src/adapters/maintenance-command-facade/contract-tests/observability.test.ts",
+      "test:intentional-red:maintenance-cli:clean-fixture": "bun test clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts",
+      "test:intentional-red:maintenance-cli:local-link": "bun test clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts",
+      "test:intentional-red:maintenance-cli": "bun test src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts src/adapters/maintenance-command-facade/contract-tests/observability.test.ts clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts",
+      "audit:maintenance-cli": "bun run clean-fixture/audit-maintenance-cli.ts",
+      "verify:maintenance-cli:local-link": "bun run clean-fixture/verify-maintenance-cli-local-link.ts"
     },
     "dev_dependencies": {
       "@biomejs/biome": "2.4.15",
       "@types/bun": "1.4.0",
       "fallow": "3.19.0",
       "typescript": "7.0.2"
-    }
+    },
+    "forbidden_dependency_names": ["zod", "@logtape/logtape"],
+    "forbidden_dependency_name_fragments": ["sidequest"],
+    "catalogs_allowed": false
   },
   "owner_manifests": {
     "admission": {
       "path": "src/admission-bootstrap/package.json",
+      "name": "@agent-plugin-kit/admission-bootstrap",
       "private": true,
       "type": "module",
       "exports": {".": "./interface.ts"},
@@ -382,10 +526,85 @@
     },
     "maintenance_facade": {
       "path": "src/adapters/maintenance-command-facade/package.json",
+      "name": "@agent-plugin-kit/maintenance-command-facade",
+      "private": true,
+      "type": "module",
+      "exports": {".": "./interface.ts"},
+      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+    },
+    "reusable_workflow_adapter": {
+      "path": "src/adapters/reusable-workflow-adapter/package.json",
+      "name": "@agent-plugin-kit/reusable-workflow-adapter",
+      "private": true,
+      "type": "module",
+      "exports": {".": "./interface.ts"},
+      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+    },
+    "canary_qualification": {
+      "path": "src/modules/canary-qualification/package.json",
+      "name": "@agent-plugin-kit/canary-qualification",
+      "private": true,
+      "type": "module",
+      "exports": {".": "./interface.ts"},
+      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+    },
+    "harness_journeys": {
+      "path": "src/modules/harness-journeys/package.json",
+      "name": "@agent-plugin-kit/harness-journeys",
+      "private": true,
+      "type": "module",
+      "exports": {".": "./interface.ts"},
+      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+    },
+    "maintenance_command_contract": {
+      "path": "src/modules/maintenance-command-contract/package.json",
+      "name": "@agent-plugin-kit/maintenance-command-contract",
+      "private": true,
+      "type": "module",
+      "exports": {".": "./interface.ts"},
+      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+    },
+    "plugin_payload_production": {
+      "path": "src/modules/plugin-payload-production/package.json",
+      "name": "@agent-plugin-kit/plugin-payload-production",
+      "private": true,
+      "type": "module",
+      "exports": {".": "./interface.ts"},
+      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+    },
+    "qualification_evidence": {
+      "path": "src/modules/qualification-evidence/package.json",
+      "name": "@agent-plugin-kit/qualification-evidence",
+      "private": true,
+      "type": "module",
+      "exports": {".": "./interface.ts"},
+      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+    },
+    "release_and_git_engine": {
+      "path": "src/modules/release-and-git-engine/package.json",
+      "name": "@agent-plugin-kit/release-and-git-engine",
+      "private": true,
+      "type": "module",
+      "exports": {".": "./interface.ts"},
+      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+    },
+    "runtime_custody": {
+      "path": "src/modules/runtime-custody/package.json",
+      "name": "@agent-plugin-kit/runtime-custody",
       "private": true,
       "type": "module",
       "exports": {".": "./interface.ts"},
       "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
     }
-  }
+  },
+  "repository_quality_tests": [
+    {
+      "path": "tooling/repository-quality/contract-tests/fallow-policy.test.ts",
+      "tests": 18
+    },
+    {
+      "path": "tooling/repository-quality/contract-tests/repository-qualification.test.ts",
+      "tests": 10
+    }
+  ]
 }

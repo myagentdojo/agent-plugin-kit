@@ -1,5 +1,15 @@
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs"
-import { dirname, extname, relative, resolve } from "node:path"
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, extname, join, relative, resolve } from "node:path"
+import { staticModuleSpecifiers } from "./static-module-specifiers"
 
 type BalancedCounts = {
   tests: number
@@ -11,22 +21,69 @@ type BalancedCounts = {
 
 type RepositoryProofGroup = BalancedCounts & {
   id: string
+  script: string
   files: readonly string[]
+}
+
+type WorkspaceSelector = BalancedCounts & {
+  id: string
+  command: readonly string[]
+  package_directory: string
+  files: readonly string[]
+}
+
+type ObservedCounts = BalancedCounts & {
+  files: number
+}
+
+type ProofObservation = {
+  groups: readonly (ObservedCounts & { id: string })[]
+  aggregate: ObservedCounts
+}
+
+type JunitSuiteMatch = {
+  tag: string
+  index: number
 }
 
 type RepositoryQualificationContract = {
   schema_version: 1
+  bun: {
+    config_file: string
+    install_auto: "disable"
+  }
   structure: {
     required_paths: readonly string[]
     forbidden_paths: readonly string[]
+    forbidden_source_path_segments: readonly string[]
+    required_agent_pointers: readonly string[]
+    required_context_terms: readonly string[]
+    required_context_map_routes: readonly {
+      question: string
+      term: string
+      path: string
+    }[]
+    required_agent_index_links: readonly string[]
   }
   admission: {
+    proof_layer: "public-process"
+    first_green_implementation_transition: string
+    sentinel_file: string
+    sentinel_name: string
+    sentinel_count: number
     source_entry: string
     source_closure: readonly string[]
     owner_manifest: string
     consumer_fixture: string
     projection_fixture: string
-    projection: Readonly<Record<string, unknown>>
+    projection: {
+      name: string
+      type: string
+      exports: Readonly<Record<string, string>>
+    }
+    forbidden_self_reports: readonly string[]
+    self_report_files: readonly string[]
+    non_claims: readonly string[]
   }
   package_contract: {
     name: string
@@ -39,22 +96,44 @@ type RepositoryQualificationContract = {
     bin: Readonly<Record<string, string>>
     scripts: Readonly<Record<string, string>>
     dev_dependencies: Readonly<Record<string, string>>
+    forbidden_dependency_names: readonly string[]
+    forbidden_dependency_name_fragments: readonly string[]
+    catalogs_allowed: false
   }
   owner_manifests: Readonly<Record<string, {
     path: string
+    name: string
     private: boolean
     type: string
     exports: Readonly<Record<string, string>>
     empty_dependency_fields: readonly string[]
   }>>
+  repository_quality_tests: readonly {
+    path: string
+    tests: number
+  }[]
+  fallow: {
+    config_file: string
+    config: Readonly<Record<string, unknown>>
+    vscode_settings_file: string
+    vscode_settings: Readonly<Record<string, unknown>>
+    gitignore_file: string
+    gitignore_line: string
+    skill_files: readonly string[]
+    skill_version_marker: string
+    skill_target: string
+  }
+  workspace_selectors: readonly WorkspaceSelector[]
   shells: {
     maintenance_cli: {
+      script: string
       command: string
       red_exit: number
       red_verdict: string
       proof_schema_version: number
     }
     maintenance_cli_local_link: {
+      script: string
       command: string
       red_exit: number
       red_sentinel: string
@@ -63,6 +142,8 @@ type RepositoryQualificationContract = {
   }
   proof_groups: readonly RepositoryProofGroup[]
   aggregate: {
+    script: string
+    selected_files: readonly string[]
     files: number
     tests: number
     passed: number
@@ -90,8 +171,10 @@ class QualificationRefusal extends Error {
 
 const repositoryRoot = resolve(import.meta.dir, "../..")
 const contractPath = resolve(repositoryRoot, "tooling/repository-quality/repository-qualification-contract.json")
+const repositoryQualityModuleSpecifierPath = "tooling/repository-quality/static-module-specifiers.ts"
 const knownFailureClasses = new Set(["contract-absent"])
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+let activeMode: "complete" | "structure-only" = "complete"
 
 function writeRefusal(refusal: QualificationRefusal): void {
   process.stderr.write(
@@ -104,11 +187,17 @@ function writeRefusal(refusal: QualificationRefusal): void {
       findings: refusal.findings,
     })}\n`,
   )
-  process.exitCode = refusal.code === "repository-unqualified" ? 1 : 2
+  process.exitCode = refusal.code === "repository-unqualified" || refusal.code === "proof-process-failed" ? 1 : 2
 }
 
 function refuseRepository(code: string, kind: string, owner: string, repairId: string): never {
-  throw new QualificationRefusal(code, "complete", [{ kind, owner, repair_id: repairId }])
+  throw new QualificationRefusal(code, activeMode, [{ kind, owner, repair_id: repairId }])
+}
+
+function refuseProofProcess(owner: string): never {
+  throw new QualificationRefusal("proof-process-failed", activeMode, [
+    { kind: "proof-process-failed", owner, repair_id: "repair-proof-process" },
+  ])
 }
 
 function repositoryTestFiles(directory: string, prefix = ""): string[] {
@@ -149,26 +238,67 @@ function relativeEntryPath(prefix: string, name: string): string {
 }
 
 function verifySelectors(contract: RepositoryQualificationContract): void {
+  const scripts = rootScripts()
   const selected = new Set<string>()
   for (const [index, group] of contract.proof_groups.entries()) {
-    verifyGroupSelectors(group, index, selected)
+    verifyGroupSelectors(group, index, selected, scripts)
   }
-  if (contract.aggregate.files !== selected.size) {
-    refuseRepository("repository-unqualified", "selector-drift", "aggregate.files", "restore-current-declaration")
+  verifyAggregateFileCount(contract.aggregate.files, selected.size)
+  verifyRepositoryTestPartition(selected)
+  verifyAggregateSelector(contract.aggregate, selected, scripts)
+  verifyWorkspaceSelectors(contract.workspace_selectors)
+}
+
+function rootScripts(): Readonly<Record<string, unknown>> {
+  const scripts = objectValue(packageJson("package.json").scripts)
+  if (scripts === undefined) packageDrift("package_contract.scripts")
+  return scripts
+}
+
+function verifyAggregateFileCount(declared: number, observed: number): void {
+  if (declared !== observed) {
+    selectorDrift("aggregate.files")
   }
+}
+
+function verifyRepositoryTestPartition(selected: ReadonlySet<string>): void {
   const discovered = repositoryTestFiles(repositoryRoot)
     .filter((file) => !file.startsWith("tooling/repository-quality/"))
     .sort()
   const selectedSorted = [...selected].sort()
   if (JSON.stringify(discovered) !== JSON.stringify(selectedSorted)) {
-    refuseRepository("repository-unqualified", "selector-drift", "proof_groups", "restore-current-declaration")
+    selectorDrift("proof_groups")
   }
+}
+
+function verifyAggregateSelector(
+  aggregate: RepositoryQualificationContract["aggregate"],
+  selected: ReadonlySet<string>,
+  scripts: Readonly<Record<string, unknown>>,
+): void {
+  const selectedSorted = [...selected].sort()
+  if (
+    JSON.stringify([...aggregate.selected_files].sort()) !== JSON.stringify(selectedSorted) ||
+    scripts[aggregate.script] !== `bun test ${aggregate.selected_files.join(" ")}`
+  ) {
+    selectorDrift("aggregate.script")
+  }
+}
+
+function selectorDrift(owner: string): never {
+  return refuseRepository(
+    "repository-unqualified",
+    "selector-drift",
+    owner,
+    "restore-current-declaration",
+  )
 }
 
 function verifyGroupSelectors(
   group: RepositoryProofGroup,
   index: number,
   selected: Set<string>,
+  scripts: Readonly<Record<string, unknown>>,
 ): void {
   const groupFiles = new Set<string>()
   const invalid = group.files.some((file) => {
@@ -185,13 +315,151 @@ function verifyGroupSelectors(
       "restore-current-declaration",
     )
   }
+  if (scripts[group.script] !== `bun test ${group.files.join(" ")}`) {
+    refuseRepository(
+      "repository-unqualified",
+      "selector-drift",
+      `proof_groups[${index}].script`,
+      "restore-current-declaration",
+    )
+  }
+}
+
+function verifyWorkspaceSelectors(selectors: readonly WorkspaceSelector[]): void {
+  for (const [index, selector] of selectors.entries()) {
+    verifyWorkspaceSelector(selector, index)
+  }
+}
+
+function verifyWorkspaceSelector(selector: WorkspaceSelector, index: number): void {
+  const owner = `workspace_selectors[${index}]`
+  const manifest = packageJson(`${selector.package_directory}/package.json`)
+  selectorDriftWhen(selector.command.length !== 5, owner)
+  selectorDriftWhen(selector.command[0] !== "bun", owner)
+  selectorDriftWhen(selector.command[1] !== "run", owner)
+  selectorDriftWhen(selector.command[2] !== "--filter", owner)
+  selectorDriftWhen(selector.command[4] !== "test", owner)
+  selectorDriftWhen(manifest.name !== selector.command[3], owner)
+  selectorDriftWhen(
+    objectValue(manifest.scripts)?.test !== `bun test ${selector.files.join(" ")}`,
+    owner,
+  )
+  verifyCounts(selector, owner)
+}
+
+function selectorDriftWhen(drifted: boolean, owner: string): void {
+  if (drifted) selectorDrift(owner)
+}
+
+const repositoryQualityTestExpectations: Readonly<Record<string, number>> = {
+  "tooling/repository-quality/contract-tests/fallow-policy.test.ts": 18,
+  "tooling/repository-quality/contract-tests/repository-qualification.test.ts": 10,
+}
+
+function verifyRepositoryQualityTests(
+  declarations: readonly { path: string; tests: number }[],
+): void {
+  const declared = declarations.map(({ path }) => path).sort()
+  const discovered = repositoryTestFiles(repositoryRoot)
+    .filter((file) => file.startsWith("tooling/repository-quality/"))
+    .sort()
+  if (JSON.stringify(declared) !== JSON.stringify(discovered)) {
+    refuseRepository("repository-unqualified", "selector-drift", "repository_quality_tests", "restore-current-declaration")
+  }
+
+  const mismatch = declarations.findIndex((declaration) => {
+    const expectedTests = repositoryQualityTestExpectations[declaration.path]
+    if (expectedTests === undefined || declaration.tests !== expectedTests) return true
+    const source = readFileSync(resolve(repositoryRoot, declaration.path), "utf8")
+    return topLevelTestDrift(source, expectedTests)
+  })
+  if (mismatch !== -1) {
+    refuseRepository("repository-unqualified", "selector-drift", `repository_quality_tests[${mismatch}]`, "restore-current-declaration")
+  }
+}
+
+function topLevelTestDrift(source: string, expectedTests: number): boolean {
+  const testCount = source.match(/^test\s*\(/gm)?.length ?? 0
+  return testCount !== expectedTests || /test\.(skip|todo|only|each)\s*\(|describe\s*\(/.test(source)
+}
+
+function verifyBunPolicy(bun: RepositoryQualificationContract["bun"]): void {
+  if (bun.config_file !== "bunfig.toml" || bun.install_auto !== "disable") {
+    refuseRepository("repository-unqualified", "path-drift", "bun", "restore-repository-bytes")
+  }
+  const source = readFileSync(resolve(repositoryRoot, bun.config_file), "utf8")
+  if (source !== `[install]\nauto = "${bun.install_auto}"\n`) {
+    refuseRepository("repository-unqualified", "path-drift", "bun", "restore-repository-bytes")
+  }
 }
 
 function verifyStructurePaths(contract: RepositoryQualificationContract): void {
+  verifyRequiredPathDeclaration(contract.structure.required_paths)
   const missing = contract.structure.required_paths.some((path) => !existsSync(resolve(repositoryRoot, path)))
   if (missing) refuseRepository("repository-unqualified", "path-drift", "structure.required_paths", "restore-repository-bytes")
   const present = contract.structure.forbidden_paths.some((path) => existsSync(resolve(repositoryRoot, path)))
   if (present) refuseRepository("repository-unqualified", "path-drift", "structure.forbidden_paths", "restore-repository-bytes")
+  const sourcePaths = repositoryEntries(resolve(repositoryRoot, "src"), "src", () => true)
+  const forbiddenSegment = contract.structure.forbidden_source_path_segments.find((segment) =>
+    sourcePaths.some((path) => path.split("/").includes(segment))
+  )
+  if (forbiddenSegment !== undefined) {
+    refuseRepository(
+      "repository-unqualified",
+      "path-drift",
+      "structure.forbidden_source_path_segments",
+      "restore-repository-bytes",
+    )
+  }
+  verifyStructureGuidance(contract.structure)
+}
+
+function verifyRequiredPathDeclaration(requiredPaths: readonly string[]): void {
+  if (requiredPaths.includes(repositoryQualityModuleSpecifierPath)) return
+  refuseRepository("repository-unqualified", "path-drift", "structure.required_paths", "restore-current-declaration")
+}
+
+function verifyStructureGuidance(structure: RepositoryQualificationContract["structure"]): void {
+  verifyAgentPointers(structure.required_agent_pointers)
+  verifyContextTerms(structure.required_context_terms)
+  verifyContextMapRoutes(structure.required_context_map_routes)
+  verifyAgentIndexLinks(structure.required_agent_index_links)
+}
+
+function verifyAgentPointers(pointers: readonly string[]): void {
+  const agents = readFileSync(resolve(repositoryRoot, "AGENTS.md"), "utf8")
+  if (pointers.some((pointer) => !agents.includes(pointer))) {
+    refuseRepository("repository-unqualified", "path-drift", "structure.required_agent_pointers", "restore-repository-bytes")
+  }
+}
+
+function verifyContextTerms(terms: readonly string[]): void {
+  const context = readFileSync(resolve(repositoryRoot, "CONTEXT.md"), "utf8")
+  if (terms.some((term) => !context.includes(`**${term}**:`))) {
+    refuseRepository("repository-unqualified", "path-drift", "structure.required_context_terms", "restore-repository-bytes")
+  }
+}
+
+function verifyContextMapRoutes(routes: readonly RepositoryQualificationContract["structure"]["required_context_map_routes"][number][]): void {
+  const contextMap = readFileSync(resolve(repositoryRoot, "CONTEXT-MAP.md"), "utf8")
+  if (routes.some((route) => !contextMapRoutePresent(contextMap, route))) {
+    refuseRepository("repository-unqualified", "path-drift", "structure.required_context_map_routes", "restore-repository-bytes")
+  }
+}
+
+function verifyAgentIndexLinks(links: readonly string[]): void {
+  const agentIndex = readFileSync(resolve(repositoryRoot, "docs/agents/README.md"), "utf8")
+  if (links.some((link) => !agentIndex.includes(link))) {
+    refuseRepository("repository-unqualified", "path-drift", "structure.required_agent_index_links", "restore-repository-bytes")
+  }
+}
+
+function contextMapRoutePresent(
+  contextMap: string,
+  route: RepositoryQualificationContract["structure"]["required_context_map_routes"][number],
+): boolean {
+  const row = contextMap.split("\n").find((line) => line.includes(route.question))
+  return row?.includes(route.term) === true && row.includes(route.path)
 }
 
 function admissionDrift(): never {
@@ -203,20 +471,12 @@ function admissionDrift(): never {
   )
 }
 
-function sourceSpecifiers(source: string): string[] {
-  const specifiers = new Set<string>()
-  for (const pattern of [
-    /\bfrom\s*["']([^"']+)["']/g,
-    /\bimport\s*["']([^"']+)["']/g,
-    /\bimport\s*\(\s*["']([^"']+)["']/g,
-    /\brequire\s*\(\s*["']([^"']+)["']/g,
-  ]) {
-    for (const match of source.matchAll(pattern)) {
-      const specifier = match[1]
-      if (specifier !== undefined) specifiers.add(specifier)
-    }
+function sourceSpecifiers(file: string, source: string): string[] {
+  try {
+    return staticModuleSpecifiers(file, source)
+  } catch {
+    admissionDrift()
   }
-  return [...specifiers]
 }
 
 function resolveAdmissionImport(importer: string, specifier: string): string {
@@ -235,7 +495,7 @@ function discoverAdmissionSourceClosure(entry: string): string[] {
     if (discovered.has(file)) continue
     const source = sourceFile(resolve(repositoryRoot, file))
     discovered.add(source.relative)
-    pending.push(...sourceSpecifiers(readFileSync(source.absolute, "utf8"))
+    pending.push(...sourceSpecifiers(source.relative, readFileSync(source.absolute, "utf8"))
       .filter((specifier) => !specifier.startsWith("node:"))
       .map((specifier) => resolveAdmissionImport(file, specifier)))
   }
@@ -244,10 +504,54 @@ function discoverAdmissionSourceClosure(entry: string): string[] {
 
 function verifyAdmission(contract: RepositoryQualificationContract): void {
   const admission = contract.admission
+  verifyFirstGreenImplementationTransition(admission.first_green_implementation_transition)
+  verifyAdmissionSentinel(admission)
+  verifyAdmissionSelfReports(admission.forbidden_self_reports, admission.self_report_files)
   verifyAdmissionManifest(admission.owner_manifest)
   verifyAdmissionClosure(admission.source_entry, admission.source_closure)
-  verifyAdmissionProjection(admission.projection_fixture, admission.projection)
+  verifyAdmissionProductionSources()
+  verifyAdmissionProjection(admission.projection_fixture, admission.projection, contract.package_contract)
   verifyAdmissionConsumer(admission.consumer_fixture)
+  verifyAdmissionNonClaims(admission.non_claims)
+}
+
+function verifyFirstGreenImplementationTransition(rule: string): void {
+  const expected = "The first GREEN Implementation change must re-scope this Repository Qualification contract in the same reviewed checkpoint."
+  if (rule !== expected) admissionDrift()
+}
+
+function verifyAdmissionNonClaims(nonClaims: readonly string[]): void {
+  const expected = [
+    "installed dependency freedom",
+    "distribution",
+    "linker semantics",
+    "direct observation of network inactivity",
+  ]
+  if (JSON.stringify(nonClaims) !== JSON.stringify(expected)) admissionDrift()
+}
+
+function verifyAdmissionSentinel(admission: RepositoryQualificationContract["admission"]): void {
+  const source = readFileSync(resolve(repositoryRoot, admission.sentinel_file), "utf8")
+  const escapedName = escapeRegExp(admission.sentinel_name)
+  const count = source.match(new RegExp(`^test\\("${escapedName}"`, "gm"))?.length ?? 0
+  if (count !== admission.sentinel_count) admissionDrift()
+}
+
+function verifyAdmissionSelfReports(forbidden: readonly string[], declaredFiles: readonly string[]): void {
+  const inspected = [
+    ...new Set([
+      ...repositoryEntries(resolve(repositoryRoot, "src"), "src", (name) => name.endsWith(".ts")),
+      ...declaredFiles,
+    ]),
+  ]
+  const present = forbidden.some((token) =>
+    inspected.some((path) => readFileSync(resolve(repositoryRoot, path), "utf8").includes(token))
+  )
+  if (present) admissionDrift()
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 function admissionCandidates(unresolved: string): string[] {
@@ -274,11 +578,19 @@ function sourceFile(path: string): { absolute: string; relative: string } {
 
 function verifyAdmissionManifest(path: string): void {
   const manifest = JSON.parse(readFileSync(resolve(repositoryRoot, path), "utf8")) as Record<string, unknown>
-  const hasDependency = dependencyFields.some((field) => {
+  if (hasDependencyFieldDrift(manifest)) admissionDrift()
+}
+
+function hasDependencyFieldDrift(
+  manifest: Record<string, unknown>,
+  fields: readonly string[] = dependencyFields,
+): boolean {
+  return fields.some((field) => {
     const value = manifest[field]
-    return value !== undefined && (!value || typeof value !== "object" || Object.keys(value).length !== 0)
+    if (value === undefined) return false
+    const dependencies = objectValue(value)
+    return dependencies === undefined || Object.keys(dependencies).length !== 0
   })
-  if (hasDependency) admissionDrift()
 }
 
 function verifyAdmissionClosure(entry: string, expected: readonly string[]): void {
@@ -286,9 +598,35 @@ function verifyAdmissionClosure(entry: string, expected: readonly string[]): voi
   if (JSON.stringify(closure) !== JSON.stringify([...expected].sort())) admissionDrift()
 }
 
-function verifyAdmissionProjection(path: string, expected: Readonly<Record<string, unknown>>): void {
+function verifyAdmissionProductionSources(): void {
+  const sources = repositoryEntries(
+    resolve(repositoryRoot, "src/admission-bootstrap"),
+    "src/admission-bootstrap",
+    (name) => name.endsWith(".ts"),
+  ).filter((path) => !path.includes("/contract-tests/"))
+  for (const file of sources) {
+    const source = readFileSync(resolve(repositoryRoot, file), "utf8")
+    if (sourceSpecifiers(file, source).some((specifier) =>
+      !specifier.startsWith(".") && !specifier.startsWith("node:")
+    )) admissionDrift()
+  }
+}
+
+function verifyAdmissionProjection(
+  path: string,
+  expected: RepositoryQualificationContract["admission"]["projection"],
+  packageContract: RepositoryQualificationContract["package_contract"],
+): void {
   const projection = JSON.parse(readFileSync(resolve(repositoryRoot, path), "utf8")) as unknown
   if (JSON.stringify(projection) !== JSON.stringify(expected)) admissionDrift()
+  const publicEntry = packageContract.exports["./admission-bootstrap"]
+  const agreements = [
+    expected.name === packageContract.name,
+    expected.type === packageContract.type,
+    publicEntry !== undefined,
+    JSON.stringify(expected.exports) === JSON.stringify({ "./admission-bootstrap": publicEntry }),
+  ]
+  if (agreements.includes(false)) admissionDrift()
 }
 
 function verifyAdmissionConsumer(path: string): void {
@@ -297,7 +635,7 @@ function verifyAdmissionConsumer(path: string): void {
 }
 
 function packageDrift(owner: string): never {
-  throw new QualificationRefusal("repository-unqualified", "complete", [
+  throw new QualificationRefusal("repository-unqualified", activeMode, [
     {
       kind: "package-contract-drift",
       owner,
@@ -311,7 +649,9 @@ function packageJson(path: string): Record<string, unknown> {
 }
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" ? value as Record<string, unknown> : undefined
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
 }
 
 function packageManifests(directory: string, prefix = ""): string[] {
@@ -320,24 +660,60 @@ function packageManifests(directory: string, prefix = ""): string[] {
 
 function verifyPackageContract(contract: RepositoryQualificationContract): void {
   const root = packageJson("package.json")
-  verifyRootDependencies(root)
+  const manifestPaths = packageManifests(repositoryRoot)
+  verifyDependencyBans(manifestPaths, contract.package_contract)
   verifyRootIdentity(root, contract.package_contract)
   verifyRootCollections(root, contract.package_contract)
   verifyRootScripts(root.scripts, contract.package_contract.scripts)
-  verifyNoZod(packageManifests(repositoryRoot))
   verifyOwnerManifests(contract.owner_manifests)
 }
 
-function hasZodDependency(manifest: Record<string, unknown>): boolean {
-  return dependencyFields.some((field) => objectValue(manifest[field])?.zod !== undefined)
+function verifyDependencyBans(
+  paths: readonly string[],
+  expected: RepositoryQualificationContract["package_contract"],
+): void {
+  for (const path of paths) {
+    verifyManifestDependencyBans(packageJson(path), expected)
+  }
 }
 
-function verifyRootDependencies(root: Record<string, unknown>): void {
-  if (hasZodDependency(root)) packageDrift("package_contract.zod")
+function verifyManifestDependencyBans(
+  manifest: Record<string, unknown>,
+  expected: RepositoryQualificationContract["package_contract"],
+): void {
+  const malformedField = dependencyFields.find((field) => {
+    const value = manifest[field]
+    return value !== undefined && objectValue(value) === undefined
+  })
+  if (malformedField !== undefined) packageDrift(`package_contract.${malformedField}`)
+  const names = manifestDependencyNames(manifest)
+  verifyExactDependencyBans(names, expected.forbidden_dependency_names)
+  verifyDependencyFragments(names, expected.forbidden_dependency_name_fragments)
+  verifyCatalogBan(manifest, expected.catalogs_allowed)
 }
 
-function verifyNoZod(paths: readonly string[]): void {
-  if (paths.some((path) => hasZodDependency(packageJson(path)))) packageDrift("package_contract.zod")
+function manifestDependencyNames(manifest: Record<string, unknown>): string[] {
+  return dependencyFields.flatMap((field) => Object.keys(objectValue(manifest[field]) ?? {}))
+}
+
+function verifyExactDependencyBans(names: readonly string[], forbidden: readonly string[]): void {
+  const match = forbidden.find((name) => names.includes(name))
+  if (match !== undefined) packageDrift(`package_contract.forbidden_dependency_names.${match}`)
+}
+
+function verifyDependencyFragments(names: readonly string[], forbidden: readonly string[]): void {
+  const match = forbidden.find((fragment) =>
+    names.some((name) => name.toLowerCase().includes(fragment.toLowerCase()))
+  )
+  if (match !== undefined) {
+    packageDrift(`package_contract.forbidden_dependency_name_fragments.${match}`)
+  }
+}
+
+function verifyCatalogBan(manifest: Record<string, unknown>, allowed: false): void {
+  if (!allowed && (manifest.catalog !== undefined || manifest.catalogs !== undefined)) {
+    packageDrift("package_contract.catalogs_allowed")
+  }
 }
 
 function verifyRootIdentity(
@@ -378,6 +754,9 @@ function verifyRootScripts(value: unknown, expected: Readonly<Record<string, str
 function verifyOwnerManifests(
   declarations: Readonly<Record<string, RepositoryQualificationContract["owner_manifests"][string]>>,
 ): void {
+  const declaredPaths = Object.values(declarations).map((declaration) => declaration.path).sort()
+  const observedPaths = packageManifests(resolve(repositoryRoot, "src"), "src").sort()
+  if (JSON.stringify(declaredPaths) !== JSON.stringify(observedPaths)) packageDrift("owner_manifests")
   const mismatch = Object.entries(declarations).find(([_, declaration]) => {
     const manifest = packageJson(declaration.path)
     return ownerManifestDrift(manifest, declaration)
@@ -389,19 +768,18 @@ function ownerManifestDrift(
   manifest: Record<string, unknown>,
   declaration: RepositoryQualificationContract["owner_manifests"][string],
 ): boolean {
-  if (
-    manifest.private !== declaration.private ||
-    manifest.type !== declaration.type ||
-    JSON.stringify(manifest.exports) !== JSON.stringify(declaration.exports)
-  ) return true
-  return declaration.empty_dependency_fields.some((field) => {
-    const dependencies = objectValue(manifest[field])
-    return dependencies !== undefined && Object.keys(dependencies).length !== 0
-  })
+  const fieldsMatch = [
+    manifest.name === declaration.name,
+    manifest.private === declaration.private,
+    manifest.type === declaration.type,
+    JSON.stringify(manifest.exports) === JSON.stringify(declaration.exports),
+  ].every(Boolean)
+  if (!fieldsMatch) return true
+  return hasDependencyFieldDrift(manifest, declaration.empty_dependency_fields)
 }
 
 function shellDrift(owner: string): never {
-  throw new QualificationRefusal("repository-unqualified", "complete", [
+  throw new QualificationRefusal("repository-unqualified", activeMode, [
     {
       kind: "shell-drift",
       owner,
@@ -441,6 +819,7 @@ function shellRecord(output: string): Record<string, unknown> {
 
 function verifyShells(contract: RepositoryQualificationContract): void {
   const maintenance = contract.shells.maintenance_cli
+  verifyShellRoute(maintenance.script, maintenance.command, "shells.maintenance_cli")
   verifyShell(
     maintenance.command,
     maintenance.red_exit,
@@ -451,6 +830,7 @@ function verifyShells(contract: RepositoryQualificationContract): void {
   )
 
   const localLink = contract.shells.maintenance_cli_local_link
+  verifyShellRoute(localLink.script, localLink.command, "shells.maintenance_cli_local_link")
   verifyShell(
     localLink.command,
     localLink.red_exit,
@@ -458,6 +838,60 @@ function verifyShells(contract: RepositoryQualificationContract): void {
     "sentinel",
     localLink.red_sentinel,
     "shells.maintenance_cli_local_link",
+  )
+}
+
+function verifyShellRoute(script: string, command: string, owner: string): void {
+  if (command !== `bun run ${script}`) shellDrift(`${owner}.script`)
+  const scripts = objectValue(packageJson("package.json").scripts)
+  if (scripts?.[script] !== shellCommandSource(script)) shellDrift(`${owner}.script`)
+}
+
+function shellCommandSource(script: string): string {
+  if (script === "audit:maintenance-cli") return "bun run clean-fixture/audit-maintenance-cli.ts"
+  if (script === "verify:maintenance-cli:local-link") {
+    return "bun run clean-fixture/verify-maintenance-cli-local-link.ts"
+  }
+  shellDrift("shells")
+}
+
+function verifyFallow(contract: RepositoryQualificationContract["fallow"]): void {
+  verifyExactJsonFile(contract.config_file, contract.config, "fallow.config")
+  verifyExactJsonFile(
+    contract.vscode_settings_file,
+    contract.vscode_settings,
+    "fallow.vscode_settings",
+  )
+  verifyFallowGitignore(contract)
+  verifyFallowSkills(contract)
+}
+
+function verifyExactJsonFile(path: string, expected: unknown, owner: string): void {
+  const value = JSON.parse(readFileSync(resolve(repositoryRoot, path), "utf8")) as unknown
+  if (JSON.stringify(value) !== JSON.stringify(expected)) fallowDrift(owner)
+}
+
+function verifyFallowGitignore(contract: RepositoryQualificationContract["fallow"]): void {
+  const gitignore = readFileSync(resolve(repositoryRoot, contract.gitignore_file), "utf8").split("\n")
+  if (gitignore.filter((line) => line === contract.gitignore_line).length !== 1) {
+    fallowDrift("fallow.gitignore_line")
+  }
+}
+
+function verifyFallowSkills(contract: RepositoryQualificationContract["fallow"]): void {
+  const skillDrift = contract.skill_files.some((file) => {
+    const source = readFileSync(resolve(repositoryRoot, file), "utf8")
+    return !source.includes(contract.skill_version_marker) || !source.includes(contract.skill_target)
+  })
+  if (skillDrift) fallowDrift("fallow.skill_files")
+}
+
+function fallowDrift(owner: string): never {
+  return refuseRepository(
+    "repository-unqualified",
+    "path-drift",
+    owner,
+    "restore-repository-bytes",
   )
 }
 
@@ -476,8 +910,7 @@ function verifyShell(
 }
 
 function readContract(): RepositoryQualificationContract {
-  const value = JSON.parse(readFileSync(contractPath, "utf8")) as unknown
-  const root = exactRecord(value, "contract", [
+  const root = exactRecord(readContractValue(), "contract", [
     "schema_version",
     "bun",
     "structure",
@@ -487,42 +920,46 @@ function readContract(): RepositoryQualificationContract {
     "shells",
     "package_contract",
     "owner_manifests",
+    "repository_quality_tests",
+    "fallow",
+    "workspace_selectors",
   ])
-  exactRecord(root.bun, "bun", ["config_file", "install_auto"])
-  const structure = exactRecord(root.structure, "structure", [
-    "required_paths",
-    "forbidden_paths",
-    "required_agent_pointers",
-    "required_context_terms",
-    "required_context_map_routes",
-    "required_agent_index_links",
-  ])
-  for (const route of structure.required_context_map_routes as unknown[]) {
-    exactRecord(route, "structure.required_context_map_routes[]", ["question", "term", "path"])
+  try {
+    validateContractRecords(root)
+  } catch (error) {
+    if (error instanceof QualificationRefusal) throw error
+    refuseRepository("contract-invalid", "unknown-contract-key", relative(repositoryRoot, contractPath), "restore-current-declaration")
   }
-  for (const group of root.proof_groups as unknown[]) {
-    exactRecord(group, "proof_groups[]", ["id", "files", "tests", "passed", "failed", "skipped", "failure_classes"])
+  return root as unknown as RepositoryQualificationContract
+}
+
+function readContractValue(): unknown {
+  try {
+    return JSON.parse(readFileSync(contractPath, "utf8")) as unknown
+  } catch {
+    refuseRepository("contract-invalid", "unknown-contract-key", relative(repositoryRoot, contractPath), "restore-current-declaration")
   }
-  exactRecord(root.aggregate, "aggregate", ["files", "tests", "passed", "failed", "skipped", "failure_classes"])
-  const admission = exactRecord(root.admission, "admission", [
-    "proof_layer",
-    "sentinel_file",
-    "sentinel_name",
-    "sentinel_count",
-    "source_entry",
-    "source_closure",
-    "owner_manifest",
-    "consumer_fixture",
-    "projection_fixture",
-    "projection",
-    "forbidden_self_reports",
-    "non_claims",
-  ])
-  exactRecord(admission.projection, "admission.projection", ["name", "type", "exports"])
-  const shells = exactRecord(root.shells, "shells", ["maintenance_cli", "maintenance_cli_local_link"])
-  exactRecord(shells.maintenance_cli, "shells.maintenance_cli", ["script", "command", "red_exit", "red_verdict", "proof_schema_version"])
-  exactRecord(shells.maintenance_cli_local_link, "shells.maintenance_cli_local_link", ["script", "command", "red_exit", "red_sentinel", "proof_schema_version"])
-  const packageContract = exactRecord(root.package_contract, "package_contract", [
+}
+
+function validateContractRecords(root: Record<string, unknown>): void {
+  contractLiteral(root.schema_version, 1, "schema_version")
+  const bun = exactRecord(root.bun, "bun", ["config_file", "install_auto"])
+  contractString(bun.config_file, "bun.config_file")
+  contractLiteral(bun.install_auto, "disable", "bun.install_auto")
+  validateStructureRecord(root.structure)
+  validateProofGroupRecords(root.proof_groups)
+  validateAggregateRecord(root.aggregate)
+  validateAdmissionRecord(root.admission)
+  validateShellRecords(root.shells)
+  validatePackageContractRecord(root.package_contract)
+  validateOwnerManifestRecords(root.owner_manifests)
+  validateRepositoryQualityRecords(root.repository_quality_tests)
+  validateFallowRecord(root.fallow)
+  validateWorkspaceSelectorRecords(root.workspace_selectors)
+}
+
+function validatePackageContractRecord(value: unknown): void {
+  const contract = exactRecord(value, "package_contract", [
     "name",
     "version",
     "private",
@@ -533,12 +970,265 @@ function readContract(): RepositoryQualificationContract {
     "bin",
     "scripts",
     "dev_dependencies",
+    "forbidden_dependency_names",
+    "forbidden_dependency_name_fragments",
+    "catalogs_allowed",
   ])
-  for (const [owner, declaration] of Object.entries(root.owner_manifests as Record<string, unknown>)) {
-    exactRecord(declaration, `owner_manifests.${owner}`, ["path", "private", "type", "exports", "empty_dependency_fields"])
+  contractString(contract.name, "package_contract.name")
+  contractString(contract.version, "package_contract.version")
+  contractBoolean(contract.private, "package_contract.private")
+  contractString(contract.type, "package_contract.type")
+  contractString(contract.package_manager, "package_contract.package_manager")
+  contractStringArray(contract.workspaces, "package_contract.workspaces")
+  contractStringRecord(contract.exports, "package_contract.exports")
+  contractStringRecord(contract.bin, "package_contract.bin")
+  contractStringRecord(contract.scripts, "package_contract.scripts")
+  contractStringRecord(contract.dev_dependencies, "package_contract.dev_dependencies")
+  contractStringArray(contract.forbidden_dependency_names, "package_contract.forbidden_dependency_names")
+  contractStringArray(
+    contract.forbidden_dependency_name_fragments,
+    "package_contract.forbidden_dependency_name_fragments",
+  )
+  contractLiteral(contract.catalogs_allowed, false, "package_contract.catalogs_allowed")
+}
+
+function validateStructureRecord(value: unknown): void {
+  const structure = exactRecord(value, "structure", [
+    "required_paths",
+    "forbidden_paths",
+    "forbidden_source_path_segments",
+    "required_agent_pointers",
+    "required_context_terms",
+    "required_context_map_routes",
+    "required_agent_index_links",
+  ])
+  contractStringArray(structure.required_paths, "structure.required_paths")
+  contractStringArray(structure.forbidden_paths, "structure.forbidden_paths")
+  contractStringArray(
+    structure.forbidden_source_path_segments,
+    "structure.forbidden_source_path_segments",
+  )
+  contractStringArray(structure.required_agent_pointers, "structure.required_agent_pointers")
+  contractStringArray(structure.required_context_terms, "structure.required_context_terms")
+  contractStringArray(structure.required_agent_index_links, "structure.required_agent_index_links")
+  for (const [index, route] of contractArray(
+    structure.required_context_map_routes,
+    "structure.required_context_map_routes",
+  ).entries()) {
+    const owner = `structure.required_context_map_routes[${index}]`
+    const record = exactRecord(route, owner, ["question", "term", "path"])
+    contractString(record.question, `${owner}.question`)
+    contractString(record.term, `${owner}.term`)
+    contractString(record.path, `${owner}.path`)
   }
-  void packageContract
-  return root as unknown as RepositoryQualificationContract
+}
+
+function validateProofGroupRecords(value: unknown): void {
+  for (const [index, group] of contractArray(value, "proof_groups").entries()) {
+    const owner = `proof_groups[${index}]`
+    const record = exactRecord(group, owner, ["id", "script", "files", "tests", "passed", "failed", "skipped", "failure_classes"])
+    contractString(record.id, `${owner}.id`)
+    contractString(record.script, `${owner}.script`)
+    contractStringArray(record.files, `${owner}.files`)
+    validateBalancedCounts(record, owner)
+  }
+}
+
+function validateAggregateRecord(value: unknown): void {
+  const aggregate = exactRecord(value, "aggregate", ["script", "selected_files", "files", "tests", "passed", "failed", "skipped", "failure_classes"])
+  contractString(aggregate.script, "aggregate.script")
+  contractStringArray(aggregate.selected_files, "aggregate.selected_files")
+  contractInteger(aggregate.files, "aggregate.files")
+  validateBalancedCounts(aggregate, "aggregate")
+}
+
+function validateBalancedCounts(record: Record<string, unknown>, owner: string): void {
+  contractInteger(record.tests, `${owner}.tests`)
+  contractInteger(record.passed, `${owner}.passed`)
+  contractInteger(record.failed, `${owner}.failed`)
+  contractInteger(record.skipped, `${owner}.skipped`)
+  contractIntegerRecord(record.failure_classes, `${owner}.failure_classes`)
+}
+
+function validateAdmissionRecord(value: unknown): void {
+  const admission = exactRecord(value, "admission", [
+    "proof_layer",
+    "first_green_implementation_transition",
+    "sentinel_file",
+    "sentinel_name",
+    "sentinel_count",
+    "source_entry",
+    "source_closure",
+    "owner_manifest",
+    "consumer_fixture",
+    "projection_fixture",
+    "projection",
+    "forbidden_self_reports",
+    "self_report_files",
+    "non_claims",
+  ])
+  contractLiteral(admission.proof_layer, "public-process", "admission.proof_layer")
+  contractString(admission.first_green_implementation_transition, "admission.first_green_implementation_transition")
+  contractString(admission.sentinel_file, "admission.sentinel_file")
+  contractString(admission.sentinel_name, "admission.sentinel_name")
+  contractInteger(admission.sentinel_count, "admission.sentinel_count")
+  contractString(admission.source_entry, "admission.source_entry")
+  contractStringArray(admission.source_closure, "admission.source_closure")
+  contractString(admission.owner_manifest, "admission.owner_manifest")
+  contractString(admission.consumer_fixture, "admission.consumer_fixture")
+  contractString(admission.projection_fixture, "admission.projection_fixture")
+  contractStringArray(admission.forbidden_self_reports, "admission.forbidden_self_reports")
+  contractStringArray(admission.self_report_files, "admission.self_report_files")
+  contractStringArray(admission.non_claims, "admission.non_claims")
+  const projection = exactRecord(admission.projection, "admission.projection", ["name", "type", "exports"])
+  contractString(projection.name, "admission.projection.name")
+  contractString(projection.type, "admission.projection.type")
+  contractStringRecord(projection.exports, "admission.projection.exports")
+}
+
+function validateShellRecords(value: unknown): void {
+  const shells = exactRecord(value, "shells", ["maintenance_cli", "maintenance_cli_local_link"])
+  const cli = exactRecord(shells.maintenance_cli, "shells.maintenance_cli", ["script", "command", "red_exit", "red_verdict", "proof_schema_version"])
+  contractString(cli.script, "shells.maintenance_cli.script")
+  contractString(cli.command, "shells.maintenance_cli.command")
+  contractInteger(cli.red_exit, "shells.maintenance_cli.red_exit")
+  contractString(cli.red_verdict, "shells.maintenance_cli.red_verdict")
+  contractInteger(cli.proof_schema_version, "shells.maintenance_cli.proof_schema_version")
+  const localLink = exactRecord(shells.maintenance_cli_local_link, "shells.maintenance_cli_local_link", ["script", "command", "red_exit", "red_sentinel", "proof_schema_version"])
+  contractString(localLink.script, "shells.maintenance_cli_local_link.script")
+  contractString(localLink.command, "shells.maintenance_cli_local_link.command")
+  contractInteger(localLink.red_exit, "shells.maintenance_cli_local_link.red_exit")
+  contractString(localLink.red_sentinel, "shells.maintenance_cli_local_link.red_sentinel")
+  contractInteger(localLink.proof_schema_version, "shells.maintenance_cli_local_link.proof_schema_version")
+}
+
+function validateOwnerManifestRecords(value: unknown): void {
+  for (const [ownerName, declaration] of Object.entries(contractRecord(value, "owner_manifests"))) {
+    const owner = `owner_manifests.${ownerName}`
+    const record = exactRecord(declaration, owner, ["path", "name", "private", "type", "exports", "empty_dependency_fields"])
+    contractString(record.path, `${owner}.path`)
+    contractString(record.name, `${owner}.name`)
+    contractBoolean(record.private, `${owner}.private`)
+    contractString(record.type, `${owner}.type`)
+    contractStringRecord(record.exports, `${owner}.exports`)
+    contractStringArray(record.empty_dependency_fields, `${owner}.empty_dependency_fields`)
+  }
+}
+
+function validateRepositoryQualityRecords(value: unknown): void {
+  for (const [index, declaration] of contractArray(value, "repository_quality_tests").entries()) {
+    const owner = `repository_quality_tests[${index}]`
+    const record = exactRecord(declaration, owner, ["path", "tests"])
+    contractString(record.path, `${owner}.path`)
+    contractInteger(record.tests, `${owner}.tests`)
+  }
+}
+
+function validateFallowRecord(value: unknown): void {
+  const fallow = exactRecord(value, "fallow", [
+    "config_file",
+    "config",
+    "vscode_settings_file",
+    "vscode_settings",
+    "gitignore_file",
+    "gitignore_line",
+    "skill_files",
+    "skill_version_marker",
+    "skill_target",
+  ])
+  contractString(fallow.config_file, "fallow.config_file")
+  validateFallowConfig(fallow.config)
+  contractString(fallow.vscode_settings_file, "fallow.vscode_settings_file")
+  contractStringRecord(fallow.vscode_settings, "fallow.vscode_settings")
+  contractString(fallow.gitignore_file, "fallow.gitignore_file")
+  contractString(fallow.gitignore_line, "fallow.gitignore_line")
+  contractStringArray(fallow.skill_files, "fallow.skill_files")
+  contractString(fallow.skill_version_marker, "fallow.skill_version_marker")
+  contractString(fallow.skill_target, "fallow.skill_target")
+}
+
+function validateFallowConfig(value: unknown): void {
+  const config = exactRecord(value, "fallow.config", ["$schema", "typeAware", "audit", "rules"])
+  contractString(config.$schema, "fallow.config.$schema")
+  const typeAware = exactRecord(config.typeAware, "fallow.config.typeAware", ["enabled", "require"])
+  contractBoolean(typeAware.enabled, "fallow.config.typeAware.enabled")
+  contractLiteral(typeAware.require, "complete", "fallow.config.typeAware.require")
+  const audit = exactRecord(config.audit, "fallow.config.audit", ["gate"])
+  contractLiteral(audit.gate, "new-only", "fallow.config.audit.gate")
+  contractStringRecord(config.rules, "fallow.config.rules")
+}
+
+function validateWorkspaceSelectorRecords(value: unknown): void {
+  for (const [index, selector] of contractArray(value, "workspace_selectors").entries()) {
+    const owner = `workspace_selectors[${index}]`
+    const record = exactRecord(selector, owner, [
+      "id",
+      "command",
+      "package_directory",
+      "files",
+      "tests",
+      "passed",
+      "failed",
+      "skipped",
+      "failure_classes",
+    ])
+    contractString(record.id, `${owner}.id`)
+    contractStringArray(record.command, `${owner}.command`)
+    contractString(record.package_directory, `${owner}.package_directory`)
+    contractStringArray(record.files, `${owner}.files`)
+    validateBalancedCounts(record, owner)
+  }
+}
+
+function contractArray(value: unknown, owner: string): readonly unknown[] {
+  if (!Array.isArray(value)) contractInvalid(owner)
+  return value
+}
+
+function contractStringArray(value: unknown, owner: string): readonly string[] {
+  const values = contractArray(value, owner)
+  if (values.some((entry) => typeof entry !== "string")) contractInvalid(owner)
+  return values as readonly string[]
+}
+
+function contractStringRecord(value: unknown, owner: string): Readonly<Record<string, string>> {
+  const record = contractRecord(value, owner)
+  if (Object.values(record).some((entry) => typeof entry !== "string")) contractInvalid(owner)
+  return record as Readonly<Record<string, string>>
+}
+
+function contractIntegerRecord(value: unknown, owner: string): Readonly<Record<string, number>> {
+  const record = contractRecord(value, owner)
+  if (Object.values(record).some((entry) => !isContractInteger(entry))) contractInvalid(owner)
+  return record as Readonly<Record<string, number>>
+}
+
+function contractString(value: unknown, owner: string): string {
+  if (typeof value !== "string") contractInvalid(owner)
+  return value
+}
+
+function contractBoolean(value: unknown, owner: string): boolean {
+  if (typeof value !== "boolean") contractInvalid(owner)
+  return value
+}
+
+function contractInteger(value: unknown, owner: string): number {
+  if (!isContractInteger(value)) contractInvalid(owner)
+  return value
+}
+
+function isContractInteger(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0
+}
+
+function contractLiteral<T extends string | number | boolean>(value: unknown, expected: T, owner: string): T {
+  if (value !== expected) contractInvalid(owner)
+  return expected
+}
+
+function contractInvalid(owner: string): never {
+  return refuseRepository("contract-invalid", "unknown-contract-key", owner, "restore-current-declaration")
 }
 
 function exactRecord(
@@ -563,14 +1253,18 @@ function contractRecord(value: unknown, owner: string): Record<string, unknown> 
   return value as Record<string, unknown>
 }
 
-function verifyRepository(contract: RepositoryQualificationContract): void {
+function verifyRepository(contract: RepositoryQualificationContract): ProofObservation | undefined {
+  verifyBunPolicy(contract.bun)
   verifyStructurePaths(contract)
   verifyAdmission(contract)
   verifyPackageContract(contract)
+  verifyFallow(contract.fallow)
+  verifyRepositoryQualityTests(contract.repository_quality_tests)
   verifySelectors(contract)
   verifyShells(contract)
   verifyProofGroups(contract.proof_groups)
   verifyCounts(contract.aggregate, "aggregate")
+  return activeMode === "structure-only" ? undefined : observeProof(contract)
 }
 
 function verifyProofGroups(groups: readonly RepositoryProofGroup[]): void {
@@ -588,6 +1282,322 @@ function verifyCounts(counts: BalancedCounts, owner: string): void {
   }
 }
 
+function observeProof(contract: RepositoryQualificationContract): ProofObservation {
+  return withPrivateReceiptDirectory((directory) => {
+    observeWorkspaceSelectors(contract.workspace_selectors, directory)
+    const groups = contract.proof_groups.map((group, index) => observeGroup(group, index, directory))
+    const aggregate = observeSelection(
+      contract.aggregate.selected_files,
+      contract.aggregate,
+      "aggregate",
+      join(directory, "aggregate.xml"),
+    )
+    return { groups, aggregate }
+  })
+}
+
+function observeWorkspaceSelectors(
+  selectors: readonly WorkspaceSelector[],
+  directory: string,
+): void {
+  for (const [index, selector] of selectors.entries()) {
+    const owner = `workspace_selectors[${index}]`
+    const receiptPath = join(directory, `workspace-${index}.xml`)
+    const result = Bun.spawnSync({
+      cmd: [...selector.command, "--reporter=junit", "--reporter-outfile", receiptPath],
+      cwd: repositoryRoot,
+      env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    verifyProcessExit(result.exitCode, selector, owner)
+    const observed = parseJUnitReceipt(readProofReceipt(receiptPath, owner), selector.files, owner)
+    if (!sameObservedCounts(selector, observed)) refuseProofProcess(owner)
+  }
+}
+
+function withPrivateReceiptDirectory<T>(run: (directory: string) => T): T {
+  const directory = mkdtempSync(join(tmpdir(), "agent-plugin-kit-qualification-proof-"))
+  try {
+    return run(directory)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+}
+
+function observeGroup(
+  group: RepositoryProofGroup,
+  index: number,
+  directory: string,
+): ObservedCounts & { id: string } {
+  const owner = `proof_groups[${index}]`
+  const observed = observeSelection(group.files, group, owner, join(directory, `group-${index}.xml`))
+  return { id: group.id, ...observed }
+}
+
+function observeSelection(
+  files: readonly string[],
+  expected: BalancedCounts,
+  owner: string,
+  receiptPath: string,
+): ObservedCounts {
+  const observed = runTestProcess(files, expected, owner, receiptPath)
+  if (!sameObservedCounts(expected, observed)) refuseProofProcess(owner)
+  return observed
+}
+
+function runTestProcess(
+  files: readonly string[],
+  expected: BalancedCounts,
+  owner: string,
+  receiptPath: string,
+): ObservedCounts {
+  verifyUniqueProofFiles(files, owner)
+  const result = Bun.spawnSync({
+    cmd: ["bun", "test", ...files, "--reporter=junit", "--reporter-outfile", receiptPath],
+    cwd: repositoryRoot,
+    env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  verifyProcessExit(result.exitCode, expected, owner)
+  return parseJUnitReceipt(readProofReceipt(receiptPath, owner), files, owner)
+}
+
+function verifyUniqueProofFiles(files: readonly string[], owner: string): void {
+  if (new Set(files).size !== files.length) refuseProofProcess(owner)
+}
+
+function verifyProcessExit(exitCode: number, expected: BalancedCounts, owner: string): void {
+  if (exitCode !== expectedProcessExit(expected)) refuseProofProcess(owner)
+}
+
+function readProofReceipt(receiptPath: string, owner: string): string {
+  if (!isFile(receiptPath)) refuseProofProcess(owner)
+  const receipt = readFileSync(receiptPath, "utf8")
+  if (receipt.trim() === "") refuseProofProcess(owner)
+  return receipt
+}
+
+function expectedProcessExit(expected: BalancedCounts): number {
+  return expected.failed === 0 ? 0 : 1
+}
+
+function parseJUnitReceipt(
+  source: string,
+  files: readonly string[],
+  owner: string,
+): ObservedCounts {
+  const root = singleXmlTag(source, /<testsuites\b[^>]*>/g, owner)
+  verifyJUnitDocument(source, owner)
+  const suites = [...source.matchAll(/<testsuite\b[^>]*>/g)].map((match) => ({
+    tag: match[0] as string,
+    index: match.index ?? -1,
+  }))
+  verifyJUnitSuiteCount(suites, files, owner)
+  const expectedFiles = new Set(files)
+  const observedFiles = new Set<string>()
+  const parsed = suites.map((suite, index) => parseJUnitSuite(source, suites, suite, index, expectedFiles, observedFiles, owner))
+  verifyObservedFileCount(observedFiles, expectedFiles, owner)
+  const totals = sumJUnitSuites(parsed)
+  verifyJUnitRoot(root, totals, owner)
+  return { files: parsed.length, ...totals }
+}
+
+function verifyJUnitDocument(source: string, owner: string): void {
+  const closingTags = source.match(/<\/testsuites>/g) ?? []
+  if (!source.includes("</testsuites>") || closingTags.length !== 1) refuseProofProcess(owner)
+}
+
+function verifyJUnitSuiteCount(
+  suites: readonly JunitSuiteMatch[],
+  files: readonly string[],
+  owner: string,
+): void {
+  if (suites.length !== files.length) refuseProofProcess(owner)
+}
+
+function verifyObservedFileCount(
+  observedFiles: ReadonlySet<string>,
+  expectedFiles: ReadonlySet<string>,
+  owner: string,
+): void {
+  if (observedFiles.size !== expectedFiles.size) refuseProofProcess(owner)
+}
+
+function singleXmlTag(source: string, pattern: RegExp, owner: string): string {
+  const tags = [...source.matchAll(pattern)]
+  const tag = tags.length === 1 ? tags[0]?.[0] : undefined
+  if (tag === undefined) refuseProofProcess(owner)
+  return tag
+}
+
+function parseJUnitSuite(
+  source: string,
+  suites: readonly JunitSuiteMatch[],
+  suite: JunitSuiteMatch,
+  index: number,
+  expectedFiles: ReadonlySet<string>,
+  observedFiles: Set<string>,
+  owner: string,
+): BalancedCounts & { file: string } {
+  const file = xmlAttribute(suite.tag, "file", owner)
+  verifyJUnitSuiteFile(file, expectedFiles, observedFiles, owner)
+  observedFiles.add(file)
+  const body = junitSuiteBody(source, suites, suite, index, owner)
+  const counts = junitCounts(suite.tag, owner)
+  const failures = [...body.matchAll(/<failure\b[^>]*>/g)]
+  const skipped = junitSkippedCount(body)
+  verifyJUnitSuiteBody(body, counts, failures.length, skipped, owner)
+  return {
+    file,
+    tests: counts.tests,
+    passed: counts.tests - counts.failed - counts.skipped,
+    failed: counts.failed,
+    skipped: counts.skipped,
+    failure_classes: junitFailureClasses(failures, owner),
+  }
+}
+
+function verifyJUnitSuiteFile(
+  file: string,
+  expectedFiles: ReadonlySet<string>,
+  observedFiles: ReadonlySet<string>,
+  owner: string,
+): void {
+  if (!expectedFiles.has(file) || observedFiles.has(file)) refuseProofProcess(owner)
+}
+
+function junitSkippedCount(body: string): number {
+  return [...body.matchAll(/<skipped\b[^>]*\/?\s*>/g)].length
+}
+
+function verifyJUnitSuiteBody(
+  body: string,
+  counts: Pick<BalancedCounts, "tests" | "failed" | "skipped">,
+  failureCount: number,
+  skippedCount: number,
+  owner: string,
+): void {
+  verifyJUnitTestCount(body, counts.tests, owner)
+  verifyJUnitFailureCount(failureCount, counts.failed, owner)
+  verifyJUnitSkippedCount(skippedCount, counts.skipped, owner)
+  if (body.includes("<error")) refuseProofProcess(owner)
+}
+
+function verifyJUnitTestCount(body: string, expected: number, owner: string): void {
+  if ([...body.matchAll(/<testcase\b[^>]*>/g)].length !== expected) refuseProofProcess(owner)
+}
+
+function verifyJUnitFailureCount(actual: number, expected: number, owner: string): void {
+  if (actual !== expected) refuseProofProcess(owner)
+}
+
+function verifyJUnitSkippedCount(actual: number, expected: number, owner: string): void {
+  if (actual !== expected) refuseProofProcess(owner)
+}
+
+function junitSuiteBody(
+  source: string,
+  suites: readonly JunitSuiteMatch[],
+  suite: JunitSuiteMatch,
+  index: number,
+  owner: string,
+): string {
+  const start = suite.index + suite.tag.length
+  const closingRoot = source.indexOf("</testsuites>", start)
+  const nextSuite = suites[index + 1]?.index ?? closingRoot
+  verifyJUnitSuiteBounds(suite, start, nextSuite, closingRoot, owner)
+  const body = source.slice(start, nextSuite)
+  if (!body.includes("</testsuite>")) refuseProofProcess(owner)
+  return body
+}
+
+function verifyJUnitSuiteBounds(
+  suite: JunitSuiteMatch,
+  start: number,
+  nextSuite: number,
+  closingRoot: number,
+  owner: string,
+): void {
+  if (suite.index < 0 || nextSuite < start || closingRoot < 0) refuseProofProcess(owner)
+}
+
+function junitCounts(tag: string, owner: string): Pick<BalancedCounts, "tests" | "failed" | "skipped"> {
+  return {
+    tests: xmlInteger(tag, "tests", owner),
+    failed: xmlInteger(tag, "failures", owner),
+    skipped: xmlInteger(tag, "skipped", owner),
+  }
+}
+
+function xmlInteger(tag: string, attribute: string, owner: string): number {
+  const value = Number(xmlAttribute(tag, attribute, owner))
+  if (!Number.isInteger(value) || value < 0) refuseProofProcess(owner)
+  return value
+}
+
+function xmlAttribute(tag: string, attribute: string, owner: string): string {
+  const match = tag.match(new RegExp(`\\b${attribute}="([^"]*)"`))
+  const value = match?.[1]
+  if (value === undefined) refuseProofProcess(owner)
+  return value
+}
+
+function junitFailureClasses(
+  failures: readonly RegExpMatchArray[],
+  owner: string,
+): Readonly<Record<string, number>> {
+  const classes: Record<string, number> = {}
+  for (const failure of failures) {
+    const message = xmlAttribute(failure[0] as string, "message", owner)
+    const failureClass = [...knownFailureClasses].find((candidate) => message.includes(`${candidate}:`))
+    if (failureClass === undefined) refuseProofProcess(owner)
+    classes[failureClass] = (classes[failureClass] ?? 0) + 1
+  }
+  return classes
+}
+
+function sumJUnitSuites(suites: readonly (BalancedCounts & { file: string })[]): BalancedCounts {
+  return suites.reduce(
+    (total, suite) => ({
+      tests: total.tests + suite.tests,
+      passed: total.passed + suite.passed,
+      failed: total.failed + suite.failed,
+      skipped: total.skipped + suite.skipped,
+      failure_classes: mergeFailureClasses(total.failure_classes, suite.failure_classes),
+    }),
+    { tests: 0, passed: 0, failed: 0, skipped: 0, failure_classes: {} },
+  )
+}
+
+function mergeFailureClasses(
+  left: Readonly<Record<string, number>>,
+  right: Readonly<Record<string, number>>,
+): Readonly<Record<string, number>> {
+  const merged: Record<string, number> = { ...left }
+  for (const [failureClass, count] of Object.entries(right)) {
+    merged[failureClass] = (merged[failureClass] ?? 0) + count
+  }
+  return merged
+}
+
+function verifyJUnitRoot(root: string, totals: BalancedCounts, owner: string): void {
+  const rootCounts = junitCounts(root, owner)
+  if (
+    rootCounts.tests !== totals.tests ||
+    rootCounts.failed !== totals.failed ||
+    rootCounts.skipped !== totals.skipped
+  ) refuseProofProcess(owner)
+}
+
+function sameObservedCounts(expected: BalancedCounts, observed: ObservedCounts): boolean {
+  const expectedValues = [expected.tests, expected.passed, expected.failed, expected.skipped]
+  const observedValues = [observed.tests, observed.passed, observed.failed, observed.skipped]
+  return expectedValues.every((value, index) => value === observedValues[index]) &&
+    JSON.stringify(expected.failure_classes) === JSON.stringify(observed.failure_classes)
+}
+
 function failureClassDrift(counts: BalancedCounts): boolean {
   if (hasUnknownFailureClass(counts.failure_classes)) return true
   if (failureClassTotal(counts.failure_classes) !== counts.failed) return true
@@ -602,18 +1612,20 @@ function failureClassTotal(failureClasses: Readonly<Record<string, number>>): nu
   return Object.values(failureClasses).reduce((total, count) => total + count, 0)
 }
 
-function readMode(): "complete" | "structure-only" | undefined {
+function readMode(): "complete" | "structure-only" {
   const argumentsAfterScript = process.argv.slice(2)
-  if (argumentsAfterScript.some((argument) => argument !== "--structure-only")) {
-    process.exitCode = 2
-    return undefined
+  if (
+    argumentsAfterScript.some((argument) => argument !== "--structure-only") ||
+    argumentsAfterScript.length > 1
+  ) {
+    refuseRepository("usage", "unknown-contract-key", "argv", "restore-current-declaration")
   }
   return argumentsAfterScript.length === 1 ? "structure-only" : "complete"
 }
 
 function qualificationReceipt(
-  contract: RepositoryQualificationContract,
   mode: "complete" | "structure-only",
+  observation: ProofObservation | undefined,
 ): Record<string, unknown> {
   return {
     schema_version: 1,
@@ -621,35 +1633,47 @@ function qualificationReceipt(
     status: "qualified",
     mode,
     contract: "tooling/repository-quality/repository-qualification-contract.json",
-    groups: mode === "structure-only"
-      ? []
-      : contract.proof_groups.map(({ id, files, tests, passed, failed, skipped, failure_classes }) => ({
-          id,
-          files: files.length,
-          tests,
-          passed,
-          failed,
-          skipped,
-          failure_classes,
-        })),
-    aggregate: mode === "structure-only"
-      ? null
-      : {
-          files: contract.aggregate.files,
-          tests: contract.aggregate.tests,
-          passed: contract.aggregate.passed,
-          failed: contract.aggregate.failed,
-          skipped: contract.aggregate.skipped,
-        },
+    groups: receiptGroups(mode, observation),
+    aggregate: receiptAggregate(mode, observation),
+  }
+}
+
+function receiptGroups(
+  mode: "complete" | "structure-only",
+  observation: ProofObservation | undefined,
+): readonly Record<string, unknown>[] {
+  if (mode === "structure-only" || observation === undefined) return []
+  return observation.groups.map(({ id, files, tests, passed, failed, skipped, failure_classes }) => ({
+    id,
+    files,
+    tests,
+    passed,
+    failed,
+    skipped,
+    failure_classes,
+  }))
+}
+
+function receiptAggregate(
+  mode: "complete" | "structure-only",
+  observation: ProofObservation | undefined,
+): Record<string, number> | null {
+  if (mode === "structure-only" || observation === undefined) return null
+  return {
+    files: observation.aggregate.files,
+    tests: observation.aggregate.tests,
+    passed: observation.aggregate.passed,
+    failed: observation.aggregate.failed,
+    skipped: observation.aggregate.skipped,
   }
 }
 
 function run(): void {
-  const contract = readContract()
-  verifyRepository(contract)
   const mode = readMode()
-  if (mode === undefined) return
-  process.stdout.write(`${JSON.stringify(qualificationReceipt(contract, mode))}\n`)
+  activeMode = mode
+  const contract = readContract()
+  const observation = verifyRepository(contract)
+  process.stdout.write(`${JSON.stringify(qualificationReceipt(mode, observation))}\n`)
 }
 
 try {
@@ -658,6 +1682,8 @@ try {
   if (error instanceof QualificationRefusal) {
     writeRefusal(error)
   } else {
-    process.exitCode = 2
+    writeRefusal(new QualificationRefusal("proof-process-failed", activeMode, [
+      { kind: "proof-process-failed", owner: "verifier", repair_id: "repair-proof-process" },
+    ]))
   }
 }

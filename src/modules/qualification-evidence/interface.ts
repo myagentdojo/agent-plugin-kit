@@ -23,19 +23,6 @@ export type EvidenceCell = {
     | "canary.hosted-qualified"
     | "harness.claude.fresh-native"
     | "harness.codex.fresh-native"
-  actualProofLayer:
-    | "in-process"
-    | "public-process"
-    | "clean-fixture"
-    | "hosted"
-    | "fresh-native"
-    | null
-  assertedStatus: "proved" | "not-proved" | "unknown"
-  observable: {
-    kind: "observed" | "failure" | "proved-absence" | "unavailable" | "unknown"
-    code: string
-    digest?: `sha256:${string}`
-  } | null
   lineage: {
     candidateIdentitySha256: `sha256:${string}`
     source: SourceIdentity
@@ -56,14 +43,6 @@ export type EvidenceCell = {
       libc?: "glibc"
     }
   }
-  skipRationale:
-    | "hosted-proof-not-run"
-    | "fresh-native-proof-not-run"
-    | "protected-authority-unavailable"
-    | "platform-not-selected"
-    | "host-unavailable"
-    | "not-applicable"
-    | null
   nonClaims: readonly (
     | "kit.identity.admitted"
     | "kit.command.invoked"
@@ -92,7 +71,42 @@ export type EvidenceCell = {
     digest: `sha256:${string}`
   } | null
   resolves: readonly `cell:${string}`[]
-}
+} & (
+  | {
+      assertedStatus: "proved"
+      actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+      observable: { kind: "observed"; code: string; digest?: `sha256:${string}` }
+      skipRationale: null
+    }
+  | {
+      assertedStatus: "not-proved"
+      actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+      observable: { kind: "failure" | "proved-absence"; code: string; digest?: `sha256:${string}` }
+      skipRationale: null
+    }
+  | {
+      assertedStatus: "unknown"
+      unknownKind: "observation"
+      actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+      observable: { kind: "unavailable" | "unknown"; code: string; digest?: `sha256:${string}` }
+      skipRationale: null
+    }
+  | {
+      assertedStatus: "unknown"
+      unknownKind: "skip"
+      actualProofLayer: null
+      observable: null
+      skipRationale:
+        | "hosted-proof-not-run"
+        | "fresh-native-proof-not-run"
+        | "protected-authority-unavailable"
+        | "platform-not-selected"
+        | "host-unavailable"
+        | "not-applicable"
+      receipt: null
+      resolves: readonly []
+    }
+)
 
 export type VerificationProfile = {
   schemaVersion: 1
@@ -167,7 +181,7 @@ export type QualificationResult = {
   schemaVersion: 1
   candidate: CandidateIdentity
   profileId: "personal" | "public"
-  claims: readonly {
+  claims: readonly ({
     claim:
       | "kit.identity.admitted"
       | "kit.command.invoked"
@@ -180,23 +194,6 @@ export type QualificationResult = {
       | "canary.hosted-qualified"
       | "harness.claude.fresh-native"
       | "harness.codex.fresh-native"
-    status: "proved" | "not-proved" | "unknown"
-    actualProofLayer:
-      | "in-process"
-      | "public-process"
-      | "clean-fixture"
-      | "hosted"
-      | "fresh-native"
-      | null
-    observationKind: "observed" | "failure" | "proved-absence" | "unavailable" | "unknown" | null
-    skipRationale:
-      | "hosted-proof-not-run"
-      | "fresh-native-proof-not-run"
-      | "protected-authority-unavailable"
-      | "platform-not-selected"
-      | "host-unavailable"
-      | "not-applicable"
-      | null
     nonClaims: readonly (
       | "kit.identity.admitted"
       | "kit.command.invoked"
@@ -212,7 +209,40 @@ export type QualificationResult = {
     )[]
     receiptDigests: readonly `sha256:${string}`[]
     evidenceCellIds: readonly `cell:${string}`[]
-  }[]
+  } & (
+    | {
+        status: "proved"
+        actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+        observationKind: "observed"
+        skipRationale: null
+      }
+    | {
+        status: "not-proved"
+        actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+        observationKind: "observed" | "failure" | "proved-absence"
+        skipRationale: null
+      }
+    | {
+        status: "unknown"
+        unknownKind: "observation"
+        actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+        observationKind: "unavailable" | "unknown"
+        skipRationale: null
+      }
+    | {
+        status: "unknown"
+        unknownKind: "skip"
+        actualProofLayer: null
+        observationKind: null
+        skipRationale:
+          | "hosted-proof-not-run"
+          | "fresh-native-proof-not-run"
+          | "protected-authority-unavailable"
+          | "platform-not-selected"
+          | "host-unavailable"
+          | "not-applicable"
+      }
+  ))[]
   counts: {
     selected: number
     covered: number
@@ -276,5 +306,5 @@ export interface QualificationEvidence {
     candidate: CandidateIdentity
     profile: VerificationProfile
     cells: readonly EvidenceCell[]
-  }): QualificationResult
+  }): QualificationOutcome
 }

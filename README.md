@@ -28,7 +28,7 @@ The accepted language-to-topology rule and complete placement rationale live in
 [`docs/adr/0001-language-to-topology.md`](docs/adr/0001-language-to-topology.md).
 The Owner Manifest and dependency Locality decision lives in
 [`docs/adr/0002-owner-manifests-and-dependency-locality.md`](docs/adr/0002-owner-manifests-and-dependency-locality.md).
-Repository Quality Tooling and Verification Transition Contract ownership
+Repository Quality Tooling and Repository Qualification ownership
 lives in
 [`docs/adr/0003-repository-quality-and-verification-transition.md`](docs/adr/0003-repository-quality-and-verification-transition.md).
 

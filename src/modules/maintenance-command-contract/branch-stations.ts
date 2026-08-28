@@ -8,8 +8,6 @@ import type {
 import { resultVocabulary } from "./result-vocabulary"
 
 type FailureClass = MaintenanceError["failureClass"]
-type RetrySafety = CommandPreview["retrySafety"]
-type TransactionState = CommandPreview["transactionState"]
 
 export type BranchKind =
   | "execution"

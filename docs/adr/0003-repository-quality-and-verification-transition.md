@@ -5,13 +5,13 @@ status: accepted
 # Keep Repository Governance With Repository Quality Tooling
 
 Repository Quality Tooling owns repository-wide quality and transition policy
-outside the Source Tree. Its Verification Transition Contract declares the
+outside the Source Tree. Its Repository Qualification declaration records the
 exact paths, Source Closure, proof groups, and expected RED or GREEN states
 allowed at one reviewed repository transition.
 
 Clean Fixture remains an independent Plugin Consumer and higher Proof Layer.
-It may supply public-process and cross-Module evidence to the Verification
-Transition Contract, but it does not own repository structure, permitted path
+It may supply public-process and cross-Module evidence to Repository
+Qualification, but it does not own repository structure, permitted path
 changes, group counts, or transition policy.
 
 ## Consequences

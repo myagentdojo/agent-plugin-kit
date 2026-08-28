@@ -13,6 +13,9 @@ import { join, resolve } from "node:path"
 const repositoryRoot = resolve(import.meta.dir, "../../..")
 const temporaryRoots: string[] = []
 
+// Test-owned independent oracle: these literal receipts intentionally restate
+// the accepted repository contract so the public verifier cannot define its
+// own expected result.
 const initialGroups = [
   { id: "kit-interface", files: 1, tests: 3, passed: 0, failed: 3, skipped: 0, failure_classes: { "contract-absent": 3 } },
   { id: "admission-bootstrap", files: 2, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
@@ -46,7 +49,9 @@ const mixedSuccess = {
   contract: "tooling/repository-quality/repository-qualification-contract.json",
   groups: [
     { id: "kit-interface", files: 1, tests: 3, passed: 1, failed: 2, skipped: 0, failure_classes: { "contract-absent": 2 } },
-    ...initialGroups.slice(1),
+    ...initialGroups.slice(1, 4),
+    { id: "clean-fixture", files: 7, tests: 26, passed: 1, failed: 25, skipped: 0, failure_classes: { "contract-absent": 25 } },
+    ...initialGroups.slice(5),
   ],
   aggregate: { files: 17, tests: 104, passed: 1, failed: 103, skipped: 0 },
 } as const
@@ -56,13 +61,19 @@ async function copyRepositoryFixture(): Promise<string> {
   temporaryRoots.push(root)
   await cp(repositoryRoot, root, {
     recursive: true,
-    filter: (source) => !source.includes(`${join(".git")}`) && !source.includes(`${join("node_modules")}`),
+    filter: (source) => {
+      const segments = source.slice(repositoryRoot.length).split(/[\\/]/)
+      return !segments.includes(".git") && !segments.includes("node_modules")
+    },
   })
   return root
 }
 
-async function observeVerifier(root: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const child = Bun.spawn(["bun", "run", "--silent", "verify:repository-qualification"], {
+async function observeVerifier(
+  root: string,
+  argumentsAfterScript: readonly string[] = [],
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const child = Bun.spawn(["bun", "run", "--silent", "verify:repository-qualification", ...argumentsAfterScript], {
     cwd: root,
     stdin: "ignore",
     stdout: "pipe",
@@ -98,6 +109,16 @@ async function mutateJsonFile(
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`)
 }
 
+async function mutateTextFile(
+  root: string,
+  relativePath: string,
+  mutate: (source: string) => string,
+): Promise<void> {
+  const path = join(root, relativePath)
+  const source = await readFile(path, "utf8")
+  await writeFile(path, mutate(source))
+}
+
 afterAll(async () => {
   await Promise.all(temporaryRoots.map((root) => rm(root, { recursive: true, force: true })))
 })
@@ -113,10 +134,22 @@ test("the initial repository declaration qualifies the exact mixed RED baseline"
 
 test("a literal mixed RED and GREEN declaration qualifies", async () => {
   const root = await copyRepositoryFixture()
+  await mutateTextFile(
+    root,
+    "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
+    (source) => {
+      const assertion = '  expect(installedPackage?.rootTypeExports, "contract-absent: installed root type exports must be independently observed").toEqual(expectedRootTypeExports)\n'
+      if (!source.includes(assertion)) throw new Error("mixed fixture assertion was not found")
+      return source.replace(assertion, "")
+    },
+  )
   await mutateContract(root, (contract) => {
     contract.proof_groups[0].passed = 1
     contract.proof_groups[0].failed = 2
     contract.proof_groups[0].failure_classes = { "contract-absent": 2 }
+    contract.proof_groups[4].passed = 1
+    contract.proof_groups[4].failed = 25
+    contract.proof_groups[4].failure_classes = { "contract-absent": 25 }
     contract.aggregate.passed = 1
     contract.aggregate.failed = 103
     contract.aggregate.failure_classes = { "contract-absent": 103 }
@@ -225,6 +258,106 @@ test("selector discovery or aggregate de-duplication drift is refused", async ()
         ],
       },
     },
+    {
+      label: "repository quality test count",
+      mutate: (contract: Record<string, any>) => {
+        contract.repository_quality_tests[0].tests = 17
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "selector-drift",
+            owner: "repository_quality_tests[0]",
+            repair_id: "restore-current-declaration",
+          },
+        ],
+      },
+    },
+    {
+      label: "repository quality test omitted",
+      mutate: (contract: Record<string, any>) => {
+        contract.repository_quality_tests.pop()
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "selector-drift",
+            owner: "repository_quality_tests",
+            repair_id: "restore-current-declaration",
+          },
+        ],
+      },
+    },
+    {
+      label: "focused script binding drift",
+      mutate: (contract: Record<string, any>) => {
+        contract.proof_groups[0].script = "test:intentional-red:admission-bootstrap"
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "selector-drift",
+            owner: "proof_groups[0].script",
+            repair_id: "restore-current-declaration",
+          },
+        ],
+      },
+    },
+    {
+      label: "aggregate script binding drift",
+      mutate: (contract: Record<string, any>) => {
+        contract.aggregate.script = "test:intentional-red:kit-interface"
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "selector-drift",
+            owner: "aggregate.script",
+            repair_id: "restore-current-declaration",
+          },
+        ],
+      },
+    },
+    {
+      label: "workspace selector command drift",
+      mutate: (contract: Record<string, any>) => {
+        contract.workspace_selectors[0].command[3] = "@agent-plugin-kit/qualification-evidence"
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "selector-drift",
+            owner: "workspace_selectors[0]",
+            repair_id: "restore-current-declaration",
+          },
+        ],
+      },
+    },
   ] as const
 
   for (const row of cases) {
@@ -236,6 +369,35 @@ test("selector discovery or aggregate de-duplication drift is refused", async ()
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(row.expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(row.expected)
   }
+
+  const workspaceRoot = await copyRepositoryFixture()
+  await mutateTextFile(
+    workspaceRoot,
+    "src/admission-bootstrap/contract-tests/identity-refusal.test.ts",
+    (source) => source.replace(
+      'test("workflow pin mismatch fails closed", () => assertRefusal(6))',
+      'test("workflow pin mismatch fails closed", () => {})',
+    ),
+  )
+  const workspaceExpected = {
+    schema_version: 1,
+    command: "verify:repository-qualification",
+    status: "refused",
+    mode: "complete",
+    code: "proof-process-failed",
+    findings: [
+      {
+        kind: "proof-process-failed",
+        owner: "workspace_selectors[0]",
+        repair_id: "repair-proof-process",
+      },
+    ],
+  } as const
+  const workspaceObservation = await observeVerifier(workspaceRoot)
+  expect(workspaceObservation.exitCode).toBe(1)
+  expect(workspaceObservation.stdout).toBe("")
+  expect(workspaceObservation.stderr).toBe(`${JSON.stringify(workspaceExpected)}\n`)
+  expect(JSON.parse(workspaceObservation.stderr)).toEqual(workspaceExpected)
 })
 
 test("an absent, unknown, or miscounted test-failure class is refused", async () => {
@@ -285,8 +447,28 @@ test("an absent, unknown, or miscounted test-failure class is refused", async ()
   }
 })
 
-test("required-path absence or forbidden-path presence is refused", async () => {
+test("required-path or declared-structure drift is refused", async () => {
   const cases = [
+    {
+      label: "Bun install policy drift",
+      mutate: async (root: string) => {
+        await writeFile(join(root, "bunfig.toml"), '[install]\nauto = "force"\n')
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "path-drift",
+            owner: "bun",
+            repair_id: "restore-repository-bytes",
+          },
+        ],
+      },
+    },
     {
       label: "required path absent",
       mutate: async (root: string) => {
@@ -308,6 +490,30 @@ test("required-path absence or forbidden-path presence is refused", async () => 
       },
     },
     {
+      label: "repository quality module-specifier helper declaration absent",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.structure.required_paths = contract.structure.required_paths.filter(
+            (path: string) => path !== "tooling/repository-quality/static-module-specifiers.ts",
+          )
+        })
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "path-drift",
+            owner: "structure.required_paths",
+            repair_id: "restore-current-declaration",
+          },
+        ],
+      },
+    },
+    {
       label: "forbidden path present",
       mutate: async (root: string) => {
         const path = join(root, "src/modules/qualification-evidence/implementation/index.ts")
@@ -324,6 +530,53 @@ test("required-path absence or forbidden-path presence is refused", async () => 
           {
             kind: "path-drift",
             owner: "structure.forbidden_paths",
+            repair_id: "restore-repository-bytes",
+          },
+        ],
+      },
+    },
+    {
+      label: "unexpected Implementation path segment present",
+      mutate: async (root: string) => {
+        const directory = join(root, "src/modules/unlisted-owner/implementation")
+        await mkdir(directory, { recursive: true })
+        await writeFile(join(directory, "index.ts"), "export {}\n")
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "path-drift",
+            owner: "structure.forbidden_source_path_segments",
+            repair_id: "restore-repository-bytes",
+          },
+        ],
+      },
+    },
+    {
+      label: "Maintenance Contract public-process adapter absent",
+      mutate: async (root: string) => {
+        await rm(
+          join(
+            root,
+            "src/modules/maintenance-command-contract/contract-tests/adapters/public-process-adapter.ts",
+          ),
+        )
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "path-drift",
+            owner: "structure.required_paths",
             repair_id: "restore-repository-bytes",
           },
         ],
@@ -369,6 +622,98 @@ test("required-path absence or forbidden-path presence is refused", async () => 
         ],
       },
     },
+    {
+      label: "required agent pointer absent",
+      mutate: async (root: string) => {
+        await mutateTextFile(root, "AGENTS.md", (source) => source.replace(
+          "tooling/repository-quality/repository-qualification-contract.json",
+          "tooling/repository-quality/removed-contract.json",
+        ))
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "path-drift",
+            owner: "structure.required_agent_pointers",
+            repair_id: "restore-repository-bytes",
+          },
+        ],
+      },
+    },
+    {
+      label: "required context term absent",
+      mutate: async (root: string) => {
+        await mutateTextFile(root, "CONTEXT.md", (source) => source.replace(
+          "**Repository Quality Tooling**:",
+          "**Repository Quality Policy**:",
+        ))
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "path-drift",
+            owner: "structure.required_context_terms",
+            repair_id: "restore-repository-bytes",
+          },
+        ],
+      },
+    },
+    {
+      label: "required context-map route absent",
+      mutate: async (root: string) => {
+        await mutateTextFile(root, "CONTEXT-MAP.md", (source) => source.replace(
+          "| Where is repository-wide quality policy owned? | Repository Quality Tooling |",
+          "| Where is repository-wide quality policy owned? | Repository Quality Policy |",
+        ))
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "path-drift",
+            owner: "structure.required_context_map_routes",
+            repair_id: "restore-repository-bytes",
+          },
+        ],
+      },
+    },
+    {
+      label: "required agent index link absent",
+      mutate: async (root: string) => {
+        await mutateTextFile(root, "docs/agents/README.md", (source) => source.replace(
+          "[`fallow.md`](fallow.md)",
+          "[`fallow.md`](removed-fallow.md)",
+        ))
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "path-drift",
+            owner: "structure.required_agent_index_links",
+            repair_id: "restore-repository-bytes",
+          },
+        ],
+      },
+    },
   ] as const
 
   for (const row of cases) {
@@ -384,6 +729,58 @@ test("required-path absence or forbidden-path presence is refused", async () => 
 
 test("Admission Source Closure drift, escape, or bare dependency is refused", async () => {
   const cases = [
+    {
+      label: "sentinel count drift",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.sentinel_count = 2
+        })
+      },
+    },
+    {
+      label: "sentinel name drift",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.sentinel_name = "invented Admission sentinel"
+        })
+      },
+    },
+    {
+      label: "forbidden Admission self-report",
+      mutate: async (root: string) => {
+        await mutateTextFile(
+          root,
+          "src/admission-bootstrap/interface.ts",
+          (source) => `${source}\nconst admissionImportLedger = []\n`,
+        )
+      },
+    },
+    {
+      label: "forbidden Clean Fixture Admission self-report",
+      mutate: async (root: string) => {
+        await mutateTextFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/adapters/contract-subjects.ts",
+          (source) => `${source}\nexport const admissionImportLedger: string[] = []\n`,
+        )
+      },
+    },
+    {
+      label: "Admission Non-Claims drift",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.non_claims.pop()
+        })
+      },
+    },
+    {
+      label: "first GREEN implementation transition drift",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.first_green_implementation_transition = "The first GREEN change may defer re-scoping."
+        })
+      },
+    },
     {
       label: "declared closure drift",
       mutate: async (root: string) => {
@@ -406,6 +803,114 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
       mutate: async (root: string) => {
         const path = join(root, "src/admission-bootstrap/interface.ts")
         await writeFile(path, `${await readFile(path, "utf8")}\nimport "zod"\n`)
+      },
+    },
+    {
+      label: "triple-slash package dependency",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(path, `/// <reference types="bun" />\n${await readFile(path, "utf8")}`)
+      },
+    },
+    {
+      label: "triple-slash path escapes Source Tree",
+      mutate: async (root: string) => {
+        await writeFile(join(root, "outside-admission.ts"), "export type OutsideAdmission = never\n")
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(path, `/// <reference path="../../outside-admission.ts" />\n${await readFile(path, "utf8")}`)
+      },
+    },
+    {
+      label: "triple-slash AMD dependency",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(path, `/// <amd-dependency path="legacy-admission" />\n${await readFile(path, "utf8")}`)
+      },
+    },
+    {
+      label: "array Admission dependency field",
+      mutate: async (root: string) => {
+        await mutateJsonFile(root, "src/admission-bootstrap/package.json", (packageJson) => {
+          packageJson.dependencies = []
+        })
+      },
+    },
+    {
+      label: "type-only star dependency export",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(path, `${await readFile(path, "utf8")}\nexport type * from "typescript"\n`)
+      },
+    },
+    {
+      label: "inline type-only dependency import",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(path, `${await readFile(path, "utf8")}\nimport { type Node } from "typescript"\n`)
+      },
+    },
+    {
+      label: "unreferenced Admission production dependency import",
+      mutate: async (root: string) => {
+        await writeFile(
+          join(root, "src/admission-bootstrap/unreferenced-production-source.ts"),
+          'import "fallow"\nexport type UnreferencedProductionSource = never\n',
+        )
+      },
+    },
+    {
+      label: "computed dynamic dependency import",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(
+          path,
+          `${await readFile(path, "utf8")}\nconst dynamicDependency = "zod"\nawait import(dynamicDependency)\n`,
+        )
+      },
+    },
+    {
+      label: "Admission projection disagrees with root Package Identity",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.projection.name = "drifted-agent-plugin-kit"
+        })
+        await mutateJsonFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-package-projection.json",
+          (projection) => {
+            projection.name = "drifted-agent-plugin-kit"
+          },
+        )
+      },
+    },
+    {
+      label: "Admission projection type disagrees with root Package Identity",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.projection.type = "commonjs"
+        })
+        await mutateJsonFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-package-projection.json",
+          (projection) => {
+            projection.type = "commonjs"
+          },
+        )
+      },
+    },
+    {
+      label: "Admission projection export disagrees with root Package Identity",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.projection.exports["./admission-bootstrap"] = "./src/admission-bootstrap/drifted.ts"
+        })
+        await mutateJsonFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-package-projection.json",
+          (projection) => {
+            projection.exports["./admission-bootstrap"] = "./src/admission-bootstrap/drifted.ts"
+          },
+        )
       },
     },
   ] as const
@@ -437,6 +942,15 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
 
 test("shell exit, sentinel, verdict, or proof-schema drift is refused", async () => {
   const cases = [
+    {
+      label: "declared shell script route",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.shells.maintenance_cli.script = "verify:maintenance-cli:local-link"
+        })
+      },
+      expectedOwner: "shells.maintenance_cli.script",
+    },
     {
       label: "declared shell exit",
       mutate: async (root: string) => {
@@ -496,6 +1010,81 @@ test("shell exit, sentinel, verdict, or proof-schema drift is refused", async ()
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
   }
+
+  const structureOnlyRoot = await copyRepositoryFixture()
+  await mutateContract(structureOnlyRoot, (contract) => {
+    contract.shells.maintenance_cli.red_exit = 0
+  })
+  const structureOnlyExpected = {
+    schema_version: 1,
+    command: "verify:repository-qualification",
+    status: "refused",
+    mode: "structure-only",
+    code: "repository-unqualified",
+    findings: [
+      {
+        kind: "shell-drift",
+        owner: "shells.maintenance_cli.red_exit",
+        repair_id: "restore-repository-bytes",
+      },
+    ],
+  } as const
+  const structureOnlyObservation = await observeVerifier(structureOnlyRoot, ["--structure-only"])
+  expect(structureOnlyObservation.exitCode).toBe(1)
+  expect(structureOnlyObservation.stdout).toBe("")
+  expect(structureOnlyObservation.stderr).toBe(`${JSON.stringify(structureOnlyExpected)}\n`)
+  expect(JSON.parse(structureOnlyObservation.stderr)).toEqual(structureOnlyExpected)
+
+  // Test-owned independent oracle: process failures have a stable refusal
+  // receipt even when the reporter or observed test process is malformed.
+  const processCases = [
+    {
+      label: "missing JUnit reporter receipt",
+      expectedOwner: "workspace_selectors[0]",
+      mutate: async (root: string) => {
+        await mutateTextFile(root, "tooling/repository-quality/verify-repository-qualification.ts", (source) => {
+          const expected = "--reporter=junit"
+          if (!source.includes(expected)) throw new Error("JUnit reporter invocation was not found")
+          return source.replace(expected, "--reporter=missing-reporter")
+        })
+      },
+    },
+    {
+      label: "observed test process count mismatch",
+      expectedOwner: "proof_groups[0]",
+      mutate: async (root: string) => {
+        await mutateTextFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
+          (source) => `${source}\ntest("drifted process fixture", () => { throw new Error("contract-absent: process drift") })\n`,
+        )
+      },
+    },
+  ] as const
+
+  for (const row of processCases) {
+    const root = await copyRepositoryFixture()
+    await row.mutate(root)
+    const expected = {
+      schema_version: 1,
+      command: "verify:repository-qualification",
+      status: "refused",
+      mode: "complete",
+      code: "proof-process-failed",
+      findings: [
+        {
+          kind: "proof-process-failed",
+          owner: row.expectedOwner,
+          repair_id: "repair-proof-process",
+        },
+      ],
+    } as const
+    const observation = await observeVerifier(root)
+    expect(observation.exitCode, row.label).toBe(1)
+    expect(observation.stdout, row.label).toBe("")
+    expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
+    expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
+  }
 })
 
 test("root check, ten exports, exact Zod agreement, or Owner Manifest locality drift is refused", async () => {
@@ -511,6 +1100,13 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: "package_contract.scripts.check",
     },
     {
+      label: "Fallow command body",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.scripts["quality:fallow"] = "fallow check"
+      }),
+      expectedOwner: "package_contract.scripts.quality:fallow",
+    },
+    {
       label: "eleventh root export",
       mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
         packageJson.exports["./maintenance-command-facade"] = "./src/adapters/maintenance-command-facade/interface.ts"
@@ -522,7 +1118,56 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
         packageJson.devDependencies.zod = "4.0.0"
       }),
-      expectedOwner: "package_contract.zod",
+      expectedOwner: "package_contract.forbidden_dependency_names.zod",
+    },
+    {
+      label: "LogTape dependency",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.dependencies = { "@logtape/logtape": "2.3.1" }
+      }),
+      expectedOwner: "package_contract.forbidden_dependency_names.@logtape/logtape",
+    },
+    {
+      label: "malformed root dependency field",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.dependencies = "zod@4.0.0"
+      }),
+      expectedOwner: "package_contract.dependencies",
+    },
+    {
+      label: "array root dependency field",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.dependencies = []
+      }),
+      expectedOwner: "package_contract.dependencies",
+    },
+    {
+      label: "SideQuest dependency",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.dependencies = { "@sidequest/core": "1.0.0" }
+      }),
+      expectedOwner: "package_contract.forbidden_dependency_name_fragments.sidequest",
+    },
+    {
+      label: "Bun catalog",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.catalog = { zod: "4.0.0" }
+      }),
+      expectedOwner: "package_contract.catalogs_allowed",
+    },
+    {
+      label: "package manager",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.packageManager = "bun@1.3.14"
+      }),
+      expectedOwner: "package_contract",
+    },
+    {
+      label: "exact root devDependencies",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        delete packageJson.devDependencies.typescript
+      }),
+      expectedOwner: "package_contract.dev_dependencies",
     },
     {
       label: "facade dependency locality",
@@ -534,6 +1179,91 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         },
       ),
       expectedOwner: "owner_manifests.maintenance_facade",
+    },
+    {
+      label: "owner manifest inventory",
+      mutate: (root: string) => mutateContract(root, (contract) => {
+        delete contract.owner_manifests.runtime_custody
+      }),
+      expectedOwner: "owner_manifests",
+    },
+    {
+      label: "extra Owner Manifest on disk",
+      mutate: async (root: string) => {
+        const directory = join(root, "src/modules/unexpected-owner")
+        await mkdir(directory, { recursive: true })
+        await writeFile(
+          join(directory, "package.json"),
+          `${JSON.stringify({ name: "@agent-plugin-kit/unexpected-owner", private: true, type: "module" }, null, 2)}\n`,
+        )
+      },
+      expectedOwner: "owner_manifests",
+    },
+    {
+      label: "owner manifest privacy",
+      mutate: (root: string) => mutateJsonFile(
+        root,
+        "src/modules/runtime-custody/package.json",
+        (packageJson) => {
+          packageJson.private = false
+        },
+      ),
+      expectedOwner: "owner_manifests.runtime_custody",
+    },
+    {
+      label: "owner manifest identity",
+      mutate: (root: string) => mutateJsonFile(
+        root,
+        "src/modules/runtime-custody/package.json",
+        (packageJson) => {
+          packageJson.name = "@agent-plugin-kit/drifted-runtime-custody"
+        },
+      ),
+      expectedOwner: "owner_manifests.runtime_custody",
+    },
+    {
+      label: "owner manifest type",
+      mutate: (root: string) => mutateJsonFile(
+        root,
+        "src/modules/runtime-custody/package.json",
+        (packageJson) => {
+          packageJson.type = "commonjs"
+        },
+      ),
+      expectedOwner: "owner_manifests.runtime_custody",
+    },
+    {
+      label: "owner manifest exports",
+      mutate: (root: string) => mutateJsonFile(
+        root,
+        "src/modules/runtime-custody/package.json",
+        (packageJson) => {
+          packageJson.exports = { ".": "./drifted.ts" }
+        },
+      ),
+      expectedOwner: "owner_manifests.runtime_custody",
+    },
+    {
+      label: "malformed owner dependency field",
+      mutate: (root: string) => mutateJsonFile(
+        root,
+        "src/modules/runtime-custody/package.json",
+        (packageJson) => {
+          packageJson.dependencies = "zod@4.0.0"
+        },
+      ),
+      expectedOwner: "package_contract.dependencies",
+    },
+    {
+      label: "array owner dependency field",
+      mutate: (root: string) => mutateJsonFile(
+        root,
+        "src/modules/runtime-custody/package.json",
+        (packageJson) => {
+          packageJson.dependencies = []
+        },
+      ),
+      expectedOwner: "package_contract.dependencies",
     },
   ] as const
 
@@ -550,6 +1280,83 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         {
           kind: "package-contract-drift",
           owner: row.expectedOwner,
+          repair_id: "restore-repository-bytes",
+        },
+      ],
+    } as const
+    const observation = await observeVerifier(root)
+    expect(observation.exitCode, row.label).toBe(1)
+    expect(observation.stdout, row.label).toBe("")
+    expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
+    expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
+  }
+
+  const structureOnlyRoot = await copyRepositoryFixture()
+  await mutateJsonFile(structureOnlyRoot, "package.json", (packageJson) => {
+    packageJson.exports["./maintenance-command-facade"] = "./src/adapters/maintenance-command-facade/interface.ts"
+  })
+  const structureOnlyExpected = {
+    schema_version: 1,
+    command: "verify:repository-qualification",
+    status: "refused",
+    mode: "structure-only",
+    code: "repository-unqualified",
+    findings: [
+      {
+        kind: "package-contract-drift",
+        owner: "package_contract.exports",
+        repair_id: "restore-repository-bytes",
+      },
+    ],
+  } as const
+  const structureOnlyObservation = await observeVerifier(structureOnlyRoot, ["--structure-only"])
+  expect(structureOnlyObservation.exitCode).toBe(1)
+  expect(structureOnlyObservation.stdout).toBe("")
+  expect(structureOnlyObservation.stderr).toBe(`${JSON.stringify(structureOnlyExpected)}\n`)
+  expect(JSON.parse(structureOnlyObservation.stderr)).toEqual(structureOnlyExpected)
+
+  const fallowCases = [
+    {
+      label: "Fallow config",
+      owner: "fallow.config",
+      mutate: (root: string) => mutateJsonFile(root, ".fallowrc.json", (config) => {
+        config.audit.gate = "all"
+      }),
+    },
+    {
+      label: "VS Code Fallow comparison",
+      owner: "fallow.vscode_settings",
+      mutate: (root: string) => mutateJsonFile(root, ".vscode/settings.json", (settings) => {
+        settings["fallow.changedSince"] = "origin/main"
+      }),
+    },
+    {
+      label: "Fallow runtime-state ignore",
+      owner: "fallow.gitignore_line",
+      mutate: (root: string) => mutateTextFile(root, ".gitignore", (source) =>
+        source.replace("/.fallow/\n", "")),
+    },
+    {
+      label: "Fallow skill version",
+      owner: "fallow.skill_files",
+      mutate: (root: string) => mutateTextFile(root, ".agents/skills/fallow/SKILL.md", (source) =>
+        source.replace("version=3.19.0", "version=3.18.0")),
+    },
+  ] as const
+
+  for (const row of fallowCases) {
+    const root = await copyRepositoryFixture()
+    await row.mutate(root)
+    const expected = {
+      schema_version: 1,
+      command: "verify:repository-qualification",
+      status: "refused",
+      mode: "complete",
+      code: "repository-unqualified",
+      findings: [
+        {
+          kind: "path-drift",
+          owner: row.owner,
           repair_id: "restore-repository-bytes",
         },
       ],
@@ -588,5 +1395,164 @@ test("unknown orchestration or Git-shaped declaration keys are refused", async (
     expect(observation.stdout, key).toBe("")
     expect(observation.stderr, key).toBe(`${JSON.stringify(expected)}\n`)
     expect(JSON.parse(observation.stderr), key).toEqual(expected)
+  }
+
+  // Test-owned independent oracle: malformed scalar, array, integer, and enum
+  // fields are declaration refusals, never internal proof-process failures.
+  const shapeCases = [
+    {
+      label: "array field is a scalar",
+      owner: "structure.required_paths",
+      mutate: (contract: Record<string, any>) => {
+        contract.structure.required_paths = "README.md"
+      },
+    },
+    {
+      label: "integer field is a string",
+      owner: "proof_groups[0].tests",
+      mutate: (contract: Record<string, any>) => {
+        contract.proof_groups[0].tests = "3"
+      },
+    },
+    {
+      label: "enum field is unknown",
+      owner: "admission.proof_layer",
+      mutate: (contract: Record<string, any>) => {
+        contract.admission.proof_layer = "durable-replay"
+      },
+    },
+    {
+      label: "record field is an array",
+      owner: "owner_manifests",
+      mutate: (contract: Record<string, any>) => {
+        contract.owner_manifests = []
+      },
+    },
+  ] as const
+
+  for (const row of shapeCases) {
+    const root = await copyRepositoryFixture()
+    await mutateContract(root, row.mutate)
+    const expected = {
+      schema_version: 1,
+      command: "verify:repository-qualification",
+      status: "refused",
+      mode: "complete",
+      code: "contract-invalid",
+      findings: [
+        {
+          kind: "unknown-contract-key",
+          owner: row.owner,
+          repair_id: "restore-current-declaration",
+        },
+      ],
+    } as const
+    const observation = await observeVerifier(root)
+    expect(observation.exitCode, row.label).toBe(2)
+    expect(observation.stdout, row.label).toBe("")
+    expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
+    expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
+  }
+
+  // Test-owned independent oracle: usage, declaration, and internal-process
+  // failures must all use one canonical stderr refusal line.
+  const processCases = [
+    {
+      label: "duplicated structure-only argv",
+      argumentsAfterScript: ["--structure-only", "--structure-only"],
+      mutate: async (_root: string) => {},
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "usage",
+        findings: [
+          {
+            kind: "unknown-contract-key",
+            owner: "argv",
+            repair_id: "restore-current-declaration",
+          },
+        ],
+      },
+    },
+    {
+      label: "invalid argv",
+      argumentsAfterScript: ["--invalid"],
+      mutate: async (_root: string) => {},
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "usage",
+        findings: [
+          {
+            kind: "unknown-contract-key",
+            owner: "argv",
+            repair_id: "restore-current-declaration",
+          },
+        ],
+      },
+    },
+    {
+      label: "invalid JSON declaration",
+      argumentsAfterScript: [],
+      mutate: async (root: string) => {
+        await writeFile(
+          join(root, "tooling/repository-quality/repository-qualification-contract.json"),
+          "{ invalid json\n",
+        )
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "contract-invalid",
+        findings: [
+          {
+            kind: "unknown-contract-key",
+            owner: "tooling/repository-quality/repository-qualification-contract.json",
+            repair_id: "restore-current-declaration",
+          },
+        ],
+      },
+    },
+    {
+      label: "unexpected internal failure",
+      argumentsAfterScript: [],
+      mutate: async (root: string) => {
+        await mutateTextFile(root, "tooling/repository-quality/verify-repository-qualification.ts", (source) => {
+          const invocation = "  const observation = verifyRepository(contract)"
+          if (!source.includes(invocation)) throw new Error("verifier invocation was not found")
+          return source.replace(invocation, '  throw new Error("unexpected internal verifier failure")\n  const observation = verifyRepository(contract)')
+        })
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "proof-process-failed",
+        findings: [
+          {
+            kind: "proof-process-failed",
+            owner: "verifier",
+            repair_id: "repair-proof-process",
+          },
+        ],
+      },
+    },
+  ] as const
+
+  for (const row of processCases) {
+    const root = await copyRepositoryFixture()
+    await row.mutate(root)
+    const observation = await observeVerifier(root, row.argumentsAfterScript)
+    expect(observation.exitCode, row.label).toBe(row.expected.code === "usage" || row.expected.code === "contract-invalid" ? 2 : 1)
+    expect(observation.stdout, row.label).toBe("")
+    expect(observation.stderr, row.label).toBe(`${JSON.stringify(row.expected)}\n`)
+    expect(JSON.parse(observation.stderr), row.label).toEqual(row.expected)
   }
 })

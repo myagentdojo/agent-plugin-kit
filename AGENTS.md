@@ -29,7 +29,7 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
 - Repository Knowledge: `docs/agents/README.md` indexes branch guidance;
   `docs/adr/` owns Accepted Decisions.
 - Repository quality: `tooling/repository-quality/` owns changed-code quality
-  and the future Verification Transition Contract outside Package Identity.
+  and the current Repository Qualification declaration outside Package Identity.
 - Package source: `src/` is the Source Tree. Reach its current Interface and
   Contract Test owners, and its deferred Implementation and Adapter owners,
   through `CONTEXT-MAP.md` and `docs/adr/0001-language-to-topology.md`.
@@ -53,13 +53,13 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   one Full Commit Pin before Kit Repository Implementation executes.
 - Evidence: preserve `proved`, `not-proved`, and `unknown`; attach a Skip
   Rationale and Non-Claims where evidence does not reach the requested layer.
-- Verification transition: Repository Quality Tooling owns the contract that
-  permits reviewed RED or GREEN repository states. Read
-  `docs/adr/0003-repository-quality-and-verification-transition.md` before
-  changing that contract, its verifier, or a Clean Fixture consumer.
 - Repository Qualification owns current repository-byte truth and the reviewed
-  RED or GREEN boundary. Keep later Contract Tests, hosted workflows, and every
-  Implementation path absent until their owning gate.
+  RED or GREEN boundary. Read
+  `tooling/repository-quality/repository-qualification-contract.json` and
+  `docs/adr/0003-repository-quality-and-verification-transition.md` before
+  changing that declaration, its verifier, or a Clean Fixture evidence consumer.
+  Keep later Contract Tests, hosted workflows, and every Implementation path
+  absent until their owning gate.
 
 ## Checks
 
@@ -71,7 +71,8 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   `bun run --silent quality:fallow --changed-since HEAD` after a dirty
   code-changing turn. For comparison-base policy, JSON interpretation, editor
   resolution, or repair, read `docs/agents/fallow.md`.
-- Focused quality Contract Tests: run `bun run test:quality:fallow-policy`.
+- Focused quality Contract Tests: run `bun run test:quality:fallow-policy` or
+  `bun run test:quality:repository-qualification`.
 - Repository Qualification: run `bun run verify:repository-qualification` for
   the canonical current-repository receipt.
 - Product RED: run `bun run test:intentional-red` for the current product
@@ -119,8 +120,8 @@ questions and lazy future context promotion. See `docs/agents/domain.md`.
 Repository Quality Tooling owns changed-code Fallow policy, comparison bases,
 machine results, and repair guidance. See `docs/agents/fallow.md`.
 
-### Verification transition
+### Repository Qualification
 
-Verification Transition Contract ownership and the current Clean Fixture
-compatibility path are defined by
+Repository Qualification ownership and the current Clean Fixture evidence
+boundary are defined by
 `docs/adr/0003-repository-quality-and-verification-transition.md`.

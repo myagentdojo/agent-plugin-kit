@@ -31,7 +31,7 @@ It constrains seven existing Interface owners and creates no new owner:
 It contains no schema, no Implementation, and no test. It does two things a
 purely additive decision cannot do, and both are stated as such below: it
 amends `docs/adr/0002-owner-manifests-and-dependency-locality.md`, and it
-requires a respecified Verification Transition Contract under
+requires a respecified Repository Qualification Contract under
 `docs/adr/0003-repository-quality-and-verification-transition.md` before any
 manifest, schema, or test change is admitted.
 
@@ -129,7 +129,7 @@ binding.
   | null` is a third form and is corrected at Implementation admission to the
   always-present nullable spelling, matching Result Vocabulary projection.
   Pinned literals that currently omit `commandId` are respecified in the same
-  Verification Transition Contract checkpoint.
+  Repository Qualification Contract checkpoint.
 - No Public Serialized Value carries `undefined` as a value at any depth. That
   rule is what makes `exactOptionalPropertyTypes` safe to enable without
   changing wire meaning.
@@ -343,7 +343,7 @@ channels and are not merged.
   the already-mapped outcome into the versioned envelope and selects nothing.
 - Declaring that mapping is a Maintenance Command Contract Interface and Result
   Vocabulary change. It is named here and gated: it is not authorized by this
-  proposal, and it routes through the respecified Verification Transition
+  proposal, and it routes through the respecified Repository Qualification
   Contract named below, like every other count or surface change.
 
 ### Failure Class ownership
@@ -382,7 +382,7 @@ channels and are not merged.
   appended literal row in `failureNextActionProjection` is typed by that
   vocabulary rather than by a bare string literal.
 - That amendment is gated, not authorized here. It changes a Module Interface,
-  so it routes through the respecified Verification Transition Contract named
+  so it routes through the respecified Repository Qualification Contract named
   below. Whether the seven-value vocabulary is exported by name on the accepted
   `./maintenance-command-contract` subpath, which would add that name to the
   accepted subpath type-export catalog in
@@ -466,7 +466,7 @@ question, because the resolution facts are already knowable.
 - Bundling is an explicit artifact choice. It is not an implicit guarantee,
   and it is not decided here.
 - Exact-version agreement has no machine check today. Adding one is part of
-  the respecified Verification Transition Contract named below, not a promise
+  the respecified Repository Qualification Contract named below, not a promise
   made by this decision.
 
 ### Logical Record Correlation
@@ -725,7 +725,7 @@ through this exact route, in order:
   transcript, credential, private path, raw event stream, or mutable
   remote-state snapshot.
 - Any new fixture path and the resulting test-count change are routed through
-  the respecified Verification Transition Contract under ADR 0003, like every
+  the respecified Repository Qualification Contract under ADR 0003, like every
   other count change.
 
 ## Known residual risks
@@ -796,7 +796,7 @@ Named and deliberately unresolved:
   accepted subpath type-export catalog changes with it.
 - ADR 0002 is amended, not merely applied. Root and every importing owner
   declare Zod at one exact version.
-- ADR 0003's Verification Transition Contract must be respecified before the
+- ADR 0003's Repository Qualification Contract must be respecified before the
   first manifest, schema, or test change, and the accepted P3 Qualification
   Evidence brief must be respecified with it.
 - Qualification Refusal Code to Result Code and Exit Family mapping stays with

@@ -30,7 +30,9 @@ export const candidateDigest =
 export const personalProfile = VerificationProfile.personal
 export const publicProfile = VerificationProfile.public
 
-export function observedCell(overrides: Partial<EvidenceCell> = {}): EvidenceCell {
+export function observedCell(
+  overrides: Partial<Extract<EvidenceCell, { assertedStatus: "proved" }>> = {},
+): Extract<EvidenceCell, { assertedStatus: "proved" }> {
   return {
     schemaVersion: 1,
     id: "cell:admitted",
@@ -119,16 +121,19 @@ export function skipCell(
     | "harness.claude.fresh-native"
     | "harness.codex.fresh-native",
   id: `cell:${string}` = "cell:skip",
-  skipRationale: EvidenceCell["skipRationale"] = "fresh-native-proof-not-run",
-): EvidenceCell {
-  return observedCell({
+  skipRationale: Extract<EvidenceCell, { unknownKind: "skip" }>["skipRationale"] = "fresh-native-proof-not-run",
+): Extract<EvidenceCell, { unknownKind: "skip" }> {
+  return {
+    ...observedCell(),
     id,
     claim,
     assertedStatus: "unknown",
+    unknownKind: "skip",
     actualProofLayer: null,
     observable: null,
     skipRationale,
     nonClaims: [claim],
     receipt: null,
-  })
+    resolves: [],
+  }
 }
