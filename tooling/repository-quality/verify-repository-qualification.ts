@@ -788,7 +788,7 @@ const unsupportedPublicTypePatterns = [
 const publicTypeIdentifier = /^[$A-Z_a-z][$\w]*$/
 const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
 const namedValueExport = /^([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
-const directPublicConstDeclaration = /\bexport\s+const\s+([$A-Z_a-z][$\w]*)(?=\s*(?::|=))/g
+const directRuntimeConstDeclaration = /\bexport\s+const\s+([$A-Z_a-z][$\w]*)\s*=/g
 const supportedRelativeReexport = /^(?:\.\/|\.\.\/)[^\\]+$/
 const descendantRelativePath = /^(?!\.\.(?:\/|$)).+$/
 
@@ -900,7 +900,13 @@ function directlyExportsValueOnlyConst(target: string, sourceName: string): bool
   const code = typescriptLexicalCode(source)
   const targetPath = relative(repositoryRoot, target).replaceAll("\\", "/")
   const publicTypes = locatedPublicTypeExports(targetPath, source, code).map(({ name }) => name)
-  const sourceDeclarations = topLevelMatches(code, directPublicConstDeclaration)
+  let runtimeCode: string
+  try {
+    runtimeCode = typescriptRuntimeCode(source)
+  } catch {
+    return false
+  }
+  const sourceDeclarations = topLevelMatches(runtimeCode, directRuntimeConstDeclaration)
     .filter((match) => match[1] === sourceName)
   return sourceDeclarations.length === 1 && !publicTypes.includes(sourceName)
 }
