@@ -1358,6 +1358,15 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
     {
+      label: "public interface with an escaped identifier",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport interface \\u0048iddenPublicType {}\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
       label: "public type export removed",
       mutate: (root: string) => mutateTextFile(
         root,
@@ -1627,8 +1636,11 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
     "src/modules/runtime-custody/interface.ts",
     (source) => `${source}
 /* export type CommentOnlyType = never */
+/* export interface \\u0048iddenCommentType {} */
 export const valueOnlyRuntimeMarker = "value-only"
 export const RuntimeCustodyResult = undefined
+export const escapedTypeString = "export interface \\u0048iddenStringType {}"
+export const escapedTypeTemplate = \`export interface \\u0048iddenTemplateType {}\`
 `,
   )
   const lexicalObservation = await observeVerifier(lexicalRoot)

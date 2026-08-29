@@ -704,8 +704,15 @@ const declarationNonCode = /(["'])(?:\\.|(?!\1)[^\\\r\n])*\1|`(?:\\.|[^`])*`|\/\
 const directPublicTypeExport = /^[ \t]*export\s+(?:type(?!\s*\{)|interface)\s+([$A-Z_a-z][$\w]*)/gm
 const namedPublicTypeExportBlock = /^[ \t]*export\s+(type\s*)?\{([\s\S]*?)\}/gm
 const unsupportedPublicDecorator = /@/
+const unsupportedEscapedPublicTypeIdentifier = /^[ \t]*export\s+(?:type(?!\s*\{)|interface)\s+(?:[$A-Z_a-z][$\w]*)?\\u/m
 const unsupportedPublicTypeExport = /^[ \t]*export\s+(?:(?:type\s+)?\*|(?:(?:declare|abstract)\s+)*(?:class|(?:const\s+)?enum|namespace|module|import)\b)/m
 const unsupportedDefaultPublicTypeExport = /^[ \t]*export\s+default\b/m
+const unsupportedPublicTypePatterns = [
+  unsupportedPublicDecorator,
+  unsupportedEscapedPublicTypeIdentifier,
+  unsupportedPublicTypeExport,
+  unsupportedDefaultPublicTypeExport,
+]
 const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
 
 type LocatedPublicTypeExport = {
@@ -745,11 +752,7 @@ function publicTypeExportName(match: RegExpMatchArray): string {
 }
 
 function locatedPublicTypeExports(code: string): LocatedPublicTypeExport[] {
-  if (
-    unsupportedPublicDecorator.test(code) ||
-    unsupportedPublicTypeExport.test(code) ||
-    unsupportedDefaultPublicTypeExport.test(code)
-  ) {
+  if (unsupportedPublicTypePatterns.some((pattern) => pattern.test(code))) {
     throw new PublicTypeExportParseError()
   }
   const direct = [...code.matchAll(directPublicTypeExport)].map((match) => ({
