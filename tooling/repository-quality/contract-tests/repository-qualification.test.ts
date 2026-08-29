@@ -14,6 +14,7 @@ import {
   NonliteralModuleSpecifierError,
   staticModuleSpecifiers,
 } from "../static-module-specifiers.ts"
+import { isDescendantRelativePath } from "../verify-repository-qualification.ts"
 
 const repositoryRoot = resolve(import.meta.dir, "../../..")
 const temporaryRoots: string[] = []
@@ -2167,6 +2168,8 @@ test("shell exit, sentinel, verdict, or proof-schema drift is refused", async ()
 }, 15_000)
 
 test("root check, ten exports, exact Zod agreement, or Owner Manifest locality drift is refused", async () => {
+  expect(isDescendantRelativePath(resolve(tmpdir(), "cross-volume-target.ts"))).toBeFalse()
+
   const cases = [
     {
       label: "root check composition",

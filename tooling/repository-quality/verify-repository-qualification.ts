@@ -915,9 +915,12 @@ function resolvePublicReexportTarget(exporterPath: string, specifier: string): s
 
 function pathInside(root: string, target: string): string | undefined {
   const nativeRelativeTarget = relative(root, target)
-  if (isAbsolute(nativeRelativeTarget)) return undefined
-  const relativeTarget = nativeRelativeTarget.replaceAll("\\", "/")
-  return descendantRelativePath.test(relativeTarget) ? target : undefined
+  return isDescendantRelativePath(nativeRelativeTarget) ? target : undefined
+}
+
+export function isDescendantRelativePath(nativeRelativeTarget: string): boolean {
+  return !isAbsolute(nativeRelativeTarget) &&
+    descendantRelativePath.test(nativeRelativeTarget.replaceAll("\\", "/"))
 }
 
 function ownerImplementationRoot(exporterPath: string): string | undefined {
@@ -2060,14 +2063,16 @@ function run(): void {
   process.stdout.write(`${JSON.stringify(qualificationReceipt(mode, observation))}\n`)
 }
 
-try {
-  run()
-} catch (error) {
-  if (error instanceof QualificationRefusal) {
-    writeRefusal(error)
-  } else {
-    writeRefusal(new QualificationRefusal("proof-process-failed", activeMode, [
-      { kind: "proof-process-failed", owner: "verifier", repair_id: "repair-proof-process" },
-    ]))
+if (import.meta.main) {
+  try {
+    run()
+  } catch (error) {
+    if (error instanceof QualificationRefusal) {
+      writeRefusal(error)
+    } else {
+      writeRefusal(new QualificationRefusal("proof-process-failed", activeMode, [
+        { kind: "proof-process-failed", owner: "verifier", repair_id: "repair-proof-process" },
+      ]))
+    }
   }
 }
