@@ -5,6 +5,7 @@ import {
   mkdir,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -52,6 +53,8 @@ const runtimeSourceFinding = {
 
 const admissionValueReexportRuntimeSha256 = "47fdb795f528a479b217022f92c4749db86a91e96194d31ca183bfa7eaf58694"
 const runtimeCustodyCrossOwnerReexportSha256 = "bcd6b7f38ab1d03cfe2a7d8b45d27c527231eb6752472ea798a1fe3daca9d26b"
+const runtimeCustodySymlinkEscapeSha256 = "6057a279a505664aeb4ebc294ddfea8fe84f416d7194799ff4935d30e2a5aa86"
+const runtimeCustodyValueReexportSha256 = "e90983cb0c73421c56ac37d4cba36cb5308c3addd681a2b995acea850dacb725"
 const admissionValueImplementationSource = `import type { AdmissionBootstrap } from "../interface"
 
 export const admissionBootstrap = {
@@ -396,6 +399,50 @@ async function addCrossOwnerValueReexport(root: string): Promise<void> {
       .filter((segment: string) => segment !== "implementation")
     contract.package_contract.runtime_output_sha256["./runtime-custody"] =
       runtimeCustodyCrossOwnerReexportSha256
+  })
+}
+
+async function addSymlinkedOwnerEscapeReexport(root: string): Promise<void> {
+  const targetDirectory = "src/modules/release-and-git-engine/implementation"
+  const targetPath = `${targetDirectory}/cross-owner.ts`
+  const linkedDirectory = "src/modules/runtime-custody/implementation"
+  await mkdir(join(root, targetDirectory), { recursive: true })
+  await writeFile(join(root, targetPath), "export const crossOwnerValue = {}\n")
+  await symlink("../release-and-git-engine/implementation", join(root, linkedDirectory))
+  await mutateTextFile(
+    root,
+    "src/modules/runtime-custody/interface.ts",
+    (source) => `${source}\nexport { crossOwnerValue } from "./implementation/cross-owner"\n`,
+  )
+  await mutateContract(root, (contract) => {
+    contract.structure.required_paths.push(linkedDirectory, targetPath)
+    contract.structure.forbidden_paths = contract.structure.forbidden_paths
+      .filter((path: string) => path !== linkedDirectory && path !== targetDirectory)
+    contract.structure.forbidden_source_path_segments = contract.structure.forbidden_source_path_segments
+      .filter((segment: string) => segment !== "implementation")
+    contract.package_contract.runtime_output_sha256["./runtime-custody"] =
+      runtimeCustodySymlinkEscapeSha256
+  })
+}
+
+async function addRuntimeCustodyValueReexport(root: string, implementationSource: string): Promise<void> {
+  const implementationDirectory = "src/modules/runtime-custody/implementation"
+  const implementationPath = `${implementationDirectory}/runtime-custody.ts`
+  await mkdir(join(root, implementationDirectory), { recursive: true })
+  await writeFile(join(root, implementationPath), implementationSource)
+  await mutateTextFile(
+    root,
+    "src/modules/runtime-custody/interface.ts",
+    (source) => `${source}\nexport { runtimeCustodyValue } from "./implementation/runtime-custody"\n`,
+  )
+  await mutateContract(root, (contract) => {
+    contract.structure.required_paths.push(implementationPath)
+    contract.structure.forbidden_paths = contract.structure.forbidden_paths
+      .filter((path: string) => path !== implementationDirectory)
+    contract.structure.forbidden_source_path_segments = contract.structure.forbidden_source_path_segments
+      .filter((segment: string) => segment !== "implementation")
+    contract.package_contract.runtime_output_sha256["./runtime-custody"] =
+      runtimeCustodyValueReexportSha256
   })
 }
 
@@ -2261,6 +2308,27 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         implementationSource: `${admissionValueImplementationSource}\nexport interface admissionBootstrap {}\n`,
       }),
       expectedOwner: 'package_contract.type_exports["./admission-bootstrap"]',
+    },
+    {
+      label: "public escaped dual-space target re-export remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\nexport interface \\u0072untimeCustodyValue {}\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public string-literal type target re-export remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\ntype ShadowRuntimeCustody = never\nexport type { ShadowRuntimeCustody as \"runtimeCustodyValue\" }\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public symlinked owner escape remains type-catalog drift",
+      mutate: addSymlinkedOwnerEscapeReexport,
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
     {
       label: "public interface with an escaped identifier",
