@@ -7,6 +7,10 @@ import type {
   AdmissionRequest,
 } from "../../modules/release-and-git-engine/interface"
 
+type CandidatePinOwner = "release" | "package" | "workflow"
+
+const alternateFullCommitPin = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+
 function assertRequestRefusal(
   request: AdmissionRequest,
   code: AdmissionRefusal["code"],
@@ -33,6 +37,16 @@ function assertRefusal(index: 1 | 2 | 3 | 4 | 5 | 6) {
   assertRequestRefusal(invariantCase.request, code, invariantCase.id)
 }
 
+function assertCandidateSourcePinMismatch(
+  owner: CandidatePinOwner,
+  code: AdmissionRefusal["code"],
+) {
+  const request = structuredClone(admissionInvariantCases[0].request)
+  Object.assign(request.candidate[owner], { commit: alternateFullCommitPin })
+  Object.assign(request[owner], { commit: alternateFullCommitPin })
+  assertRequestRefusal(request, code, `${owner} agrees with its observation but not Candidate Source`)
+}
+
 test("repository mismatch fails closed", () => assertRefusal(1))
 test("provenance mismatch fails closed", () => assertRefusal(2))
 test("source pin mismatch fails closed", () => {
@@ -51,6 +65,15 @@ test("source pin mismatch fails closed", () => {
     "source repository mismatch",
   )
 })
-test("release pin mismatch fails closed", () => assertRefusal(4))
-test("package pin mismatch fails closed", () => assertRefusal(5))
-test("workflow pin mismatch fails closed", () => assertRefusal(6))
+test("release pin mismatch fails closed", () => {
+  assertRefusal(4)
+  assertCandidateSourcePinMismatch("release", "release-pin-mismatch")
+})
+test("package pin mismatch fails closed", () => {
+  assertRefusal(5)
+  assertCandidateSourcePinMismatch("package", "package-pin-mismatch")
+})
+test("workflow pin mismatch fails closed", () => {
+  assertRefusal(6)
+  assertCandidateSourcePinMismatch("workflow", "workflow-pin-mismatch")
+})

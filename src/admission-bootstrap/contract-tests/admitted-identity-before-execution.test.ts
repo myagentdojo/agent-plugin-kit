@@ -30,11 +30,36 @@ test("identity-agrees returns the literal Admitted Identity", () => {
   expect(Object.isFrozen(actual.identity.workflow)).toBe(true)
   expect(Object.isFrozen(actual.identity.workflow.repository)).toBe(true)
 
+  expect(Object.isFrozen(request.candidate.source)).toBe(false)
+  expect(Object.isFrozen(request.candidate.source.repository)).toBe(false)
+  expect(Object.isFrozen(request.candidate.release)).toBe(false)
+  expect(Object.isFrozen(request.candidate.package)).toBe(false)
+  expect(Object.isFrozen(request.candidate.package.repository)).toBe(false)
+  expect(Object.isFrozen(request.candidate.workflow)).toBe(false)
+  expect(Object.isFrozen(request.candidate.workflow.repository)).toBe(false)
+
   Object.assign(request.candidate.source, {
     commit: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
   })
   Object.assign(request.candidate.source.repository, {
     origin: "https://github.com/myagentdojo/mutated-plugin.git",
+  })
+  Object.assign(request.candidate.release, {
+    reference: "v9.9.9",
+    commit: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  })
+  Object.assign(request.candidate.package, {
+    commit: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  })
+  Object.assign(request.candidate.package.repository, {
+    origin: "https://github.com/myagentdojo/mutated-package.git",
+  })
+  Object.assign(request.candidate.workflow, {
+    path: ".github/workflows/mutated.yml",
+    commit: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  })
+  Object.assign(request.candidate.workflow.repository, {
+    origin: "https://github.com/myagentdojo/mutated-workflow.git",
   })
   expect(actual.identity).toEqual(expectedAdmittedIdentity)
 

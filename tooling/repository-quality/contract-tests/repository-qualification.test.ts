@@ -675,9 +675,13 @@ test("selector discovery or aggregate de-duplication drift is refused", async ()
     workspaceRoot,
     "src/admission-bootstrap/contract-tests/identity-refusal.test.ts",
     (source) => {
-      const testCase = 'test("workflow pin mismatch fails closed", () => assertRefusal(6))\n'
-      if (!source.includes(testCase)) throw new Error("workspace selector fixture test was not found")
-      return source.replace(testCase, "")
+      const marker = 'test("workflow pin mismatch fails closed"'
+      const start = source.indexOf(marker)
+      if (start < 0) throw new Error("workspace selector fixture test was not found")
+      const nextTest = source.indexOf('\ntest("', start + marker.length)
+      return nextTest < 0
+        ? source.slice(0, start)
+        : `${source.slice(0, start)}${source.slice(nextTest + 1)}`
     },
   )
   const workspaceExpected = {

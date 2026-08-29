@@ -71,7 +71,7 @@ export type AdmissionRefusal = {
     | "release-pin-mismatch"
     | "package-pin-mismatch"
     | "workflow-pin-mismatch"
-  nextAction: string
+  nextAction: "Correct the mismatched immutable identity observation."
 }
 
 export type PackageObservation = {
