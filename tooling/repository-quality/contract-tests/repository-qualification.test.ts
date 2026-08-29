@@ -1436,6 +1436,21 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
       expectedFinding: runtimeSourceFinding,
     },
     {
+      label: "declared runtime source recovers forbidden external loader",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-recovered-loader.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval("require")\nload("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [runtimePath]
+        })
+      },
+    },
+    {
       label: "computed nonliteral require between divisions after keyword-named property",
       mutate: async (root: string) => {
         const path = join(root, "src/admission-bootstrap/interface.ts")
@@ -1498,6 +1513,15 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
   const runtimeRoot = await copyRepositoryFixture()
   const runtimePath = "src/admission-bootstrap/runtime.ts"
   await addAdmissionRuntimeSources(runtimeRoot, [runtimePath])
+  await mutateTextFile(
+    runtimeRoot,
+    runtimePath,
+    (source) => `${source}
+import "node:fs"
+import type { ReleaseIdentity } from "../modules/release-and-git-engine/interface"
+type RuntimeIdentity = ReleaseIdentity
+`,
+  )
   await mutateContract(runtimeRoot, (contract) => {
     contract.admission.runtime_source_paths = [runtimePath]
   })
@@ -1545,9 +1569,12 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
 /*
 /// <reference types="not-a-block-comment-dependency" />
 import type { NotACommentDependency } from "not-a-comment-dependency"
+eval("require")
 */
 type NotAStringDependency = 'export type * from "not-a-string-dependency"'
 type NotATemplateDependency = \`import { type NotATemplateDependency } from "not-a-template-dependency"\`
+type NotAEvalString = 'eval("require")'
+type NotAEvalTemplate = \`eval("require")\`
 `
   const root = await copyRepositoryFixture()
   await mutateTextFile(

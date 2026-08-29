@@ -690,6 +690,11 @@ function verifyAdmissionProductionSource(
   if (sourceSpecifiers(file, source).some(isForbiddenAdmissionSpecifier)) admissionDrift()
   const hasRuntime = typescriptRuntimeCode(source).trim() !== ""
   if (hasRuntime !== runtimeSourceSet.has(file)) admissionDrift("admission.runtime_source_paths")
+  if (hasRecoveredExternalLoader(source)) admissionDrift()
+}
+
+function hasRecoveredExternalLoader(source: string): boolean {
+  return /\beval\s*\(/.test(typescriptLexicalCode(source))
 }
 
 function isForbiddenAdmissionSpecifier(specifier: string): boolean {
