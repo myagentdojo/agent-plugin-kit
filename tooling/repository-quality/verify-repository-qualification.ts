@@ -690,26 +690,43 @@ function verifyAdmissionProductionSource(
   if (sourceSpecifiers(file, source).some(isForbiddenAdmissionSpecifier)) admissionDrift()
   const hasRuntime = typescriptRuntimeCode(source).trim() !== ""
   if (hasRuntime !== runtimeSourceSet.has(file)) admissionDrift("admission.runtime_source_paths")
-  if (hasUnqualifiedEvalCall(source)) admissionDrift()
+  if (hasGlobalEvalReference(source)) admissionDrift()
 }
 
-function hasUnqualifiedEvalCall(source: string): boolean {
+function hasGlobalEvalReference(source: string): boolean {
   const normalizedSource = typescriptRuntimeCode(source)
   const code = typescriptLexicalCode(normalizedSource)
   return [...code.matchAll(/\beval\b/g)].some((match) => {
     const index = match.index
-    return index !== undefined &&
-      isUnqualifiedEval(code, index) &&
-      isEvalCall(code, index)
+    return index !== undefined && isGlobalEvalIdentifier(code, index)
+  }) || hasComputedGlobalEvalReference(normalizedSource, code)
+}
+
+function isGlobalEvalIdentifier(code: string, index: number): boolean {
+  if (/^\s*:/.test(code.slice(index + "eval".length))) return false
+  const prefix = code.slice(0, index).trimEnd()
+  if (prefix.endsWith("#")) return false
+  if (!prefix.endsWith(".")) return true
+  return hasKnownGlobalReceiver(prefix.slice(0, -1))
+}
+
+function hasKnownGlobalReceiver(prefix: string): boolean {
+  return /(?:^|[^$\w.])(?:globalThis|global)\s*\??$/.test(prefix.trimEnd())
+}
+
+function hasComputedGlobalEvalReference(source: string, code: string): boolean {
+  return [...code.matchAll(/\b(?:globalThis|global)\b/g)].some((match) => {
+    const index = match.index
+    if (index === undefined || !isUnqualifiedIdentifier(code, index)) return false
+    return /^(?:globalThis|global)\s*(?:\?\.\s*)?\[\s*(?:"eval"|'eval')\s*\]/.test(
+      source.slice(index),
+    )
   })
 }
 
-function isUnqualifiedEval(code: string, index: number): boolean {
-  return code.slice(0, index).trimEnd().endsWith(".") === false
-}
-
-function isEvalCall(code: string, index: number): boolean {
-  return /^\s*(?:\)\s*)*(?:\?\.\s*)?\(/.test(code.slice(index + "eval".length))
+function isUnqualifiedIdentifier(code: string, index: number): boolean {
+  const preceding = code[index - 1]
+  return preceding === undefined || !/[$\w.#]/.test(preceding)
 }
 
 function isForbiddenAdmissionSpecifier(specifier: string): boolean {
