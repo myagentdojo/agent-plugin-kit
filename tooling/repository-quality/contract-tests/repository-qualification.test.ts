@@ -265,6 +265,15 @@ async function mutateContract(
   await writeFile(path, `${JSON.stringify(contract, null, 2)}\n`)
 }
 
+function extendAdmissionRuntimeSourcePaths(
+  contract: Record<string, any>,
+  paths: readonly string[],
+): void {
+  contract.admission.runtime_source_paths = [
+    ...new Set([...contract.admission.runtime_source_paths, ...paths]),
+  ].sort()
+}
+
 async function mutateJsonFile(
   root: string,
   relativePath: string,
@@ -1492,7 +1501,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = (eval)("require")\nload("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1512,7 +1521,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = eval(("require"))\nload("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1532,7 +1541,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = eval("require" as string)\nload("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1552,7 +1561,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = (0, eval)("require")\nload("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1572,7 +1581,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = eval?.("require")\nload?.("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1592,7 +1601,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst computed = eval("1 + 1")\nvoid computed\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1612,7 +1621,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = eval(\`require\`)\nload("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1632,7 +1641,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = eval("requ" + "ire")\nload("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1652,7 +1661,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst run = eval\nrun('import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1672,7 +1681,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\neval.call(undefined, 'import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1692,7 +1701,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst run = globalThis["eval"]\nrun('import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1712,7 +1721,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst { eval: run } = globalThis\nrun('import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1732,7 +1741,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst globals = globalThis\nglobals.eval('import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1752,7 +1761,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst { ["eval"]: run } = globalThis\nrun('import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1772,7 +1781,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst property = "eval"\nglobalThis[property]('import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1859,9 +1868,7 @@ localGlobal /* comment */ . globalThis . eval("require")
 `,
   )
   await mutateContract(runtimeRoot, (contract) => {
-    contract.admission.runtime_source_paths = [
-      ...new Set([...contract.admission.runtime_source_paths, runtimePath]),
-    ].sort()
+    extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
   })
   const runtimeExpected = {
     schema_version: 1,
