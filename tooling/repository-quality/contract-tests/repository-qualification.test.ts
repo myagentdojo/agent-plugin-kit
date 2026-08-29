@@ -1095,6 +1095,18 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
       },
     },
     {
+      label: "dynamically recovered require loader reference",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(
+          path,
+          `${await readFile(path, "utf8")}\n` +
+            'const load = eval("require")\n' +
+            'load("zod")\n',
+        )
+      },
+    },
+    {
       label: "computed nonliteral require between divisions after keyword-named property",
       mutate: async (root: string) => {
         const path = join(root, "src/admission-bootstrap/interface.ts")
@@ -1184,8 +1196,8 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
 /// <reference types="not-a-block-comment-dependency" />
 import type { NotACommentDependency } from "not-a-comment-dependency"
 */
-const notAStringDependency = 'export type * from "not-a-string-dependency"'
-const notATemplateDependency = \`import { type NotATemplateDependency } from "not-a-template-dependency"\`
+type NotAStringDependency = 'export type * from "not-a-string-dependency"'
+type NotATemplateDependency = \`import { type NotATemplateDependency } from "not-a-template-dependency"\`
 `
   const root = await copyRepositoryFixture()
   await mutateTextFile(
@@ -1406,6 +1418,15 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         delete contract.package_contract.type_exports["./runtime-custody"]
       }),
       expectedOwner: "package_contract.type_exports",
+    },
+    {
+      label: "root Interface runtime export added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/interface.ts",
+        (source) => `${source}\nexport const hiddenRuntime = 1\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["."]',
     },
     {
       label: "public type export added",

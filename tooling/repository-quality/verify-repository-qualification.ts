@@ -13,6 +13,7 @@ import {
   NonliteralModuleSpecifierError,
   staticModuleSpecifiers,
   typescriptLexicalCode,
+  typescriptRuntimeCode,
 } from "./static-module-specifiers"
 
 type BalancedCounts = {
@@ -647,6 +648,7 @@ function verifyAdmissionProductionSources(): void {
   ).filter((path) => !path.includes("/contract-tests/"))
   for (const file of sources) {
     const source = readFileSync(resolve(repositoryRoot, file), "utf8")
+    if (typescriptRuntimeCode(source).trim() !== "") admissionDrift()
     if (sourceSpecifiers(file, source).some(isForbiddenAdmissionSpecifier)) admissionDrift()
   }
 }
@@ -776,6 +778,9 @@ function locatedPublicTypeExports(code: string): LocatedPublicTypeExport[] {
 
 function publicTypeExports(path: string): string[] {
   const source = readFileSync(resolve(repositoryRoot, path), "utf8")
+  if (path === "./src/interface.ts" && typescriptRuntimeCode(source).trim() !== "") {
+    throw new PublicTypeExportParseError()
+  }
   const code = typescriptLexicalCode(source)
   return [...new Set(locatedPublicTypeExports(code).map(({ name }) => name))]
 }

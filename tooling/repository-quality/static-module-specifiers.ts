@@ -240,6 +240,10 @@ export function typescriptLexicalCode(source: string): string {
   return lexicalViews(sourceWithoutShebang(source)).code
 }
 
+export function typescriptRuntimeCode(source: string): string {
+  return typescriptTranspiler.transformSync(sourceWithoutShebang(source))
+}
+
 function typeOnlySpecifiers(views: LexicalViews): string[] {
   return typeDeclarationPatterns.flatMap((pattern) =>
     [...views.commentsRemoved.matchAll(pattern)]
