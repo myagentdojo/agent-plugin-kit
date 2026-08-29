@@ -333,12 +333,7 @@ async function addAdmissionRuntimeSources(
 async function addAdmissionValueReexportTransition(
   root: string,
   updateRuntimeDigest: boolean,
-): Promise<void> {
-  const implementationPath = "src/admission-bootstrap/implementation/admission-bootstrap.ts"
-  await mkdir(join(root, "src/admission-bootstrap/implementation"), { recursive: true })
-  await writeFile(
-    join(root, implementationPath),
-    `import type { AdmissionBootstrap } from "../interface"
+  implementationSource = `import type { AdmissionBootstrap } from "../interface"
 
 export const admissionBootstrap = {
   admit() {
@@ -346,7 +341,10 @@ export const admissionBootstrap = {
   },
 } satisfies AdmissionBootstrap
 `,
-  )
+): Promise<void> {
+  const implementationPath = "src/admission-bootstrap/implementation/admission-bootstrap.ts"
+  await mkdir(join(root, "src/admission-bootstrap/implementation"), { recursive: true })
+  await writeFile(join(root, implementationPath), implementationSource)
   await mutateTextFile(
     root,
     "src/admission-bootstrap/interface.ts",
@@ -2205,6 +2203,24 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: 'package_contract.runtime_output_sha256["./admission-bootstrap"]',
     },
     {
+      label: "public class re-export remains type-catalog drift",
+      mutate: (root: string) => addAdmissionValueReexportTransition(
+        root,
+        true,
+        "export class admissionBootstrap {}\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./admission-bootstrap"]',
+    },
+    {
+      label: "public enum re-export remains type-catalog drift",
+      mutate: (root: string) => addAdmissionValueReexportTransition(
+        root,
+        true,
+        "export enum admissionBootstrap { fixture }\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./admission-bootstrap"]',
+    },
+    {
       label: "public interface with an escaped identifier",
       mutate: (root: string) => mutateTextFile(
         root,
@@ -2311,6 +2327,24 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         root,
         "src/modules/runtime-custody/interface.ts",
         (source) => `${source}\nexport { type RuntimeCustodyResult as RuntimeExecutionResult }\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "tab-separated named type re-export added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport { type\tRuntimeCustodyResult as TabSeparatedRuntimeResult }\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "newline-separated named type re-export added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport { type\nRuntimeCustodyResult as NewlineSeparatedRuntimeResult }\n`,
       ),
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },

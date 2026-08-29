@@ -787,16 +787,24 @@ const unsupportedPublicTypePatterns = [
 ]
 const publicTypeIdentifier = /^[$A-Z_a-z][$\w]*$/
 const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
+const namedValueExport = /^([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
 
 type LocatedPublicTypeExport = {
   readonly index: number
   readonly name: string
 }
 
-function namedPublicTypeExports(match: RegExpMatchArray): LocatedPublicTypeExport[] {
+function namedPublicTypeExports(
+  path: string,
+  source: string,
+  match: RegExpMatchArray,
+): LocatedPublicTypeExport[] {
   const allTypeOnly = match[1] !== undefined
   const block = match[2] ?? ""
-  return block.split(",").flatMap((entry) => namedPublicTypeExport(entry, allTypeOnly, match.index ?? 0))
+  const specifier = publicReexportSpecifier(source, match)
+  return block.split(",").flatMap((entry) =>
+    namedPublicTypeExport(path, entry, allTypeOnly, specifier, match.index ?? 0)
+  )
 }
 
 function directPublicTypeExport(match: RegExpMatchArray): LocatedPublicTypeExport {
@@ -808,20 +816,97 @@ function directPublicTypeExport(match: RegExpMatchArray): LocatedPublicTypeExpor
 }
 
 function namedPublicTypeExport(
+  path: string,
   entry: string,
   allTypeOnly: boolean,
+  specifier: string | undefined,
   index: number,
 ): LocatedPublicTypeExport[] {
   const normalized = entry.trim()
   if (normalized === "") return []
-  if (isValueNamedExport(normalized, allTypeOnly)) return []
-  const parsed = normalized.match(namedTypeExport)
+  const name = namedPublicTypeExportName(path, normalized, allTypeOnly, specifier)
+  return name === undefined ? [] : [{ index, name }]
+}
+
+function namedPublicTypeExportName(
+  path: string,
+  entry: string,
+  allTypeOnly: boolean,
+  specifier: string | undefined,
+): string | undefined {
+  if (isValueNamedExport(entry, allTypeOnly)) return supportedNamedValueReexport(path, entry, specifier)
+  const parsed = entry.match(namedTypeExport)
   if (parsed === null) throw new PublicTypeExportParseError()
-  return [{ index, name: publicTypeExportName(parsed) }]
+  return publicTypeExportName(parsed)
+}
+
+function supportedNamedValueReexport(
+  path: string,
+  entry: string,
+  specifier: string | undefined,
+): undefined {
+  if (!isSupportedConstValueReexport(path, entry, specifier)) {
+    throw new PublicTypeExportParseError()
+  }
+}
+
+function publicReexportSpecifier(source: string, match: RegExpMatchArray): string | undefined {
+  const end = (match.index ?? 0) + match[0].length
+  const parsed = source.slice(end).match(/^\s+from\s*(["'])([^"']+)\1/)
+  return parsed?.[2]
 }
 
 function isValueNamedExport(entry: string, allTypeOnly: boolean): boolean {
-  return !allTypeOnly && !entry.startsWith("type ")
+  return !allTypeOnly && !/^type\s+/.test(entry)
+}
+
+function isSupportedConstValueReexport(
+  exporterPath: string,
+  entry: string,
+  specifier: string | undefined,
+): boolean {
+  const reexport = localValueReexport(entry, specifier)
+  if (reexport === undefined) return false
+  const target = resolvePublicReexportTarget(exporterPath, reexport.specifier)
+  if (target === undefined) return false
+  return directlyExportsConst(target, reexport.sourceName)
+}
+
+function localValueReexport(
+  entry: string,
+  specifier: string | undefined,
+): { readonly sourceName: string; readonly specifier: string } | undefined {
+  const localSpecifier = relativeReexportSpecifier(specifier)
+  if (localSpecifier === undefined) return undefined
+  const sourceName = namedValueExportSourceName(entry)
+  if (sourceName === undefined) return undefined
+  return { sourceName, specifier: localSpecifier }
+}
+
+function relativeReexportSpecifier(specifier: string | undefined): string | undefined {
+  if (specifier === undefined) return undefined
+  return specifier.startsWith(".") ? specifier : undefined
+}
+
+function namedValueExportSourceName(entry: string): string | undefined {
+  const parsed = entry.match(namedValueExport)
+  return parsed === null ? undefined : parsed[1]
+}
+
+function directlyExportsConst(target: string, sourceName: string): boolean {
+  const code = typescriptLexicalCode(readFileSync(target, "utf8"))
+  const declaration = new RegExp(`\\bexport\\s+const\\s+${escapeRegExp(sourceName)}\\b`, "g")
+  return topLevelMatches(code, declaration).length === 1
+}
+
+function resolvePublicReexportTarget(exporterPath: string, specifier: string): string | undefined {
+  const unresolved = resolve(dirname(resolve(repositoryRoot, exporterPath)), specifier)
+  const resolved = admissionCandidates(unresolved).find(isFile)
+  if (resolved === undefined) return undefined
+  const absolute = realpathSync(resolved)
+  const sourceRoot = realpathSync(resolve(repositoryRoot, "src"))
+  const sourceRelative = relative(sourceRoot, absolute).replaceAll("\\", "/")
+  return sourceRelative.startsWith("../") || sourceRelative === ".." ? undefined : absolute
 }
 
 function publicTypeExportName(match: RegExpMatchArray): string {
@@ -838,19 +923,25 @@ function topLevelMatches(code: string, pattern: RegExp): RegExpMatchArray[] {
   return [...code.matchAll(pattern)].filter((match) => isTopLevelMatch(code, match))
 }
 
-function locatedPublicTypeExports(code: string): LocatedPublicTypeExport[] {
+function locatedPublicTypeExports(
+  path: string,
+  source: string,
+  code: string,
+): LocatedPublicTypeExport[] {
   if (unsupportedPublicTypePatterns.some((pattern) => topLevelMatches(code, pattern).length > 0)) {
     throw new PublicTypeExportParseError()
   }
   const direct = topLevelMatches(code, directPublicTypeDeclaration).map(directPublicTypeExport)
-  const named = topLevelMatches(code, namedPublicTypeExportBlock).flatMap(namedPublicTypeExports)
+  const named = topLevelMatches(code, namedPublicTypeExportBlock).flatMap((match) =>
+    namedPublicTypeExports(path, source, match)
+  )
   return [...direct, ...named].sort((left, right) => left.index - right.index)
 }
 
 function publicTypeExports(path: string): string[] {
   const source = readFileSync(resolve(repositoryRoot, path), "utf8")
   const code = typescriptLexicalCode(source)
-  return [...new Set(locatedPublicTypeExports(code).map(({ name }) => name))]
+  return [...new Set(locatedPublicTypeExports(path, source, code).map(({ name }) => name))]
 }
 
 function runtimeOutputSha256(path: string): string {
