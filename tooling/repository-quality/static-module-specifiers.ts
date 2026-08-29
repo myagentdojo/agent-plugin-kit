@@ -33,7 +33,8 @@ type ScanStep = {
   readonly done: boolean
 }
 
-const regularExpressionPrefix = /(?:^|[([{=,:;!?&|+\-*%^~<>]\s*|\b(?:await|case|delete|do|else|in|instanceof|new|of|return|throw|typeof|void|yield)\s*)$/
+const regularExpressionOperatorPrefix = /(?:^|[([{=,:;!?&|+\-*%^~<>])\s*$/
+const regularExpressionKeywordPrefix = /\b(?:await|case|delete|do|else|in|instanceof|new|of|return|throw|typeof|void|yield)\s*$/
 const regularExpressionLiteral = /^\/(?:\\[\s\S]|\[(?:\\[\s\S]|[^\]\\\r\n])*\]|[^/\\[\]\r\n])*\/[A-Za-z]*/
 const controlStatementBeforeCondition = /(?:^|[\n;{}:)]|\b(?:do|else))\s*(?:if|while|with|for(?:\s+await)?)\s*$/
 
@@ -59,10 +60,14 @@ function matchingOpeningParenthesis(source: string, closingIndex: number): numbe
   return undefined
 }
 
-function beginsControlStatementCondition(source: string): boolean {
-  const match = source.match(controlStatementBeforeCondition)
+function followsStandaloneKeyword(source: string, pattern: RegExp): boolean {
+  const match = source.match(pattern)
   if (match?.index === undefined) return false
   return !/\.\s*$/.test(source.slice(0, match.index))
+}
+
+function beginsControlStatementCondition(source: string): boolean {
+  return followsStandaloneKeyword(source, controlStatementBeforeCondition)
 }
 
 function closesControlStatementCondition(code: string): boolean {
@@ -72,13 +77,16 @@ function closesControlStatementCondition(code: string): boolean {
   return openingIndex !== undefined && beginsControlStatementCondition(prefix.slice(0, openingIndex))
 }
 
-function canStartRegularExpression(source: string, code: string, index: number): boolean {
-  return regularExpressionPrefix.test(source.slice(0, index)) || closesControlStatementCondition(code)
+function canStartRegularExpression(code: string, index: number): boolean {
+  const prefix = code.slice(0, index)
+  return regularExpressionOperatorPrefix.test(prefix) ||
+    followsStandaloneKeyword(prefix, regularExpressionKeywordPrefix) ||
+    closesControlStatementCondition(code)
 }
 
 function regularExpressionEnd(source: string, code: string, start: number): number | undefined {
   const match = source.slice(start).match(regularExpressionLiteral)
-  return canStartRegularExpression(source, code, start) && match !== null
+  return canStartRegularExpression(code, start) && match !== null
     ? start + match[0].length
     : undefined
 }

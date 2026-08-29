@@ -512,6 +512,28 @@ test("required-path or declared-structure drift is refused", async () => {
       },
     },
     {
+      label: "nested Source Tree node_modules TypeScript file present",
+      mutate: async (root: string) => {
+        const directory = join(root, "src/modules/runtime-custody/node_modules")
+        await mkdir(directory, { recursive: true })
+        await writeFile(join(directory, "hidden.ts"), "export const hidden = undefined\n")
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "path-drift",
+            owner: "structure.required_paths",
+            repair_id: "restore-current-declaration",
+          },
+        ],
+      },
+    },
+    {
       label: "current Source Tree declaration absent",
       mutate: async (root: string) => {
         await mutateContract(root, (contract) => {
@@ -1057,6 +1079,31 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
           `${await readFile(path, "utf8")}\n` +
             'const admissionRequire = require\n' +
             'admissionRequire("zod")\n',
+        )
+      },
+    },
+    {
+      label: "node module createRequire loader reference",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(
+          path,
+          `${await readFile(path, "utf8")}\n` +
+            'import { createRequire } from "node:module"\n' +
+            'createRequire(import.meta.url)("zod")\n',
+        )
+      },
+    },
+    {
+      label: "computed nonliteral require between divisions after keyword-named property",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(
+          path,
+          `${await readFile(path, "utf8")}\n` +
+            'const keywordLookalike = { return: 1 }\n' +
+            'const dynamicDependency = "zod"\n' +
+            'keywordLookalike.return / require(dynamicDependency) / 2\n',
         )
       },
     },

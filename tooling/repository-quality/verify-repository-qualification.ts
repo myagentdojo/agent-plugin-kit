@@ -227,7 +227,7 @@ function repositoryEntry(
   entry: { name: string; isDirectory(): boolean },
   include: (name: string) => boolean,
 ): string[] {
-  if (isSkippedDirectory(entry.name)) {
+  if (isSkippedDirectory(entry.name, prefix)) {
     verifySkippedDirectory(directory, entry)
     return []
   }
@@ -237,8 +237,8 @@ function repositoryEntry(
   return include(entry.name) ? [entryRelative] : []
 }
 
-function isSkippedDirectory(name: string): boolean {
-  return name === ".git" || name === ".fallow" || name === "node_modules"
+function isSkippedDirectory(name: string, prefix: string): boolean {
+  return name === ".fallow" || (prefix === "" && (name === ".git" || name === "node_modules"))
 }
 
 function verifySkippedDirectory(
@@ -647,10 +647,12 @@ function verifyAdmissionProductionSources(): void {
   ).filter((path) => !path.includes("/contract-tests/"))
   for (const file of sources) {
     const source = readFileSync(resolve(repositoryRoot, file), "utf8")
-    if (sourceSpecifiers(file, source).some((specifier) =>
-      !specifier.startsWith(".") && !specifier.startsWith("node:")
-    )) admissionDrift()
+    if (sourceSpecifiers(file, source).some(isForbiddenAdmissionSpecifier)) admissionDrift()
   }
+}
+
+function isForbiddenAdmissionSpecifier(specifier: string): boolean {
+  return specifier === "node:module" || (!specifier.startsWith(".") && !specifier.startsWith("node:"))
 }
 
 function verifyAdmissionProjection(
