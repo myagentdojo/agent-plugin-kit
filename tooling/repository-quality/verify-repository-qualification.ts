@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import {
   existsSync,
   mkdtempSync,
@@ -99,6 +100,7 @@ type RepositoryQualificationContract = {
     workspaces: readonly string[]
     exports: Readonly<Record<string, string>>
     type_exports: Readonly<Record<string, readonly string[]>>
+    runtime_output_sha256: Readonly<Record<string, string>>
     bin: Readonly<Record<string, string>>
     scripts: Readonly<Record<string, string>>
     dev_dependencies: Readonly<Record<string, string>>
@@ -707,7 +709,7 @@ class PublicTypeExportParseError extends Error {}
 
 const directPublicTypeDeclaration = /\bexport\s+(?:declare\s+)?(?:type(?!\s*\{)|interface)\s+([^\s=<{;]+)/g
 const namedPublicTypeExportBlock = /\bexport\s+(type\s*)?\{([\s\S]*?)\}/g
-const declaredRootPublicValue = /\bexport\s+declare\s+(?:function|const|let|var)\b/g
+const declaredPublicValue = /\bexport\s+declare\s+(?:function|const|let|var)\b/g
 const unsupportedPublicDecorator = /@/g
 const unsupportedPublicTypeExport = /\bexport\s+(?:(?:type\s+)?\*|(?:(?:declare|abstract)\s+)*(?:class|(?:const\s+)?enum|namespace|module|import)\b)/g
 const unsupportedDefaultPublicTypeExport = /\bexport\s+default\b/g
@@ -781,13 +783,14 @@ function locatedPublicTypeExports(code: string): LocatedPublicTypeExport[] {
 function publicTypeExports(path: string): string[] {
   const source = readFileSync(resolve(repositoryRoot, path), "utf8")
   const code = typescriptLexicalCode(source)
-  if (
-    path === "./src/interface.ts" &&
-    (typescriptRuntimeCode(source).trim() !== "" || topLevelMatches(code, declaredRootPublicValue).length > 0)
-  ) {
-    throw new PublicTypeExportParseError()
-  }
   return [...new Set(locatedPublicTypeExports(code).map(({ name }) => name))]
+}
+
+function runtimeOutputSha256(path: string): string {
+  const source = readFileSync(resolve(repositoryRoot, path), "utf8")
+  const code = typescriptLexicalCode(source)
+  if (topLevelMatches(code, declaredPublicValue).length > 0) throw new PublicTypeExportParseError()
+  return createHash("sha256").update(typescriptRuntimeCode(source)).digest("hex")
 }
 
 function verifyPackageContract(contract: RepositoryQualificationContract): void {
@@ -807,20 +810,39 @@ function verifyPublicTypeExports(
   if (JSON.stringify(Object.keys(expected.type_exports)) !== JSON.stringify(Object.keys(expected.exports))) {
     packageDrift("package_contract.type_exports")
   }
+  if (JSON.stringify(Object.keys(expected.runtime_output_sha256)) !== JSON.stringify(Object.keys(expected.exports))) {
+    packageDrift("package_contract.runtime_output_sha256")
+  }
   for (const [subpath, target] of Object.entries(expected.exports)) {
     verifyPublicTypeExport(subpath, target, expected.type_exports[subpath])
+    verifyPublicRuntimeOutput(subpath, target, expected.runtime_output_sha256[subpath])
   }
 }
 
-function verifyPublicTypeExport(subpath: string, target: string, declared: readonly string[] | undefined): void {
-  const owner = `package_contract.type_exports[${JSON.stringify(subpath)}]`
+function verifyPublicTypeExport(
+  subpath: string,
+  target: string,
+  declared: readonly string[] | undefined,
+): void {
+  const typeOwner = `package_contract.type_exports[${JSON.stringify(subpath)}]`
   let observed: readonly string[]
   try {
     observed = publicTypeExports(target)
   } catch {
-    packageDrift(owner)
+    packageDrift(typeOwner)
   }
-  if (JSON.stringify(observed) !== JSON.stringify(declared)) packageDrift(owner)
+  if (JSON.stringify(observed) !== JSON.stringify(declared)) packageDrift(typeOwner)
+}
+
+function verifyPublicRuntimeOutput(subpath: string, target: string, declaredSha256: string | undefined): void {
+  const runtimeOwner = `package_contract.runtime_output_sha256[${JSON.stringify(subpath)}]`
+  let observedSha256: string
+  try {
+    observedSha256 = runtimeOutputSha256(target)
+  } catch {
+    packageDrift(runtimeOwner)
+  }
+  if (observedSha256 !== declaredSha256) packageDrift(runtimeOwner)
 }
 
 function verifyDependencyBans(
@@ -1125,6 +1147,7 @@ function validatePackageContractRecord(value: unknown): void {
     "workspaces",
     "exports",
     "type_exports",
+    "runtime_output_sha256",
     "bin",
     "scripts",
     "dev_dependencies",
@@ -1140,6 +1163,7 @@ function validatePackageContractRecord(value: unknown): void {
   contractStringArray(contract.workspaces, "package_contract.workspaces")
   contractStringRecord(contract.exports, "package_contract.exports")
   contractStringArrayRecord(contract.type_exports, "package_contract.type_exports")
+  contractStringRecord(contract.runtime_output_sha256, "package_contract.runtime_output_sha256")
   contractStringRecord(contract.bin, "package_contract.bin")
   contractStringRecord(contract.scripts, "package_contract.scripts")
   contractStringRecord(contract.dev_dependencies, "package_contract.dev_dependencies")

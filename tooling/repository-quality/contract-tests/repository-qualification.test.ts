@@ -1433,13 +1433,20 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: "package_contract.type_exports",
     },
     {
+      label: "public runtime catalog and package exports disagree",
+      mutate: (root: string) => mutateContract(root, (contract) => {
+        delete contract.package_contract.runtime_output_sha256["./runtime-custody"]
+      }),
+      expectedOwner: "package_contract.runtime_output_sha256",
+    },
+    {
       label: "root Interface runtime export added",
       mutate: (root: string) => mutateTextFile(
         root,
         "src/interface.ts",
         (source) => `${source}\nexport const hiddenRuntime = 1\n`,
       ),
-      expectedOwner: 'package_contract.type_exports["."]',
+      expectedOwner: 'package_contract.runtime_output_sha256["."]',
     },
     {
       label: "root Interface declared function added",
@@ -1448,7 +1455,7 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         "src/interface.ts",
         (source) => `${source}\nexport declare function HiddenPublicValue(): void\n`,
       ),
-      expectedOwner: 'package_contract.type_exports["."]',
+      expectedOwner: 'package_contract.runtime_output_sha256["."]',
     },
     {
       label: "root Interface declared const added",
@@ -1457,7 +1464,7 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         "src/interface.ts",
         (source) => `${source}\nexport declare const HiddenPublicValue: string\n`,
       ),
-      expectedOwner: 'package_contract.type_exports["."]',
+      expectedOwner: 'package_contract.runtime_output_sha256["."]',
     },
     {
       label: "root Interface same-line public type added",
@@ -1475,7 +1482,7 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         "src/interface.ts",
         (source) => `${source.trimEnd()}; export declare const HiddenPublicValue: string\n`,
       ),
-      expectedOwner: 'package_contract.type_exports["."]',
+      expectedOwner: 'package_contract.runtime_output_sha256["."]',
     },
     {
       label: "public type export added",
@@ -1485,6 +1492,24 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         (source) => `${source}\nexport type RuntimeCustodyState = "ready"\n`,
       ),
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public subpath runtime value added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport const HiddenRuntimeSurface = 1\n`,
+      ),
+      expectedOwner: 'package_contract.runtime_output_sha256["./runtime-custody"]',
+    },
+    {
+      label: "public subpath declared value added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport declare const HiddenRuntimeSurface: string\n`,
+      ),
+      expectedOwner: 'package_contract.runtime_output_sha256["./runtime-custody"]',
     },
     {
       label: "public interface with an escaped identifier",
@@ -1840,11 +1865,11 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
     (source) => `${source}
 /* export type CommentOnlyType = never */
 /* export interface \\u0048iddenCommentType {} */
-export const valueOnlyRuntimeMarker = "value-only"
-export const RuntimeCustodyResult = undefined
-export const regexAtMarker = /@/
-export const escapedTypeString = "export interface \\u0048iddenStringType {}"
-export const escapedTypeTemplate = \`export interface \\u0048iddenTemplateType {}\`
+type ValueOnlyMarker = "value-only"
+type RuntimeCustodyResultValue = undefined
+type AtMarker = "@"
+type EscapedTypeString = "export interface \\u0048iddenStringType {}"
+type EscapedTypeTemplate = \`export interface \\u0048iddenTemplateType {}\`
 `,
   )
   const lexicalObservation = await observeVerifier(lexicalRoot)

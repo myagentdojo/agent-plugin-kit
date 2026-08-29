@@ -589,6 +589,18 @@
         "ReusableWorkflowAdapter"
       ]
     },
+    "runtime_output_sha256": {
+      ".": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "./admission-bootstrap": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "./plugin-payload-production": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "./runtime-custody": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "./release-and-git-engine": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "./maintenance-command-contract": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "./harness-journeys": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "./canary-qualification": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "./qualification-evidence": "9578af335b54915957a8cc417c0c70e49fb8d88b30e3153fb9f313d39b57578e",
+      "./reusable-workflow-adapter": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
     "bin": {"agent-plugin-kit": "./src/adapters/maintenance-command-facade/maintenance.ts"},
     "scripts": {
       "check": "git diff --check && bun run biome:check && bun run typecheck && bun run check:structure && bun run test:quality:fallow-policy && bun run test:quality:repository-qualification && bun run --silent quality:fallow --changed-since HEAD && bun run verify:repository-qualification",
