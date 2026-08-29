@@ -45,6 +45,13 @@ acceptance checkpoint: trusted plan acceptance is required where a command
 obtains a protected capability through a Seam, rather than for every possible
 binding.
 
+Nathan accepted one scoped Admission Bootstrap amendment on 30 August 2026
+after a fresh Sol High `ship` review. Admission keeps its declaration-only
+Interface while its existing public package subpath resolves that declaration
+for TypeScript and its private dependency-free Implementation for Bun. This
+amendment adds no validator, schema, dependency, owner, Adapter, root runtime
+value, or public Implementation path.
+
 ### TypeScript boundary
 
 - Repository TypeScript keeps `strict`, `noUncheckedIndexedAccess`,
@@ -162,16 +169,24 @@ binding.
   through an accepted package subpath.
 - `src/interface.ts` stays type-only. It exports no schema and no runtime
   value, so the root export gains no runtime surface and no Zod import.
-- The accepted package subpaths continue to resolve directly to declaration-
-  only `interface.ts` files. Owner-Local Validators add no exported name, no
-  compatibility surface, and no subpath type-export catalog entry. Their
-  sibling files enter the installed inventory only through the reviewed ADR
-  0003 respecification.
+- Eight accepted package subpaths continue to resolve directly to declaration-
+  only `interface.ts` files. The existing `./admission-bootstrap` subpath is
+  the only exception: its ordered `types` condition resolves to the
+  declaration-only Interface, while `import` and final `default` resolve to the
+  same private Admission Implementation. The Interface declares
+  `admissionBootstrap` without importing or re-exporting Implementation, and
+  the private Implementation supplies that matching runtime value.
+  Owner-Local Validators add no exported name, compatibility surface, or
+  subpath type-export catalog entry. Their sibling files enter the installed
+  inventory only through the reviewed ADR 0003 respecification.
 - The Maintenance Command Facade Adapter Interface stays outside root exports
   under ADR 0002. Repository Qualification owns the current export-surface
   declaration; Facade schemas therefore remain owner-private and add no caller
   surface.
-- The nine public subpaths and the ten-entry exports map are unchanged.
+- The nine public subpath names and ten-entry exports map remain exact. Root
+  runtime output remains empty; Admission gains exactly `admissionBootstrap`;
+  Qualification Evidence preserves its existing `VerificationProfile`
+  sentinel; and every other named subpath preserves its empty runtime output.
 
 ### Nested command validation composition
 
