@@ -814,7 +814,7 @@ function namedPublicTypeExport(
 ): LocatedPublicTypeExport[] {
   const normalized = entry.trim()
   if (normalized === "") return []
-  if (isValueNamedExport(normalized, allTypeOnly)) throw new PublicTypeExportParseError()
+  if (isValueNamedExport(normalized, allTypeOnly)) return []
   const parsed = normalized.match(namedTypeExport)
   if (parsed === null) throw new PublicTypeExportParseError()
   return [{ index, name: publicTypeExportName(parsed) }]

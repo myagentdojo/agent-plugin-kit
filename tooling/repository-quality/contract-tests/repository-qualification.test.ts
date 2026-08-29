@@ -50,6 +50,8 @@ const runtimeSourceFinding = {
   repair_id: "restore-repository-bytes",
 } as const
 
+const admissionValueReexportRuntimeSha256 = "47fdb795f528a479b217022f92c4749db86a91e96194d31ca183bfa7eaf58694"
+
 async function copyRepositoryFixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "agent-plugin-kit-repository-qualification-"))
   temporaryRoots.push(root)
@@ -325,6 +327,46 @@ async function addAdmissionRuntimeSources(
   await mutateContract(root, (contract) => {
     contract.structure.required_paths.push(...paths)
     if (includeInClosure) contract.admission.source_closure.push(...paths)
+  })
+}
+
+async function addAdmissionValueReexportTransition(
+  root: string,
+  updateRuntimeDigest: boolean,
+): Promise<void> {
+  const implementationPath = "src/admission-bootstrap/implementation/admission-bootstrap.ts"
+  await mkdir(join(root, "src/admission-bootstrap/implementation"), { recursive: true })
+  await writeFile(
+    join(root, implementationPath),
+    `import type { AdmissionBootstrap } from "../interface"
+
+export const admissionBootstrap = {
+  admit() {
+    throw new Error("test fixture only")
+  },
+} satisfies AdmissionBootstrap
+`,
+  )
+  await mutateTextFile(
+    root,
+    "src/admission-bootstrap/interface.ts",
+    (source) => `${source}\nexport { admissionBootstrap } from "./implementation/admission-bootstrap"\n`,
+  )
+  await mutateContract(root, (contract) => {
+    contract.structure.required_paths.push(implementationPath)
+    contract.structure.forbidden_paths = contract.structure.forbidden_paths
+      .filter((path: string) => path !== "src/admission-bootstrap/implementation")
+    contract.structure.forbidden_source_path_segments = contract.structure.forbidden_source_path_segments
+      .filter((segment: string) => segment !== "implementation")
+    contract.admission.source_closure.push(implementationPath)
+    contract.admission.runtime_source_paths = [
+      implementationPath,
+      "src/admission-bootstrap/interface.ts",
+    ]
+    if (updateRuntimeDigest) {
+      contract.package_contract.runtime_output_sha256["./admission-bootstrap"] =
+        admissionValueReexportRuntimeSha256
+    }
   })
 }
 
@@ -2158,6 +2200,11 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: 'package_contract.runtime_output_sha256["./runtime-custody"]',
     },
     {
+      label: "public named value re-export keeps a stale runtime digest",
+      mutate: (root: string) => addAdmissionValueReexportTransition(root, false),
+      expectedOwner: 'package_contract.runtime_output_sha256["./admission-bootstrap"]',
+    },
+    {
       label: "public interface with an escaped identifier",
       mutate: (root: string) => mutateTextFile(
         root,
@@ -2524,6 +2571,23 @@ type EscapedTypeTemplate = \`export interface \\u0048iddenTemplateType {}\`
   expect(lexicalObservation.stderr).toBe("")
   expect(lexicalObservation.stdout).toBe(`${JSON.stringify(lexicalExpected)}\n`)
   expect(JSON.parse(lexicalObservation.stdout)).toEqual(lexicalExpected)
+
+  const valueReexportRoot = await copyRepositoryFixture()
+  await addAdmissionValueReexportTransition(valueReexportRoot, true)
+  const valueReexportExpected = {
+    schema_version: 1,
+    command: "verify:repository-qualification",
+    status: "qualified",
+    mode: "structure-only",
+    contract: "tooling/repository-quality/repository-qualification-contract.json",
+    groups: [],
+    aggregate: null,
+  } as const
+  const valueReexportObservation = await observeVerifier(valueReexportRoot, ["--structure-only"])
+  expect(valueReexportObservation.exitCode, valueReexportObservation.stderr).toBe(0)
+  expect(valueReexportObservation.stderr).toBe("")
+  expect(valueReexportObservation.stdout).toBe(`${JSON.stringify(valueReexportExpected)}\n`)
+  expect(JSON.parse(valueReexportObservation.stdout)).toEqual(valueReexportExpected)
 
   const structureOnlyRoot = await copyRepositoryFixture()
   await mutateJsonFile(structureOnlyRoot, "package.json", (packageJson) => {
