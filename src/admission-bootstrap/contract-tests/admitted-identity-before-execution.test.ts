@@ -8,6 +8,22 @@ import {
 
 const agreeing = admissionInvariantCases[0]
 
+function requestWithCompletePin(commit: string) {
+  const request = structuredClone(agreeing.request)
+
+  Object.assign(request.candidate.source, { commit })
+  Object.assign(request.provenance, { commit })
+  Object.assign(request.source, { commit })
+  Object.assign(request.candidate.release, { commit })
+  Object.assign(request.release, { commit })
+  Object.assign(request.candidate.package, { commit })
+  Object.assign(request.package, { commit })
+  Object.assign(request.candidate.workflow, { commit })
+  Object.assign(request.workflow, { commit })
+
+  return request
+}
+
 test("identity-agrees returns the literal Admitted Identity", () => {
   const harness = createAdmissionContractHarness()
   const request = structuredClone(agreeing.request)
@@ -63,21 +79,16 @@ test("identity-agrees returns the literal Admitted Identity", () => {
   })
   expect(actual.identity).toEqual(expectedAdmittedIdentity)
 
-  const incompletePinRequest = structuredClone(agreeing.request)
-  Object.assign(incompletePinRequest.candidate.source, { commit: "abc123" })
-  Object.assign(incompletePinRequest.provenance, { commit: "abc123" })
-  Object.assign(incompletePinRequest.source, { commit: "abc123" })
-  Object.assign(incompletePinRequest.candidate.release, { commit: "abc123" })
-  Object.assign(incompletePinRequest.release, { commit: "abc123" })
-  Object.assign(incompletePinRequest.candidate.package, { commit: "abc123" })
-  Object.assign(incompletePinRequest.package, { commit: "abc123" })
-  Object.assign(incompletePinRequest.candidate.workflow, { commit: "abc123" })
-  Object.assign(incompletePinRequest.workflow, { commit: "abc123" })
-
-  const incompletePin = harness.bootstrap?.admit(incompletePinRequest)
-  expect(incompletePin?.kind).toBe("refused")
-  if (incompletePin?.kind === "refused") {
-    expect(incompletePin.refusal.code).toBe("source-pin-mismatch")
+  for (const invalidCompletePin of [
+    "abc123",
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "gggggggggggggggggggggggggggggggggggggggg",
+  ]) {
+    const invalidPinResult = harness.bootstrap?.admit(requestWithCompletePin(invalidCompletePin))
+    expect(invalidPinResult?.kind).toBe("refused")
+    if (invalidPinResult?.kind === "refused") {
+      expect(invalidPinResult.refusal.code).toBe("source-pin-mismatch")
+    }
   }
 })
 

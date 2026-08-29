@@ -8,6 +8,7 @@ import type {
 } from "../../modules/release-and-git-engine/interface"
 
 type CandidatePinOwner = "release" | "package" | "workflow"
+type ObservationOwner = "provenance" | "source" | "release" | "package" | "workflow"
 
 const alternateFullCommitPin = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 
@@ -47,10 +48,29 @@ function assertCandidateSourcePinMismatch(
   assertRequestRefusal(request, code, `${owner} agrees with its observation but not Candidate Source`)
 }
 
-test("repository mismatch fails closed", () => assertRefusal(1))
-test("provenance mismatch fails closed", () => assertRefusal(2))
+function assertAdjacentPrecedence(
+  earlierIndex: 1 | 2 | 3 | 4 | 5,
+  laterIndex: 2 | 3 | 4 | 5 | 6,
+  laterOwner: ObservationOwner,
+  code: AdmissionRefusal["code"],
+) {
+  const request = structuredClone(admissionInvariantCases[earlierIndex].request)
+  const laterRequest = admissionInvariantCases[laterIndex].request
+  Object.assign(request, { [laterOwner]: structuredClone(laterRequest[laterOwner]) })
+  assertRequestRefusal(request, code, `${code} precedes ${laterOwner}`)
+}
+
+test("repository mismatch fails closed", () => {
+  assertRefusal(1)
+  assertAdjacentPrecedence(1, 2, "provenance", "repository-mismatch")
+})
+test("provenance mismatch fails closed", () => {
+  assertRefusal(2)
+  assertAdjacentPrecedence(2, 3, "source", "provenance-mismatch")
+})
 test("source pin mismatch fails closed", () => {
   assertRefusal(3)
+  assertAdjacentPrecedence(3, 4, "release", "source-pin-mismatch")
 
   const sourceRepositoryMismatch = structuredClone(admissionInvariantCases[0].request)
   Object.assign(sourceRepositoryMismatch, {
@@ -67,10 +87,12 @@ test("source pin mismatch fails closed", () => {
 })
 test("release pin mismatch fails closed", () => {
   assertRefusal(4)
+  assertAdjacentPrecedence(4, 5, "package", "release-pin-mismatch")
   assertCandidateSourcePinMismatch("release", "release-pin-mismatch")
 })
 test("package pin mismatch fails closed", () => {
   assertRefusal(5)
+  assertAdjacentPrecedence(5, 6, "workflow", "package-pin-mismatch")
   assertCandidateSourcePinMismatch("package", "package-pin-mismatch")
 })
 test("workflow pin mismatch fails closed", () => {
