@@ -8,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import {
   NonliteralModuleSpecifierError,
   staticModuleSpecifiers,
@@ -51,6 +51,20 @@ const runtimeSourceFinding = {
 } as const
 
 const admissionValueReexportRuntimeSha256 = "47fdb795f528a479b217022f92c4749db86a91e96194d31ca183bfa7eaf58694"
+const runtimeCustodyCrossOwnerReexportSha256 = "bcd6b7f38ab1d03cfe2a7d8b45d27c527231eb6752472ea798a1fe3daca9d26b"
+const admissionValueImplementationSource = `import type { AdmissionBootstrap } from "../interface"
+
+export const admissionBootstrap = {
+  admit() {
+    throw new Error("test fixture only")
+  },
+} satisfies AdmissionBootstrap
+`
+
+type AdmissionValueReexportTransition = {
+  readonly updateRuntimeDigest: boolean
+  readonly implementationSource?: string
+}
 
 async function copyRepositoryFixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "agent-plugin-kit-repository-qualification-"))
@@ -332,18 +346,13 @@ async function addAdmissionRuntimeSources(
 
 async function addAdmissionValueReexportTransition(
   root: string,
-  updateRuntimeDigest: boolean,
-  implementationSource = `import type { AdmissionBootstrap } from "../interface"
-
-export const admissionBootstrap = {
-  admit() {
-    throw new Error("test fixture only")
-  },
-} satisfies AdmissionBootstrap
-`,
+  {
+    updateRuntimeDigest,
+    implementationSource = admissionValueImplementationSource,
+  }: AdmissionValueReexportTransition,
 ): Promise<void> {
   const implementationPath = "src/admission-bootstrap/implementation/admission-bootstrap.ts"
-  await mkdir(join(root, "src/admission-bootstrap/implementation"), { recursive: true })
+  await mkdir(dirname(join(root, implementationPath)), { recursive: true })
   await writeFile(join(root, implementationPath), implementationSource)
   await mutateTextFile(
     root,
@@ -352,8 +361,9 @@ export const admissionBootstrap = {
   )
   await mutateContract(root, (contract) => {
     contract.structure.required_paths.push(implementationPath)
+    const implementationDirectory = dirname(implementationPath)
     contract.structure.forbidden_paths = contract.structure.forbidden_paths
-      .filter((path: string) => path !== "src/admission-bootstrap/implementation")
+      .filter((path: string) => path !== implementationDirectory)
     contract.structure.forbidden_source_path_segments = contract.structure.forbidden_source_path_segments
       .filter((segment: string) => segment !== "implementation")
     contract.admission.source_closure.push(implementationPath)
@@ -365,6 +375,27 @@ export const admissionBootstrap = {
       contract.package_contract.runtime_output_sha256["./admission-bootstrap"] =
         admissionValueReexportRuntimeSha256
     }
+  })
+}
+
+async function addCrossOwnerValueReexport(root: string): Promise<void> {
+  const implementationDirectory = "src/modules/release-and-git-engine/implementation"
+  const implementationPath = `${implementationDirectory}/cross-owner.ts`
+  await mkdir(join(root, implementationDirectory), { recursive: true })
+  await writeFile(join(root, implementationPath), "export const crossOwnerValue = {}\n")
+  await mutateTextFile(
+    root,
+    "src/modules/runtime-custody/interface.ts",
+    (source) => `${source}\nexport { crossOwnerValue } from "../release-and-git-engine/implementation/cross-owner"\n`,
+  )
+  await mutateContract(root, (contract) => {
+    contract.structure.required_paths.push(implementationPath)
+    contract.structure.forbidden_paths = contract.structure.forbidden_paths
+      .filter((path: string) => path !== implementationDirectory)
+    contract.structure.forbidden_source_path_segments = contract.structure.forbidden_source_path_segments
+      .filter((segment: string) => segment !== "implementation")
+    contract.package_contract.runtime_output_sha256["./runtime-custody"] =
+      runtimeCustodyCrossOwnerReexportSha256
   })
 }
 
@@ -2199,25 +2230,36 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
     },
     {
       label: "public named value re-export keeps a stale runtime digest",
-      mutate: (root: string) => addAdmissionValueReexportTransition(root, false),
+      mutate: (root: string) => addAdmissionValueReexportTransition(root, { updateRuntimeDigest: false }),
       expectedOwner: 'package_contract.runtime_output_sha256["./admission-bootstrap"]',
     },
     {
       label: "public class re-export remains type-catalog drift",
-      mutate: (root: string) => addAdmissionValueReexportTransition(
-        root,
-        true,
-        "export class admissionBootstrap {}\n",
-      ),
+      mutate: (root: string) => addAdmissionValueReexportTransition(root, {
+        updateRuntimeDigest: true,
+        implementationSource: "export class admissionBootstrap {}\n",
+      }),
       expectedOwner: 'package_contract.type_exports["./admission-bootstrap"]',
     },
     {
       label: "public enum re-export remains type-catalog drift",
-      mutate: (root: string) => addAdmissionValueReexportTransition(
-        root,
-        true,
-        "export enum admissionBootstrap { fixture }\n",
-      ),
+      mutate: (root: string) => addAdmissionValueReexportTransition(root, {
+        updateRuntimeDigest: true,
+        implementationSource: "export enum admissionBootstrap { fixture }\n",
+      }),
+      expectedOwner: 'package_contract.type_exports["./admission-bootstrap"]',
+    },
+    {
+      label: "public cross-owner const re-export remains type-catalog drift",
+      mutate: addCrossOwnerValueReexport,
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public dual-space target re-export remains type-catalog drift",
+      mutate: (root: string) => addAdmissionValueReexportTransition(root, {
+        updateRuntimeDigest: true,
+        implementationSource: `${admissionValueImplementationSource}\nexport interface admissionBootstrap {}\n`,
+      }),
       expectedOwner: 'package_contract.type_exports["./admission-bootstrap"]',
     },
     {
@@ -2607,7 +2649,7 @@ type EscapedTypeTemplate = \`export interface \\u0048iddenTemplateType {}\`
   expect(JSON.parse(lexicalObservation.stdout)).toEqual(lexicalExpected)
 
   const valueReexportRoot = await copyRepositoryFixture()
-  await addAdmissionValueReexportTransition(valueReexportRoot, true)
+  await addAdmissionValueReexportTransition(valueReexportRoot, { updateRuntimeDigest: true })
   const valueReexportExpected = {
     schema_version: 1,
     command: "verify:repository-qualification",

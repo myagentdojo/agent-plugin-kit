@@ -869,7 +869,7 @@ function isSupportedConstValueReexport(
   if (reexport === undefined) return false
   const target = resolvePublicReexportTarget(exporterPath, reexport.specifier)
   if (target === undefined) return false
-  return directlyExportsConst(target, reexport.sourceName)
+  return directlyExportsValueOnlyConst(target, reexport.sourceName)
 }
 
 function localValueReexport(
@@ -893,20 +893,62 @@ function namedValueExportSourceName(entry: string): string | undefined {
   return parsed === null ? undefined : parsed[1]
 }
 
-function directlyExportsConst(target: string, sourceName: string): boolean {
+function directlyExportsValueOnlyConst(target: string, sourceName: string): boolean {
   const code = typescriptLexicalCode(readFileSync(target, "utf8"))
   const declaration = new RegExp(`\\bexport\\s+const\\s+${escapeRegExp(sourceName)}\\b`, "g")
-  return topLevelMatches(code, declaration).length === 1
+  return topLevelMatches(code, declaration).length === 1 && !exportsPublicTypeName(code, sourceName)
+}
+
+function exportsPublicTypeName(code: string, sourceName: string): boolean {
+  const escapedName = escapeRegExp(sourceName)
+  const direct = new RegExp(
+    `\\bexport\\s+(?:(?:declare|abstract)\\s+)*(?:type(?!\\s*\\{)|interface|class|(?:const\\s+)?enum|namespace|module)\\s+${escapedName}\\b`,
+    "g",
+  )
+  return topLevelMatches(code, direct).length > 0 ||
+    topLevelMatches(code, namedPublicTypeExportBlock).some((match) => namedBlockExportsTypeName(match, sourceName))
+}
+
+function namedBlockExportsTypeName(match: RegExpMatchArray, sourceName: string): boolean {
+  const allTypeOnly = match[1] !== undefined
+  const block = match[2] ?? ""
+  return block.split(",").some((entry) => namedEntryExportsTypeName(entry, allTypeOnly, sourceName))
+}
+
+function namedEntryExportsTypeName(entry: string, allTypeOnly: boolean, sourceName: string): boolean {
+  const parsed = namedTypeEntry(entry, allTypeOnly)
+  if (parsed === undefined) return false
+  return publicTypeExportName(parsed) === sourceName
+}
+
+function namedTypeEntry(entry: string, allTypeOnly: boolean): RegExpMatchArray | undefined {
+  const normalized = entry.trim()
+  if (normalized === "" || isValueNamedExport(normalized, allTypeOnly)) return undefined
+  const parsed = normalized.match(namedTypeExport)
+  return parsed === null ? undefined : parsed
 }
 
 function resolvePublicReexportTarget(exporterPath: string, specifier: string): string | undefined {
   const unresolved = resolve(dirname(resolve(repositoryRoot, exporterPath)), specifier)
   const resolved = admissionCandidates(unresolved).find(isFile)
   if (resolved === undefined) return undefined
+  const implementationRoot = ownerImplementationRoot(exporterPath)
+  if (implementationRoot === undefined) return undefined
   const absolute = realpathSync(resolved)
-  const sourceRoot = realpathSync(resolve(repositoryRoot, "src"))
-  const sourceRelative = relative(sourceRoot, absolute).replaceAll("\\", "/")
-  return sourceRelative.startsWith("../") || sourceRelative === ".." ? undefined : absolute
+  return pathInside(implementationRoot, absolute)
+}
+
+function pathInside(root: string, target: string): string | undefined {
+  const relativeTarget = relative(root, target).replaceAll("\\", "/")
+  if (relativeTarget === ".." || relativeTarget.startsWith("../")) return undefined
+  return target
+}
+
+function ownerImplementationRoot(exporterPath: string): string | undefined {
+  const implementationRoot = resolve(dirname(resolve(repositoryRoot, exporterPath)), "implementation")
+  if (!existsSync(implementationRoot)) return undefined
+  const absolute = realpathSync(implementationRoot)
+  return statSync(absolute).isDirectory() ? absolute : undefined
 }
 
 function publicTypeExportName(match: RegExpMatchArray): string {
