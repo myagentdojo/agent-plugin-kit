@@ -400,10 +400,10 @@
         "contract-tests/identity-refusal.test.ts"
       ],
       "tests": 8,
-      "passed": 0,
-      "failed": 8,
+      "passed": 8,
+      "failed": 0,
       "skipped": 0,
-      "failure_classes": {"contract-absent": 8}
+      "failure_classes": {}
     },
     {
       "id": "maintenance-command-contract",
