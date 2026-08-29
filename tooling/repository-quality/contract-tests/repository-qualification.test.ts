@@ -1500,6 +1500,66 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
       },
     },
     {
+      label: "declared runtime source uses unqualified global eval",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-global-eval.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst computed = eval("1 + 1")\nvoid computed\n`,
+        )
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [runtimePath]
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source recovers loader through template eval",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-template-eval-require.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval(\`require\`)\nload("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [runtimePath]
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source recovers loader through concatenated eval",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-concatenated-eval-require.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval("requ" + "ire")\nload("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [runtimePath]
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
       label: "computed nonliteral require between divisions after keyword-named property",
       mutate: async (root: string) => {
         const path = join(root, "src/admission-bootstrap/interface.ts")

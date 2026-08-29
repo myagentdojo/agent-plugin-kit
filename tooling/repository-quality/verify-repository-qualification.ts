@@ -690,18 +690,17 @@ function verifyAdmissionProductionSource(
   if (sourceSpecifiers(file, source).some(isForbiddenAdmissionSpecifier)) admissionDrift()
   const hasRuntime = typescriptRuntimeCode(source).trim() !== ""
   if (hasRuntime !== runtimeSourceSet.has(file)) admissionDrift("admission.runtime_source_paths")
-  if (hasRecoveredExternalLoader(source)) admissionDrift()
+  if (hasUnqualifiedEvalCall(source)) admissionDrift()
 }
 
-function hasRecoveredExternalLoader(source: string): boolean {
+function hasUnqualifiedEvalCall(source: string): boolean {
   const normalizedSource = typescriptRuntimeCode(source)
   const code = typescriptLexicalCode(normalizedSource)
   return [...code.matchAll(/\beval\b/g)].some((match) => {
     const index = match.index
     return index !== undefined &&
       isUnqualifiedEval(code, index) &&
-      isEvalCall(code, index) &&
-      hasRequireEvalArgument(normalizedSource, index)
+      isEvalCall(code, index)
   })
 }
 
@@ -711,12 +710,6 @@ function isUnqualifiedEval(code: string, index: number): boolean {
 
 function isEvalCall(code: string, index: number): boolean {
   return /^\s*(?:\)\s*)*(?:\?\.\s*)?\(/.test(code.slice(index + "eval".length))
-}
-
-function hasRequireEvalArgument(source: string, index: number): boolean {
-  return /^eval\s*(?:\)\s*)*(?:\?\.\s*)?\(\s*(?:"require"|'require')\s*\)/.test(
-    source.slice(index),
-  )
 }
 
 function isForbiddenAdmissionSpecifier(specifier: string): boolean {
