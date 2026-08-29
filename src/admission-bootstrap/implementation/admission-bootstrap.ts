@@ -12,6 +12,7 @@ import type {
 } from "../../modules/release-and-git-engine/interface"
 
 const nextAction = "Correct the mismatched immutable identity observation."
+const fullCommitPinPattern = /^[0-9a-f]{40}$/
 
 function sameRepository(left: RepositoryIdentity, right: RepositoryIdentity): boolean {
   return left.origin === right.origin
@@ -50,6 +51,32 @@ function workflowAgrees(request: AdmissionRequest, candidate: CandidateIdentity)
     candidate.workflow.commit === candidate.source.commit
 }
 
+function admittedIdentity(candidate: CandidateIdentity): AdmittedIdentity {
+  const sourceRepository = Object.freeze({ origin: candidate.source.repository.origin })
+  const packageRepository = Object.freeze({ origin: candidate.package.repository.origin })
+  const workflowRepository = Object.freeze({ origin: candidate.workflow.repository.origin })
+
+  return Object.freeze({
+    source: Object.freeze({
+      repository: sourceRepository,
+      commit: candidate.source.commit,
+    }),
+    release: Object.freeze({
+      reference: candidate.release.reference,
+      commit: candidate.release.commit,
+    }),
+    package: Object.freeze({
+      repository: packageRepository,
+      commit: candidate.package.commit,
+    }),
+    workflow: Object.freeze({
+      repository: workflowRepository,
+      path: candidate.workflow.path,
+      commit: candidate.workflow.commit,
+    }),
+  }) as AdmittedIdentity
+}
+
 function refusal(code: AdmissionRefusal["code"]): AdmissionResult {
   return {
     kind: "refused",
@@ -70,6 +97,9 @@ export const admissionBootstrap: AdmissionBootstrap = {
     if (!sameSource(request.source, candidate.source)) {
       return refusal("source-pin-mismatch")
     }
+    if (!fullCommitPinPattern.test(candidate.source.commit)) {
+      return refusal("source-pin-mismatch")
+    }
     if (!releaseAgrees(request, candidate)) {
       return refusal("release-pin-mismatch")
     }
@@ -80,6 +110,6 @@ export const admissionBootstrap: AdmissionBootstrap = {
       return refusal("workflow-pin-mismatch")
     }
 
-    return { kind: "admitted", identity: candidate as AdmittedIdentity }
+    return { kind: "admitted", identity: admittedIdentity(candidate) }
   },
 }

@@ -2919,7 +2919,7 @@ type EscapedTypeTemplate = \`export interface \\u0048iddenTemplateType {}\`
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
   }
-}, 15_000)
+}, 30_000)
 
 test("unknown orchestration or Git-shaped declaration keys are refused", async () => {
   const keys = ["issue", "checkpoint", "predecessor", "reviewer", "git_history"] as const

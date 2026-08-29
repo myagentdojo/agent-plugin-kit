@@ -83,10 +83,7 @@ export const admissionInvariantCases = [
     id: "source-pin-mismatch",
     request: {
       ...agreeingRequest,
-      source: {
-        ...agreeingRequest.source,
-        repository: { origin: "https://github.com/myagentdojo/other-plugin.git" },
-      },
+      source: { ...agreeingRequest.source, commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
     },
     expected: { kind: "refused", code: "source-pin-mismatch" },
   },

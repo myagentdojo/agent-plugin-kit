@@ -10,12 +10,50 @@ const agreeing = admissionInvariantCases[0]
 
 test("identity-agrees returns the literal Admitted Identity", () => {
   const harness = createAdmissionContractHarness()
-  const actual = harness.bootstrap?.admit(agreeing.request)
+  const request = structuredClone(agreeing.request)
+  const actual = harness.bootstrap?.admit(request)
 
   expect(
     actual,
     "contract-absent: Admission Bootstrap must return the admitted Candidate Identity",
   ).toEqual({ kind: "admitted", identity: expectedAdmittedIdentity })
+
+  expect(actual?.kind).toBe("admitted")
+  if (actual?.kind !== "admitted") return
+
+  expect(Object.isFrozen(actual.identity)).toBe(true)
+  expect(Object.isFrozen(actual.identity.source)).toBe(true)
+  expect(Object.isFrozen(actual.identity.source.repository)).toBe(true)
+  expect(Object.isFrozen(actual.identity.release)).toBe(true)
+  expect(Object.isFrozen(actual.identity.package)).toBe(true)
+  expect(Object.isFrozen(actual.identity.package.repository)).toBe(true)
+  expect(Object.isFrozen(actual.identity.workflow)).toBe(true)
+  expect(Object.isFrozen(actual.identity.workflow.repository)).toBe(true)
+
+  Object.assign(request.candidate.source, {
+    commit: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  })
+  Object.assign(request.candidate.source.repository, {
+    origin: "https://github.com/myagentdojo/mutated-plugin.git",
+  })
+  expect(actual.identity).toEqual(expectedAdmittedIdentity)
+
+  const incompletePinRequest = structuredClone(agreeing.request)
+  Object.assign(incompletePinRequest.candidate.source, { commit: "abc123" })
+  Object.assign(incompletePinRequest.provenance, { commit: "abc123" })
+  Object.assign(incompletePinRequest.source, { commit: "abc123" })
+  Object.assign(incompletePinRequest.candidate.release, { commit: "abc123" })
+  Object.assign(incompletePinRequest.release, { commit: "abc123" })
+  Object.assign(incompletePinRequest.candidate.package, { commit: "abc123" })
+  Object.assign(incompletePinRequest.package, { commit: "abc123" })
+  Object.assign(incompletePinRequest.candidate.workflow, { commit: "abc123" })
+  Object.assign(incompletePinRequest.workflow, { commit: "abc123" })
+
+  const incompletePin = harness.bootstrap?.admit(incompletePinRequest)
+  expect(incompletePin?.kind).toBe("refused")
+  if (incompletePin?.kind === "refused") {
+    expect(incompletePin.refusal.code).toBe("source-pin-mismatch")
+  }
 })
 
 test("admission completes before any maintenance execution", () => {
