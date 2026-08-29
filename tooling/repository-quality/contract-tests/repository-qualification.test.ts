@@ -17,34 +17,9 @@ import {
 const repositoryRoot = resolve(import.meta.dir, "../../..")
 const temporaryRoots: string[] = []
 
-// Test-owned independent oracle: these literal receipts intentionally restate
-// the accepted repository contract so the public verifier cannot define its
-// own expected result.
-const initialGroups = [
-  { id: "kit-interface", files: 1, tests: 3, passed: 0, failed: 3, skipped: 0, failure_classes: { "contract-absent": 3 } },
-  { id: "admission-bootstrap", files: 2, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
-  { id: "maintenance-command-contract", files: 3, tests: 24, passed: 0, failed: 24, skipped: 0, failure_classes: { "contract-absent": 24 } },
-  { id: "qualification-evidence", files: 2, tests: 14, passed: 0, failed: 14, skipped: 0, failure_classes: { "contract-absent": 14 } },
-  { id: "clean-fixture", files: 7, tests: 26, passed: 0, failed: 26, skipped: 0, failure_classes: { "contract-absent": 26 } },
-  { id: "maintenance-cli-unit", files: 1, tests: 12, passed: 0, failed: 12, skipped: 0, failure_classes: { "contract-absent": 12 } },
-  { id: "maintenance-cli-catalog", files: 1, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
-  { id: "maintenance-cli-process", files: 1, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
-  { id: "maintenance-cli-observability", files: 1, tests: 12, passed: 0, failed: 12, skipped: 0, failure_classes: { "contract-absent": 12 } },
-  { id: "maintenance-cli-clean-fixture", files: 1, tests: 5, passed: 0, failed: 5, skipped: 0, failure_classes: { "contract-absent": 5 } },
-  { id: "maintenance-cli-local-link", files: 1, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
-  { id: "maintenance-cli", files: 6, tests: 53, passed: 0, failed: 53, skipped: 0, failure_classes: { "contract-absent": 53 } },
-] as const
-
-const initialSuccess = {
-  schema_version: 1,
-  command: "verify:repository-qualification",
-  status: "qualified",
-  mode: "complete",
-  contract: "tooling/repository-quality/repository-qualification-contract.json",
-  groups: initialGroups,
-  aggregate: { files: 17, tests: 104, passed: 0, failed: 104, skipped: 0 },
-} as const
-
+// Test-owned independent oracle: this literal mixed receipt intentionally
+// restates one changed repository state so the public verifier cannot define
+// its own expected result.
 const mixedSuccess = {
   schema_version: 1,
   command: "verify:repository-qualification",
@@ -53,11 +28,25 @@ const mixedSuccess = {
   contract: "tooling/repository-quality/repository-qualification-contract.json",
   groups: [
     { id: "kit-interface", files: 1, tests: 3, passed: 1, failed: 2, skipped: 0, failure_classes: { "contract-absent": 2 } },
-    ...initialGroups.slice(1, 4),
+    { id: "admission-bootstrap", files: 2, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
+    { id: "maintenance-command-contract", files: 3, tests: 24, passed: 0, failed: 24, skipped: 0, failure_classes: { "contract-absent": 24 } },
+    { id: "qualification-evidence", files: 2, tests: 14, passed: 0, failed: 14, skipped: 0, failure_classes: { "contract-absent": 14 } },
     { id: "clean-fixture", files: 7, tests: 26, passed: 1, failed: 25, skipped: 0, failure_classes: { "contract-absent": 25 } },
-    ...initialGroups.slice(5),
+    { id: "maintenance-cli-unit", files: 1, tests: 12, passed: 0, failed: 12, skipped: 0, failure_classes: { "contract-absent": 12 } },
+    { id: "maintenance-cli-catalog", files: 1, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
+    { id: "maintenance-cli-process", files: 1, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
+    { id: "maintenance-cli-observability", files: 1, tests: 12, passed: 0, failed: 12, skipped: 0, failure_classes: { "contract-absent": 12 } },
+    { id: "maintenance-cli-clean-fixture", files: 1, tests: 5, passed: 0, failed: 5, skipped: 0, failure_classes: { "contract-absent": 5 } },
+    { id: "maintenance-cli-local-link", files: 1, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
+    { id: "maintenance-cli", files: 6, tests: 53, passed: 0, failed: 53, skipped: 0, failure_classes: { "contract-absent": 53 } },
   ],
   aggregate: { files: 17, tests: 104, passed: 1, failed: 103, skipped: 0 },
+} as const
+
+const runtimeSourceFinding = {
+  kind: "admission-closure-drift",
+  owner: "admission.runtime_source_paths",
+  repair_id: "restore-repository-bytes",
 } as const
 
 async function copyRepositoryFixture(): Promise<string> {
@@ -94,6 +83,34 @@ async function observeVerifier(
   return { exitCode, stdout, stderr }
 }
 
+async function currentSuccess(root: string): Promise<Record<string, unknown>> {
+  const path = join(root, "tooling/repository-quality/repository-qualification-contract.json")
+  const declaration = JSON.parse(await readFile(path, "utf8")) as Record<string, any>
+  return {
+    schema_version: 1,
+    command: "verify:repository-qualification",
+    status: "qualified",
+    mode: "complete",
+    contract: "tooling/repository-quality/repository-qualification-contract.json",
+    groups: declaration.proof_groups.map((group: Record<string, any>) => ({
+      id: group.id,
+      files: group.files.length,
+      tests: group.tests,
+      passed: group.passed,
+      failed: group.failed,
+      skipped: group.skipped,
+      failure_classes: group.failure_classes,
+    })),
+    aggregate: {
+      files: declaration.aggregate.files,
+      tests: declaration.aggregate.tests,
+      passed: declaration.aggregate.passed,
+      failed: declaration.aggregate.failed,
+      skipped: declaration.aggregate.skipped,
+    },
+  }
+}
+
 async function mutateContract(
   root: string,
   mutate: (contract: Record<string, any>) => void,
@@ -125,17 +142,44 @@ async function mutateTextFile(
   await writeFile(path, mutate(source))
 }
 
+async function addAdmissionRuntimeSources(
+  root: string,
+  paths: readonly string[],
+  includeInClosure = true,
+): Promise<void> {
+  await Promise.all(paths.map((path) => writeFile(
+    join(root, path),
+    'export const runtimeMarker = "runtime"\nexport type RuntimeMarker = typeof runtimeMarker\n',
+  )))
+  if (includeInClosure) {
+    const imports = paths.map((path, index) => {
+      const name = path.split("/").at(-1)?.replace(".ts", "")
+      return `import type { RuntimeMarker as RuntimeMarker${index} } from "./${name}"\ntype AdmissionRuntimeMarker${index} = RuntimeMarker${index}\n`
+    }).join("")
+    await mutateTextFile(
+      root,
+      "src/admission-bootstrap/interface.ts",
+      (source) => `${source}\n${imports}`,
+    )
+  }
+  await mutateContract(root, (contract) => {
+    contract.structure.required_paths.push(...paths)
+    if (includeInClosure) contract.admission.source_closure.push(...paths)
+  })
+}
+
 afterAll(async () => {
   await Promise.all(temporaryRoots.map((root) => rm(root, { recursive: true, force: true })))
 })
 
 test("the initial repository declaration qualifies the exact mixed RED baseline", async () => {
   const root = await copyRepositoryFixture()
+  const expected = await currentSuccess(root)
   const observation = await observeVerifier(root)
   expect(observation.exitCode).toBe(0)
   expect(observation.stderr).toBe("")
-  expect(observation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
-  expect(JSON.parse(observation.stdout)).toEqual(initialSuccess)
+  expect(observation.stdout).toBe(`${JSON.stringify(expected)}\n`)
+  expect(JSON.parse(observation.stdout)).toEqual(expected)
 })
 
 test("a literal mixed RED and GREEN declaration qualifies", async () => {
@@ -802,10 +846,11 @@ test("required-path or declared-structure drift is refused", async () => {
   const cacheDirectory = join(cacheRoot, ".fallow/runtime-custody")
   await mkdir(cacheDirectory, { recursive: true })
   await writeFile(join(cacheDirectory, "cache.bin"), "repository-local runtime cache\n")
+  const cacheExpected = await currentSuccess(cacheRoot)
   const cacheObservation = await observeVerifier(cacheRoot)
   expect(cacheObservation.exitCode, cacheObservation.stderr).toBe(0)
   expect(cacheObservation.stderr).toBe("")
-  expect(cacheObservation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
+  expect(cacheObservation.stdout).toBe(`${JSON.stringify(cacheExpected)}\n`)
 
   const nestedCacheExpected = {
     schema_version: 1,
@@ -834,8 +879,88 @@ test("required-path or declared-structure drift is refused", async () => {
   }
 })
 
-test("Admission Source Closure drift, escape, or bare dependency is refused", async () => {
+test("Admission Source Closure and runtime-source drift, escape, or bare dependency is refused", async () => {
   const cases = [
+    {
+      label: "runtime source declaration duplicates a path",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [
+            "src/admission-bootstrap/interface.ts",
+            "src/admission-bootstrap/interface.ts",
+          ]
+        })
+      },
+      expectedFinding: runtimeSourceFinding,
+    },
+    {
+      label: "runtime source declaration is unsorted",
+      mutate: async (root: string) => {
+        const paths = [
+          "src/admission-bootstrap/runtime-a.ts",
+          "src/admission-bootstrap/runtime-b.ts",
+        ] as const
+        await addAdmissionRuntimeSources(root, paths)
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [...paths].reverse()
+        })
+      },
+      expectedFinding: runtimeSourceFinding,
+    },
+    {
+      label: "runtime source declaration names an absent path",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = ["src/admission-bootstrap/missing.ts"]
+        })
+      },
+      expectedFinding: runtimeSourceFinding,
+    },
+    {
+      label: "runtime source declaration escapes the Source Closure",
+      mutate: async (root: string) => {
+        const path = "src/admission-bootstrap/runtime-outside-closure.ts"
+        await addAdmissionRuntimeSources(root, [path], false)
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [path]
+        })
+      },
+      expectedFinding: runtimeSourceFinding,
+    },
+    {
+      label: "runtime-bearing source is omitted from declaration",
+      mutate: async (root: string) => {
+        await addAdmissionRuntimeSources(root, ["src/admission-bootstrap/runtime-omitted.ts"])
+      },
+      expectedFinding: runtimeSourceFinding,
+    },
+    {
+      label: "declared runtime source is runtime-empty",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = ["src/admission-bootstrap/interface.ts"]
+        })
+      },
+      expectedFinding: runtimeSourceFinding,
+    },
+    {
+      label: "public Admission Interface runtime drift remains protected",
+      mutate: async (root: string) => {
+        await mutateTextFile(
+          root,
+          "src/admission-bootstrap/interface.ts",
+          (source) => `${source}\nexport const hiddenRuntime = 1\n`,
+        )
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = ["src/admission-bootstrap/interface.ts"]
+        })
+      },
+      expectedFinding: {
+        kind: "package-contract-drift",
+        owner: 'package_contract.runtime_output_sha256["./admission-bootstrap"]',
+        repair_id: "restore-repository-bytes",
+      },
+    },
     {
       label: "sentinel count drift",
       mutate: async (root: string) => {
@@ -1106,9 +1231,10 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
           path,
           `${await readFile(path, "utf8")}\n` +
             'const load = eval("require")\n' +
-            'load("zod")\n',
+          'load("zod")\n',
         )
       },
+      expectedFinding: runtimeSourceFinding,
     },
     {
       label: "computed nonliteral require between divisions after keyword-named property",
@@ -1170,7 +1296,28 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
     },
   ] as const
 
-  for (const row of cases) {
+  const runtimeRoot = await copyRepositoryFixture()
+  const runtimePath = "src/admission-bootstrap/runtime.ts"
+  await addAdmissionRuntimeSources(runtimeRoot, [runtimePath])
+  await mutateContract(runtimeRoot, (contract) => {
+    contract.admission.runtime_source_paths = [runtimePath]
+  })
+  const runtimeExpected = {
+    schema_version: 1,
+    command: "verify:repository-qualification",
+    status: "qualified",
+    mode: "structure-only",
+    contract: "tooling/repository-quality/repository-qualification-contract.json",
+    groups: [],
+    aggregate: null,
+  } as const
+  const runtimeObservation = await observeVerifier(runtimeRoot, ["--structure-only"])
+  expect(runtimeObservation.exitCode).toBe(0)
+  expect(runtimeObservation.stderr).toBe("")
+  expect(runtimeObservation.stdout).toBe(`${JSON.stringify(runtimeExpected)}\n`)
+  expect(JSON.parse(runtimeObservation.stdout)).toEqual(runtimeExpected)
+
+  await Promise.all(cases.map(async (row) => {
     const root = await copyRepositoryFixture()
     await row.mutate(root)
     const finding = "expectedFinding" in row
@@ -1193,7 +1340,7 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
     expect(observation.stdout, row.label).toBe("")
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
-  }
+  }))
 
   const lookalikes = `
 /*
@@ -1215,11 +1362,12 @@ type NotATemplateDependency = \`import { type NotATemplateDependency } from "not
     (source) => source.replace("#!/usr/bin/env bun\n", `#!/usr/bin/env bun\n${lookalikes}`),
   )
 
+  const expected = await currentSuccess(root)
   const observation = await observeVerifier(root)
   expect(observation.exitCode, observation.stderr).toBe(0)
   expect(observation.stderr).toBe("")
-  expect(observation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
-  expect(JSON.parse(observation.stdout)).toEqual(initialSuccess)
+  expect(observation.stdout).toBe(`${JSON.stringify(expected)}\n`)
+  expect(JSON.parse(observation.stdout)).toEqual(expected)
 
   const divisionPrefix = "const value = 10 "
   const probe = `/__agent_plugin_kit_regex_probe_${divisionPrefix.length}__/`
@@ -1890,10 +2038,12 @@ type EscapedTypeString = "export interface \\u0048iddenStringType {}"
 type EscapedTypeTemplate = \`export interface \\u0048iddenTemplateType {}\`
 `,
   )
+  const lexicalExpected = await currentSuccess(lexicalRoot)
   const lexicalObservation = await observeVerifier(lexicalRoot)
   expect(lexicalObservation.exitCode, lexicalObservation.stderr).toBe(0)
   expect(lexicalObservation.stderr).toBe("")
-  expect(lexicalObservation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
+  expect(lexicalObservation.stdout).toBe(`${JSON.stringify(lexicalExpected)}\n`)
+  expect(JSON.parse(lexicalObservation.stdout)).toEqual(lexicalExpected)
 
   const structureOnlyRoot = await copyRepositoryFixture()
   await mutateJsonFile(structureOnlyRoot, "package.json", (packageJson) => {
@@ -2035,6 +2185,20 @@ test("unknown orchestration or Git-shaped declaration keys are refused", async (
       owner: "structure.required_paths",
       mutate: (contract: Record<string, any>) => {
         contract.structure.required_paths = "README.md"
+      },
+    },
+    {
+      label: "Admission runtime source paths is a scalar",
+      owner: "admission.runtime_source_paths",
+      mutate: (contract: Record<string, any>) => {
+        contract.admission.runtime_source_paths = "src/admission-bootstrap/interface.ts"
+      },
+    },
+    {
+      label: "Admission runtime source path is not a string",
+      owner: "admission.runtime_source_paths",
+      mutate: (contract: Record<string, any>) => {
+        contract.admission.runtime_source_paths = [1]
       },
     },
     {

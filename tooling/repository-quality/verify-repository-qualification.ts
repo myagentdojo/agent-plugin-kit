@@ -79,6 +79,7 @@ type RepositoryQualificationContract = {
     sentinel_count: number
     source_entry: string
     source_closure: readonly string[]
+    runtime_source_paths: readonly string[]
     owner_manifest: string
     consumer_fixture: string
     projection_fixture: string
@@ -505,11 +506,11 @@ function contextMapRoutePresent(
   return row?.includes(route.term) === true && row.includes(route.path)
 }
 
-function admissionDrift(): never {
+function admissionDrift(owner = "admission.source_closure"): never {
   return refuseRepository(
     "repository-unqualified",
     "admission-closure-drift",
-    "admission.source_closure",
+    owner,
     "restore-repository-bytes",
   )
 }
@@ -553,7 +554,7 @@ function verifyAdmission(contract: RepositoryQualificationContract): void {
   verifyAdmissionSelfReports(admission.forbidden_self_reports, admission.self_report_files)
   verifyAdmissionManifest(admission.owner_manifest)
   verifyAdmissionClosure(admission.source_entry, admission.source_closure)
-  verifyAdmissionProductionSources()
+  verifyAdmissionProductionSources(admission.runtime_source_paths, admission.source_closure)
   verifyAdmissionProjection(admission.projection_fixture, admission.projection, contract.package_contract)
   verifyAdmissionConsumer(admission.consumer_fixture)
   verifyAdmissionNonClaims(admission.non_claims)
@@ -642,17 +643,53 @@ function verifyAdmissionClosure(entry: string, expected: readonly string[]): voi
   if (JSON.stringify(closure) !== JSON.stringify([...expected].sort())) admissionDrift()
 }
 
-function verifyAdmissionProductionSources(): void {
+function verifyAdmissionProductionSources(
+  runtimeSourcePaths: readonly string[],
+  sourceClosure: readonly string[],
+): void {
   const sources = repositoryEntries(
     resolve(repositoryRoot, "src/admission-bootstrap"),
     "src/admission-bootstrap",
     (name) => name.endsWith(".ts"),
   ).filter((path) => !path.includes("/contract-tests/"))
+  const runtimeSourceSet = new Set(runtimeSourcePaths)
+  verifyAdmissionRuntimeSourcePaths(runtimeSourcePaths, sourceClosure, sources, runtimeSourceSet)
   for (const file of sources) {
-    const source = readFileSync(resolve(repositoryRoot, file), "utf8")
-    if (typescriptRuntimeCode(source).trim() !== "") admissionDrift()
-    if (sourceSpecifiers(file, source).some(isForbiddenAdmissionSpecifier)) admissionDrift()
+    verifyAdmissionProductionSource(file, runtimeSourceSet)
   }
+}
+
+function verifyAdmissionRuntimeSourcePaths(
+  runtimeSourcePaths: readonly string[],
+  sourceClosure: readonly string[],
+  sources: readonly string[],
+  runtimeSourceSet: ReadonlySet<string>,
+): void {
+  if (runtimeSourceSet.size !== runtimeSourcePaths.length) admissionDrift("admission.runtime_source_paths")
+  if (JSON.stringify([...runtimeSourcePaths].sort()) !== JSON.stringify(runtimeSourcePaths)) {
+    admissionDrift("admission.runtime_source_paths")
+  }
+  if (runtimeSourcePaths.some((path) => isAdmissionRuntimeSourcePathInvalid(path, sourceClosure, sources))) {
+    admissionDrift("admission.runtime_source_paths")
+  }
+}
+
+function isAdmissionRuntimeSourcePathInvalid(
+  path: string,
+  sourceClosure: readonly string[],
+  sources: readonly string[],
+): boolean {
+  return !sources.includes(path) || !sourceClosure.includes(path)
+}
+
+function verifyAdmissionProductionSource(
+  file: string,
+  runtimeSourceSet: ReadonlySet<string>,
+): void {
+  const source = readFileSync(resolve(repositoryRoot, file), "utf8")
+  if (sourceSpecifiers(file, source).some(isForbiddenAdmissionSpecifier)) admissionDrift()
+  const hasRuntime = typescriptRuntimeCode(source).trim() !== ""
+  if (hasRuntime !== runtimeSourceSet.has(file)) admissionDrift("admission.runtime_source_paths")
 }
 
 function isForbiddenAdmissionSpecifier(specifier: string): boolean {
@@ -1248,6 +1285,7 @@ function validateAdmissionRecord(value: unknown): void {
     "sentinel_count",
     "source_entry",
     "source_closure",
+    "runtime_source_paths",
     "owner_manifest",
     "consumer_fixture",
     "projection_fixture",
@@ -1263,6 +1301,7 @@ function validateAdmissionRecord(value: unknown): void {
   contractInteger(admission.sentinel_count, "admission.sentinel_count")
   contractString(admission.source_entry, "admission.source_entry")
   contractStringArray(admission.source_closure, "admission.source_closure")
+  contractStringArray(admission.runtime_source_paths, "admission.runtime_source_paths")
   contractString(admission.owner_manifest, "admission.owner_manifest")
   contractString(admission.consumer_fixture, "admission.consumer_fixture")
   contractString(admission.projection_fixture, "admission.projection_fixture")

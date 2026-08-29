@@ -347,6 +347,7 @@
       "src/admission-bootstrap/interface.ts",
       "src/modules/release-and-git-engine/interface.ts"
     ],
+    "runtime_source_paths": [],
     "owner_manifest": "src/admission-bootstrap/package.json",
     "consumer_fixture": "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-consumer.ts",
     "projection_fixture": "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-package-projection.json",
