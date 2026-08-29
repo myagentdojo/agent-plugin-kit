@@ -368,6 +368,7 @@
       "clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts"
     ],
     "non_claims": [
+      "hosted Candidate Lineage",
       "installed dependency freedom",
       "distribution",
       "linker semantics",

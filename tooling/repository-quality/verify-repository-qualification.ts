@@ -567,6 +567,7 @@ function verifyFirstGreenImplementationTransition(rule: string): void {
 
 function verifyAdmissionNonClaims(nonClaims: readonly string[]): void {
   const expected = [
+    "hosted Candidate Lineage",
     "installed dependency freedom",
     "distribution",
     "linker semantics",

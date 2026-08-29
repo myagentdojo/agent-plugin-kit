@@ -35,6 +35,21 @@ function sameWorkflow(left: WorkflowIdentity, right: WorkflowIdentity): boolean 
     left.commit === right.commit
 }
 
+function releaseAgrees(request: AdmissionRequest, candidate: CandidateIdentity): boolean {
+  return sameRelease(request.release, candidate.release) &&
+    candidate.release.commit === candidate.source.commit
+}
+
+function packageAgrees(request: AdmissionRequest, candidate: CandidateIdentity): boolean {
+  return samePackage(request.package, candidate.package) &&
+    candidate.package.commit === candidate.source.commit
+}
+
+function workflowAgrees(request: AdmissionRequest, candidate: CandidateIdentity): boolean {
+  return sameWorkflow(request.workflow, candidate.workflow) &&
+    candidate.workflow.commit === candidate.source.commit
+}
+
 function refusal(code: AdmissionRefusal["code"]): AdmissionResult {
   return {
     kind: "refused",
@@ -52,16 +67,16 @@ export const admissionBootstrap: AdmissionBootstrap = {
     if (!sameSource(request.provenance, candidate.source)) {
       return refusal("provenance-mismatch")
     }
-    if (request.source.commit !== candidate.source.commit) {
+    if (!sameSource(request.source, candidate.source)) {
       return refusal("source-pin-mismatch")
     }
-    if (!sameRelease(request.release, candidate.release)) {
+    if (!releaseAgrees(request, candidate)) {
       return refusal("release-pin-mismatch")
     }
-    if (!samePackage(request.package, candidate.package)) {
+    if (!packageAgrees(request, candidate)) {
       return refusal("package-pin-mismatch")
     }
-    if (!sameWorkflow(request.workflow, candidate.workflow)) {
+    if (!workflowAgrees(request, candidate)) {
       return refusal("workflow-pin-mismatch")
     }
 
