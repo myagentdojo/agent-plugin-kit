@@ -1,9 +1,6 @@
-import { admissionBootstrap } from "agent-plugin-kit/admission-bootstrap"
 import type { MaintenanceCommands } from "agent-plugin-kit/maintenance-command-contract"
 import type { QualificationEvidence } from "agent-plugin-kit/qualification-evidence"
 import { createHash } from "node:crypto"
-
-export { admissionBootstrap }
 
 export type InstalledPackageObservation = {
   rootTypeExports: readonly string[]

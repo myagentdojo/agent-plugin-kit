@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
+import { admissionBootstrap } from "agent-plugin-kit/admission-bootstrap"
 import {
-  admissionBootstrap,
   admissionDurableDigest,
   invokeMaintenanceProcess,
   maintenanceCommands,
