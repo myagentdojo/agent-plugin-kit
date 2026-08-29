@@ -26,6 +26,7 @@ test("public Admission source is dependency-free before maintenance execution", 
     stdout: "admission-bootstrap:loaded\n",
     stderr: "",
     copiedClosure: [
+      "src/admission-bootstrap/implementation/admission-bootstrap.ts",
       "src/admission-bootstrap/interface.ts",
       "src/modules/release-and-git-engine/interface.ts",
     ],

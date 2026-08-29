@@ -13,3 +13,5 @@ export type AdmissionResult =
 export interface AdmissionBootstrap {
   admit(request: AdmissionRequest): AdmissionResult
 }
+
+export { admissionBootstrap } from "./implementation/admission-bootstrap"
