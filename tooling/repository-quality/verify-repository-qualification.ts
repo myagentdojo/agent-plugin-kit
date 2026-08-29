@@ -705,12 +705,12 @@ function packageManifests(directory: string, prefix = ""): string[] {
 
 class PublicTypeExportParseError extends Error {}
 
-const directPublicTypeDeclaration = /^[ \t]*export\s+(?:declare\s+)?(?:type(?!\s*\{)|interface)\s+([^\s=<{;]+)/gm
-const namedPublicTypeExportBlock = /^[ \t]*export\s+(type\s*)?\{([\s\S]*?)\}/gm
-const declaredRootPublicValue = /^[ \t]*export\s+declare\s+(?:function|const|let|var)\b/gm
+const directPublicTypeDeclaration = /\bexport\s+(?:declare\s+)?(?:type(?!\s*\{)|interface)\s+([^\s=<{;]+)/g
+const namedPublicTypeExportBlock = /\bexport\s+(type\s*)?\{([\s\S]*?)\}/g
+const declaredRootPublicValue = /\bexport\s+declare\s+(?:function|const|let|var)\b/g
 const unsupportedPublicDecorator = /@/g
-const unsupportedPublicTypeExport = /^[ \t]*export\s+(?:(?:type\s+)?\*|(?:(?:declare|abstract)\s+)*(?:class|(?:const\s+)?enum|namespace|module|import)\b)/gm
-const unsupportedDefaultPublicTypeExport = /^[ \t]*export\s+default\b/gm
+const unsupportedPublicTypeExport = /\bexport\s+(?:(?:type\s+)?\*|(?:(?:declare|abstract)\s+)*(?:class|(?:const\s+)?enum|namespace|module|import)\b)/g
+const unsupportedDefaultPublicTypeExport = /\bexport\s+default\b/g
 const unsupportedPublicTypePatterns = [
   unsupportedPublicDecorator,
   unsupportedPublicTypeExport,

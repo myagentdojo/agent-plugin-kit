@@ -1447,6 +1447,24 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: 'package_contract.type_exports["."]',
     },
     {
+      label: "root Interface same-line public type added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/interface.ts",
+        (source) => `${source.trimEnd()}; export type HiddenPublicType = string\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["."]',
+    },
+    {
+      label: "root Interface same-line declared const added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/interface.ts",
+        (source) => `${source.trimEnd()}; export declare const HiddenPublicValue: string\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["."]',
+    },
+    {
       label: "public type export added",
       mutate: (root: string) => mutateTextFile(
         root,
