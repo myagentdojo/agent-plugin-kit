@@ -63,7 +63,9 @@ async function copyRepositoryFixture(): Promise<string> {
     recursive: true,
     filter: (source) => {
       const segments = source.slice(repositoryRoot.length).split(/[\\/]/)
-      return !segments.includes(".git") && !segments.includes("node_modules")
+      return !segments.includes(".git") &&
+        !segments.includes("node_modules") &&
+        !segments.includes(".fallow")
     },
   })
   return root
@@ -771,13 +773,37 @@ test("required-path or declared-structure drift is refused", async () => {
   }
 
   const cacheRoot = await copyRepositoryFixture()
-  const cacheDirectory = join(cacheRoot, "src/.fallow/runtime-custody")
+  const cacheDirectory = join(cacheRoot, ".fallow/runtime-custody")
   await mkdir(cacheDirectory, { recursive: true })
-  await writeFile(join(cacheDirectory, "cache.ts"), "repository-local runtime cache\n")
+  await writeFile(join(cacheDirectory, "cache.bin"), "repository-local runtime cache\n")
   const cacheObservation = await observeVerifier(cacheRoot)
   expect(cacheObservation.exitCode, cacheObservation.stderr).toBe(0)
   expect(cacheObservation.stderr).toBe("")
   expect(cacheObservation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
+
+  const nestedCacheRoot = await copyRepositoryFixture()
+  const nestedCacheDirectory = join(nestedCacheRoot, "src/modules/runtime-custody/.fallow")
+  await mkdir(nestedCacheDirectory, { recursive: true })
+  await writeFile(join(nestedCacheDirectory, "runtime.ts"), "nested runtime cache\n")
+  const nestedCacheObservation = await observeVerifier(nestedCacheRoot)
+  const nestedCacheExpected = {
+    schema_version: 1,
+    command: "verify:repository-qualification",
+    status: "refused",
+    mode: "complete",
+    code: "repository-unqualified",
+    findings: [
+      {
+        kind: "path-drift",
+        owner: "structure.required_paths",
+        repair_id: "restore-current-declaration",
+      },
+    ],
+  } as const
+  expect(nestedCacheObservation.exitCode).toBe(1)
+  expect(nestedCacheObservation.stdout).toBe("")
+  expect(nestedCacheObservation.stderr).toBe(`${JSON.stringify(nestedCacheExpected)}\n`)
+  expect(JSON.parse(nestedCacheObservation.stderr)).toEqual(nestedCacheExpected)
 })
 
 test("Admission Source Closure drift, escape, or bare dependency is refused", async () => {
@@ -953,6 +979,19 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
         await writeFile(
           path,
           `${await readFile(path, "utf8")}\nconst dynamicDependency = "zod"\n\`${"${await import(dynamicDependency)}"}\`\n`,
+        )
+      },
+    },
+    {
+      label: "computed nonliteral import after regex brace in template substitution",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(
+          path,
+          `${await readFile(path, "utf8")}\nconst dynamicDependency = "zod"\n` +
+            '`' +
+            '${/}/.test("}") ? import(dynamicDependency) : undefined}' +
+            '`\n',
         )
       },
     },
@@ -1298,6 +1337,15 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         root,
         "src/modules/runtime-custody/interface.ts",
         (source) => `${source}\nexport type * from "../release-and-git-engine/interface"\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "unsupported default type declaration fails closed",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport default interface HiddenPublicType {}\n`,
       ),
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },

@@ -31,6 +31,9 @@ type ScanStep = {
   readonly done: boolean
 }
 
+const regularExpressionPrefix = /(?:^|[([{=,:;!?&|+\-*%^~<>]\s*|\b(?:await|case|delete|do|else|in|instanceof|new|of|return|throw|typeof|void|yield)\s*)$/
+const regularExpressionLiteral = /^\/(?:\\[\s\S]|\[(?:\\[\s\S]|[^\]\\\r\n])*\]|[^/\\[\]\r\n])*\/[A-Za-z]*/
+
 function isQuote(character: string | undefined): character is "\"" | "'" {
   return character === "\"" || character === "'"
 }
@@ -41,6 +44,17 @@ function isTemplateExpressionStart(source: string, index: number): boolean {
 
 function closingBraceTransition(depth: number): BraceTransition {
   return depth === 0 ? { depth, done: true } : { depth: depth - 1, done: false }
+}
+
+function canStartRegularExpression(source: string, index: number): boolean {
+  return regularExpressionPrefix.test(source.slice(0, index))
+}
+
+function regularExpressionEnd(source: string, start: number): number | undefined {
+  const match = source.slice(start).match(regularExpressionLiteral)
+  return canStartRegularExpression(source, start) && match !== null
+    ? start + match[0].length
+    : undefined
 }
 
 class LexicalViewBuilder {
@@ -103,13 +117,23 @@ class LexicalViewBuilder {
     return this.#maskComment(start, closing + 2)
   }
 
+  #regularExpressionEnd(start: number): number | undefined {
+    return regularExpressionEnd(this.source, start)
+  }
+
   #templateEnd(start: number): number | undefined {
     if (this.source[start] !== "`") return undefined
     return this.#scanTemplate(start)
   }
 
   #nonCodeEnd(start: number): number | undefined {
-    const readers = [this.#quotedEnd, this.#templateEnd, this.#lineCommentEnd, this.#blockCommentEnd]
+    const readers = [
+      this.#quotedEnd,
+      this.#templateEnd,
+      this.#lineCommentEnd,
+      this.#blockCommentEnd,
+      this.#regularExpressionEnd,
+    ]
     for (const reader of readers) {
       const end = reader.call(this, start)
       if (end !== undefined) return end

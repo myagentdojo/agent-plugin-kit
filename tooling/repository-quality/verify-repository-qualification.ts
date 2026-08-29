@@ -226,7 +226,10 @@ function repositoryEntry(
   entry: { name: string; isDirectory(): boolean },
   include: (name: string) => boolean,
 ): string[] {
-  if (isSkippedDirectory(entry.name)) return []
+  if (isSkippedDirectory(entry.name)) {
+    verifySkippedDirectory(directory, entry)
+    return []
+  }
   const entryRelative = relativeEntryPath(prefix, entry.name)
   const path = resolve(directory, entry.name)
   if (entry.isDirectory()) return repositoryEntries(path, entryRelative, include)
@@ -235,6 +238,24 @@ function repositoryEntry(
 
 function isSkippedDirectory(name: string): boolean {
   return name === ".git" || name === ".fallow" || name === "node_modules"
+}
+
+function verifySkippedDirectory(
+  directory: string,
+  entry: { name: string; isDirectory(): boolean },
+): void {
+  if (entry.name !== ".fallow" || !entry.isDirectory()) return
+  if (directoryContainsTypeScript(resolve(directory, entry.name))) {
+    refuseRepository("repository-unqualified", "path-drift", "structure.required_paths", "restore-current-declaration")
+  }
+}
+
+function directoryContainsTypeScript(directory: string): boolean {
+  return readdirSync(directory, { withFileTypes: true }).some((entry) =>
+    entry.isDirectory()
+      ? directoryContainsTypeScript(resolve(directory, entry.name))
+      : entry.name.endsWith(".ts")
+  )
 }
 
 function relativeEntryPath(prefix: string, name: string): string {
@@ -682,7 +703,7 @@ class PublicTypeExportParseError extends Error {}
 const declarationNonCode = /(["'])(?:\\.|(?!\1)[^\\\r\n])*\1|`(?:\\.|[^`])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g
 const directPublicTypeExport = /^export\s+(?:type(?!\s*\{)|interface)\s+([$A-Z_a-z][$\w]*)/gm
 const namedPublicTypeExportBlock = /^export\s+(type\s*)?\{([\s\S]*?)\}/gm
-const unsupportedPublicTypeExport = /^export\s+type\s+\*/m
+const unsupportedPublicTypeExport = /^(?:export\s+default\s+interface\b|export\s+type\s+\*)/m
 const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
 
 type LocatedPublicTypeExport = {
