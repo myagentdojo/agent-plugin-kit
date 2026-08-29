@@ -16,6 +16,7 @@ import {
 
 const repositoryRoot = resolve(import.meta.dir, "../../..")
 const temporaryRoots: string[] = []
+const temporaryReceiptDirectories: string[] = []
 
 // Test-owned independent oracle: this literal mixed receipt intentionally
 // restates one changed repository state so the public verifier cannot define
@@ -83,32 +84,227 @@ async function observeVerifier(
   return { exitCode, stdout, stderr }
 }
 
-async function currentSuccess(root: string): Promise<Record<string, unknown>> {
-  const path = join(root, "tooling/repository-quality/repository-qualification-contract.json")
-  const declaration = JSON.parse(await readFile(path, "utf8")) as Record<string, any>
+const independentProofGroups = [
+  {
+    id: "kit-interface",
+    files: ["clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts"],
+  },
+  {
+    id: "admission-bootstrap",
+    files: [
+      "src/admission-bootstrap/contract-tests/admitted-identity-before-execution.test.ts",
+      "src/admission-bootstrap/contract-tests/identity-refusal.test.ts",
+    ],
+  },
+  {
+    id: "maintenance-command-contract",
+    files: [
+      "src/modules/maintenance-command-contract/contract-tests/effect-class-and-retry-safety.test.ts",
+      "src/modules/maintenance-command-contract/contract-tests/human-and-agent-result-vocabulary.test.ts",
+      "src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
+    ],
+  },
+  {
+    id: "qualification-evidence",
+    files: [
+      "src/modules/qualification-evidence/contract-tests/candidate-lineage-reduction.test.ts",
+      "src/modules/qualification-evidence/contract-tests/proof-layer-and-non-claim.test.ts",
+    ],
+  },
+  {
+    id: "clean-fixture",
+    files: [
+      "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/installation-evidence.test.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/fresh-native-non-claims.test.ts",
+      "clean-fixture/public-verification-profile/contract-tests/profile-non-promotion.test.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts",
+    ],
+  },
+  {
+    id: "maintenance-cli-unit",
+    files: ["src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts"],
+  },
+  {
+    id: "maintenance-cli-catalog",
+    files: ["src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts"],
+  },
+  {
+    id: "maintenance-cli-process",
+    files: ["src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts"],
+  },
+  {
+    id: "maintenance-cli-observability",
+    files: ["src/adapters/maintenance-command-facade/contract-tests/observability.test.ts"],
+  },
+  {
+    id: "maintenance-cli-clean-fixture",
+    files: ["clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts"],
+  },
+  {
+    id: "maintenance-cli-local-link",
+    files: ["clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts"],
+  },
+  {
+    id: "maintenance-cli",
+    files: [
+      "src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts",
+      "src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
+      "src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts",
+      "src/adapters/maintenance-command-facade/contract-tests/observability.test.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts",
+      "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts",
+    ],
+  },
+] as const
+
+const independentAggregateFiles = [
+  "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
+  "src/admission-bootstrap/contract-tests/admitted-identity-before-execution.test.ts",
+  "src/admission-bootstrap/contract-tests/identity-refusal.test.ts",
+  "src/modules/maintenance-command-contract/contract-tests/effect-class-and-retry-safety.test.ts",
+  "src/modules/maintenance-command-contract/contract-tests/human-and-agent-result-vocabulary.test.ts",
+  "src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
+  "src/modules/qualification-evidence/contract-tests/candidate-lineage-reduction.test.ts",
+  "src/modules/qualification-evidence/contract-tests/proof-layer-and-non-claim.test.ts",
+  "clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts",
+  "clean-fixture/personal-verification-profile/contract-tests/installation-evidence.test.ts",
+  "clean-fixture/personal-verification-profile/contract-tests/fresh-native-non-claims.test.ts",
+  "clean-fixture/public-verification-profile/contract-tests/profile-non-promotion.test.ts",
+  "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts",
+  "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts",
+  "src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts",
+  "src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts",
+  "src/adapters/maintenance-command-facade/contract-tests/observability.test.ts",
+] as const
+
+type IndependentCounts = {
+  files: number
+  tests: number
+  passed: number
+  failed: number
+  skipped: number
+  failure_classes: Readonly<Record<string, number>>
+}
+
+let independentSuccessPromise: Promise<Record<string, unknown>> | undefined
+
+async function independentSuccessReceipt(root: string): Promise<Record<string, unknown>> {
+  independentSuccessPromise ??= buildIndependentSuccessReceipt(root)
+  return independentSuccessPromise
+}
+
+async function buildIndependentSuccessReceipt(root: string): Promise<Record<string, unknown>> {
+  const groups = await Promise.all(independentProofGroups.map(async ({ id, files }) => ({
+    id,
+    ...await observeIndependentTests(root, files),
+  })))
+  const aggregate = await observeIndependentTests(root, independentAggregateFiles)
   return {
     schema_version: 1,
     command: "verify:repository-qualification",
     status: "qualified",
     mode: "complete",
     contract: "tooling/repository-quality/repository-qualification-contract.json",
-    groups: declaration.proof_groups.map((group: Record<string, any>) => ({
-      id: group.id,
-      files: group.files.length,
-      tests: group.tests,
-      passed: group.passed,
-      failed: group.failed,
-      skipped: group.skipped,
-      failure_classes: group.failure_classes,
-    })),
+    groups,
     aggregate: {
-      files: declaration.aggregate.files,
-      tests: declaration.aggregate.tests,
-      passed: declaration.aggregate.passed,
-      failed: declaration.aggregate.failed,
-      skipped: declaration.aggregate.skipped,
+      files: aggregate.files,
+      tests: aggregate.tests,
+      passed: aggregate.passed,
+      failed: aggregate.failed,
+      skipped: aggregate.skipped,
     },
   }
+}
+
+async function observeIndependentTests(
+  root: string,
+  files: readonly string[],
+): Promise<IndependentCounts> {
+  const receiptDirectory = await mkdtemp(join(tmpdir(), "agent-plugin-kit-independent-proof-"))
+  temporaryReceiptDirectories.push(receiptDirectory)
+  const receiptPath = join(receiptDirectory, "receipt.xml")
+  const child = Bun.spawn([
+    "bun",
+    "test",
+    ...files,
+    "--reporter=junit",
+    "--reporter-outfile",
+    receiptPath,
+  ], {
+    cwd: root,
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+  })
+  const [exitCode, , ] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ])
+  const receipt = await readFile(receiptPath, "utf8")
+  const observed = parseIndependentReceipt(receipt, files)
+  const expectedExitCode = observed.failed === 0 ? 0 : 1
+  if (exitCode !== expectedExitCode) {
+    throw new Error(`independent test process exit ${exitCode} did not match ${expectedExitCode}`)
+  }
+  return observed
+}
+
+function parseIndependentReceipt(source: string, files: readonly string[]): IndependentCounts {
+  const root = xmlTag(source, "testsuites")
+  const suites = [...source.matchAll(/<testsuite\b[^>]*>/g)].map((match) => match[0] as string)
+  const observedFiles = suites.map((suite) => xmlAttribute(suite, "file"))
+  if (suites.length !== files.length || JSON.stringify([...observedFiles].sort()) !== JSON.stringify([...files].sort())) {
+    throw new Error("independent test process did not report the selected files")
+  }
+  const tests = xmlInteger(root, "tests")
+  const failed = xmlInteger(root, "failures")
+  const skipped = xmlInteger(root, "skipped")
+  const failureTags = [...source.matchAll(/<failure\b[^>]*>/g)].map((match) => match[0] as string)
+  if (failureTags.length !== failed || failed + skipped > tests) {
+    throw new Error("independent test process reported inconsistent JUnit counts")
+  }
+  return {
+    files: suites.length,
+    tests,
+    passed: tests - failed - skipped,
+    failed,
+    skipped,
+    failure_classes: independentFailureClasses(failureTags),
+  }
+}
+
+function xmlTag(source: string, name: string): string {
+  const match = source.match(new RegExp(`<${name}\\b[^>]*>`))
+  if (match === null) throw new Error(`independent test process omitted <${name}>`)
+  return match[0]
+}
+
+function xmlAttribute(tag: string, attribute: string): string {
+  const match = tag.match(new RegExp(`\\b${attribute}="([^"]*)"`))
+  if (match?.[1] === undefined) throw new Error(`independent test process omitted ${attribute}`)
+  return match[1]
+}
+
+function xmlInteger(tag: string, attribute: string): number {
+  const value = Number(xmlAttribute(tag, attribute))
+  if (!Number.isInteger(value) || value < 0) throw new Error(`independent test process reported invalid ${attribute}`)
+  return value
+}
+
+function independentFailureClasses(failureTags: readonly string[]): Readonly<Record<string, number>> {
+  const classes: Record<string, number> = {}
+  for (const tag of failureTags) {
+    const message = xmlAttribute(tag, "message")
+    const failureClass = message.match(/(?:^|[\\s"'(])([a-z][a-z0-9-]*-[a-z0-9-]*):/)?.[1]
+    if (failureClass === undefined) throw new Error("independent test process omitted a failure class")
+    classes[failureClass] = (classes[failureClass] ?? 0) + 1
+  }
+  return classes
 }
 
 async function mutateContract(
@@ -169,12 +365,15 @@ async function addAdmissionRuntimeSources(
 }
 
 afterAll(async () => {
-  await Promise.all(temporaryRoots.map((root) => rm(root, { recursive: true, force: true })))
+  await Promise.all([
+    ...temporaryRoots.map((root) => rm(root, { recursive: true, force: true })),
+    ...temporaryReceiptDirectories.map((directory) => rm(directory, { recursive: true, force: true })),
+  ])
 })
 
 test("the initial repository declaration qualifies the exact mixed RED baseline", async () => {
   const root = await copyRepositoryFixture()
-  const expected = await currentSuccess(root)
+  const expected = await independentSuccessReceipt(root)
   const observation = await observeVerifier(root)
   expect(observation.exitCode).toBe(0)
   expect(observation.stderr).toBe("")
@@ -846,7 +1045,7 @@ test("required-path or declared-structure drift is refused", async () => {
   const cacheDirectory = join(cacheRoot, ".fallow/runtime-custody")
   await mkdir(cacheDirectory, { recursive: true })
   await writeFile(join(cacheDirectory, "cache.bin"), "repository-local runtime cache\n")
-  const cacheExpected = await currentSuccess(cacheRoot)
+  const cacheExpected = await independentSuccessReceipt(cacheRoot)
   const cacheObservation = await observeVerifier(cacheRoot)
   expect(cacheObservation.exitCode, cacheObservation.stderr).toBe(0)
   expect(cacheObservation.stderr).toBe("")
@@ -1362,7 +1561,7 @@ type NotATemplateDependency = \`import { type NotATemplateDependency } from "not
     (source) => source.replace("#!/usr/bin/env bun\n", `#!/usr/bin/env bun\n${lookalikes}`),
   )
 
-  const expected = await currentSuccess(root)
+  const expected = await independentSuccessReceipt(root)
   const observation = await observeVerifier(root)
   expect(observation.exitCode, observation.stderr).toBe(0)
   expect(observation.stderr).toBe("")
@@ -2038,7 +2237,7 @@ type EscapedTypeString = "export interface \\u0048iddenStringType {}"
 type EscapedTypeTemplate = \`export interface \\u0048iddenTemplateType {}\`
 `,
   )
-  const lexicalExpected = await currentSuccess(lexicalRoot)
+  const lexicalExpected = await independentSuccessReceipt(lexicalRoot)
   const lexicalObservation = await observeVerifier(lexicalRoot)
   expect(lexicalObservation.exitCode, lexicalObservation.stderr).toBe(0)
   expect(lexicalObservation.stderr).toBe("")
