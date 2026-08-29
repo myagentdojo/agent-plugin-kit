@@ -22,7 +22,6 @@
       ".agents/skills/fallow/agents/openai.yaml",
       ".claude/skills/fallow/SKILL.md",
       ".claude/skills/fallow/agents/openai.yaml",
-      "clean-fixture/static-module-specifiers.ts",
       "docs/agents/README.md",
       "docs/agents/issue-tracker.md",
       "docs/agents/domain.md",
@@ -480,6 +479,115 @@
       "./canary-qualification": "./src/modules/canary-qualification/interface.ts",
       "./qualification-evidence": "./src/modules/qualification-evidence/interface.ts",
       "./reusable-workflow-adapter": "./src/adapters/reusable-workflow-adapter/interface.ts"
+    },
+    "type_exports": {
+      ".": [
+        "AdmissionBootstrap",
+        "AdmissionResult",
+        "AdmissionRefusal",
+        "AdmissionRequest",
+        "CommandPreview",
+        "CommandResult",
+        "MaintenanceError",
+        "MaintenanceOutcome",
+        "MaintenanceApplyRequest",
+        "MaintenanceCommand",
+        "MaintenanceCommands",
+        "MutatingMaintenanceCommand",
+        "ResultCode",
+        "StationId",
+        "EvidenceCell",
+        "QualificationEvidence",
+        "QualificationOutcome",
+        "QualificationRefusal",
+        "QualificationRefusalCode",
+        "QualificationResult",
+        "VerificationProfile",
+        "AdmittedIdentity",
+        "CandidateIdentity",
+        "PackageIdentity",
+        "ReleaseIdentity",
+        "RepositoryIdentity",
+        "SourceIdentity",
+        "WorkflowIdentity"
+      ],
+      "./admission-bootstrap": [
+        "AdmissionRefusal",
+        "AdmissionRequest",
+        "AdmissionResult",
+        "AdmissionBootstrap"
+      ],
+      "./plugin-payload-production": [
+        "PayloadProductionRequest",
+        "PreparedPluginPayload",
+        "PayloadProductionResult",
+        "PluginPayloadProduction"
+      ],
+      "./runtime-custody": ["RuntimeCustodyCommand", "RuntimeCustodyResult"],
+      "./release-and-git-engine": [
+        "RepositoryIdentity",
+        "SourceIdentity",
+        "ReleaseIdentity",
+        "PackageIdentity",
+        "WorkflowIdentity",
+        "CandidateIdentity",
+        "AdmittedIdentity",
+        "AdmissionRequest",
+        "AdmissionRefusal",
+        "PackageObservation",
+        "ReleaseRequest",
+        "ReleaseMutationRequest",
+        "ReleasePlan",
+        "ReleaseResult",
+        "ReleaseCandidateApproval",
+        "ReleaseAndGitEngine"
+      ],
+      "./maintenance-command-contract": [
+        "MaintenanceApplyRequest",
+        "MutatingMaintenanceCommand",
+        "MaintenanceCommand",
+        "ResultCode",
+        "StationId",
+        "MaintenanceError",
+        "MaintenanceOutcome",
+        "CommandPreview",
+        "CommandResult",
+        "MaintenanceCommands"
+      ],
+      "./harness-journeys": [
+        "ClaudeRequest",
+        "CodexRequest",
+        "ClaudeInspection",
+        "CodexInspection",
+        "ClaudeTransitionRequest",
+        "CodexTransitionRequest",
+        "ClaudeTransitionApproval",
+        "CodexTransitionApproval",
+        "ClaudeApplyResult",
+        "CodexApplyResult",
+        "HarnessJourneys"
+      ],
+      "./canary-qualification": [
+        "CanaryCandidate",
+        "CanaryPlan",
+        "ProtectedCanaryAuthority",
+        "CanaryResult",
+        "CanaryQualification"
+      ],
+      "./qualification-evidence": [
+        "EvidenceCell",
+        "VerificationProfile",
+        "QualificationResult",
+        "QualificationRefusalCode",
+        "QualificationRefusal",
+        "QualificationOutcome",
+        "QualificationEvidence"
+      ],
+      "./reusable-workflow-adapter": [
+        "ReusableWorkflowRequest",
+        "ReusableWorkflowResult",
+        "ReusableWorkflowAdapter"
+      ]
     },
     "bin": {"agent-plugin-kit": "./src/adapters/maintenance-command-facade/maintenance.ts"},
     "scripts": {

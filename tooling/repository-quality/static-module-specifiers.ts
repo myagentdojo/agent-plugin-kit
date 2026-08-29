@@ -1,6 +1,5 @@
 const typescriptTranspiler = new Bun.Transpiler({ loader: "ts" })
 
-const commentStringOrTemplate = /(["'])(?:\\.|(?!\1)[^\\\r\n])*\1|`(?:\\.|[^`])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g
 const moduleCall = /\b(?:import|require)\s*\(/g
 const leadingTrivia = /^(?:(?:\s+)|(?:\/\/[^\n]*(?:\n|$))|(?:\/\*[\s\S]*?\*\/))*/
 const blockComment = /\/\*[\s\S]*?\*\//g
@@ -17,8 +16,160 @@ export class NonliteralModuleSpecifierError extends Error {
   }
 }
 
-function withoutNonCode(source: string): string {
-  return source.replace(commentStringOrTemplate, (match) => " ".repeat(match.length))
+type LexicalViews = {
+  readonly code: string
+  readonly commentsRemoved: string
+}
+
+type BraceTransition = {
+  readonly depth: number
+  readonly done: boolean
+}
+
+type ScanStep = {
+  readonly index: number
+  readonly done: boolean
+}
+
+function isQuote(character: string | undefined): character is "\"" | "'" {
+  return character === "\"" || character === "'"
+}
+
+function isTemplateExpressionStart(source: string, index: number): boolean {
+  return source.slice(index, index + 2) === "${"
+}
+
+function closingBraceTransition(depth: number): BraceTransition {
+  return depth === 0 ? { depth, done: true } : { depth: depth - 1, done: false }
+}
+
+class LexicalViewBuilder {
+  readonly #code: string[]
+  readonly #commentsRemoved: string[]
+
+  constructor(readonly source: string) {
+    this.#code = Array.from({ length: source.length }, () => " ")
+    this.#commentsRemoved = source.split("")
+  }
+
+  build(): LexicalViews {
+    this.#scanCode(0, false)
+    return { code: this.#code.join(""), commentsRemoved: this.#commentsRemoved.join("") }
+  }
+
+  #quotedEnd(start: number): number | undefined {
+    const quote = this.source[start]
+    if (!isQuote(quote)) return undefined
+    return this.#scanQuoted(start, quote)
+  }
+
+  #scanQuoted(start: number, quote: "\"" | "'"): number {
+    let index = start + 1
+    while (index < this.source.length) {
+      const escapedEnd = this.#escapedEnd(index)
+      if (escapedEnd !== undefined) {
+        index = escapedEnd
+        continue
+      }
+      if (this.source[index] === quote) return index + 1
+      index += 1
+    }
+    throw new Error("unterminated string literal")
+  }
+
+  #escapedEnd(index: number): number | undefined {
+    return this.source[index] === "\\" ? index + 2 : undefined
+  }
+
+  #maskComment(start: number, end: number): number {
+    for (let index = start; index < end; index += 1) {
+      if (this.#commentsRemoved[index] !== "\n" && this.#commentsRemoved[index] !== "\r") {
+        this.#commentsRemoved[index] = " "
+      }
+    }
+    return end
+  }
+
+  #lineCommentEnd(start: number): number | undefined {
+    if (this.source[start] !== "/" || this.source[start + 1] !== "/") return undefined
+    const newline = this.source.indexOf("\n", start + 2)
+    return this.#maskComment(start, newline === -1 ? this.source.length : newline)
+  }
+
+  #blockCommentEnd(start: number): number | undefined {
+    if (this.source[start] !== "/" || this.source[start + 1] !== "*") return undefined
+    const closing = this.source.indexOf("*/", start + 2)
+    if (closing === -1) throw new Error("unterminated block comment")
+    return this.#maskComment(start, closing + 2)
+  }
+
+  #templateEnd(start: number): number | undefined {
+    if (this.source[start] !== "`") return undefined
+    return this.#scanTemplate(start)
+  }
+
+  #nonCodeEnd(start: number): number | undefined {
+    const readers = [this.#quotedEnd, this.#templateEnd, this.#lineCommentEnd, this.#blockCommentEnd]
+    for (const reader of readers) {
+      const end = reader.call(this, start)
+      if (end !== undefined) return end
+    }
+    return undefined
+  }
+
+  #scanTemplate(start: number): number {
+    let index = start + 1
+    while (index < this.source.length) {
+      const step = this.#templateStep(index)
+      if (step.done) return step.index
+      index = step.index
+    }
+    throw new Error("unterminated template literal")
+  }
+
+  #templateStep(index: number): ScanStep {
+    const escapedEnd = this.#escapedEnd(index)
+    if (escapedEnd !== undefined) return { index: escapedEnd, done: false }
+    if (this.source[index] === "`") return { index: index + 1, done: true }
+    if (isTemplateExpressionStart(this.source, index)) {
+      return { index: this.#scanCode(index + 2, true), done: false }
+    }
+    return { index: index + 1, done: false }
+  }
+
+  #braceTransition(index: number, depth: number, stopAtClosingBrace: boolean): BraceTransition {
+    if (!stopAtClosingBrace) return { depth, done: false }
+    if (this.source[index] === "{") return { depth: depth + 1, done: false }
+    if (this.source[index] !== "}") return { depth, done: false }
+    return closingBraceTransition(depth)
+  }
+
+  #scanCode(start: number, stopAtClosingBrace: boolean): number {
+    let braceDepth = 0
+    let index = start
+    while (index < this.source.length) {
+      const nonCodeEnd = this.#nonCodeEnd(index)
+      if (nonCodeEnd !== undefined) {
+        index = nonCodeEnd
+        continue
+      }
+      const transition = this.#braceTransition(index, braceDepth, stopAtClosingBrace)
+      if (transition.done) return index + 1
+      braceDepth = transition.depth
+      this.#code[index] = this.source[index] as string
+      index += 1
+    }
+    return this.#finishedCodeScan(index, stopAtClosingBrace)
+  }
+
+  #finishedCodeScan(index: number, stopAtClosingBrace: boolean): number {
+    if (stopAtClosingBrace) throw new Error("unterminated template expression")
+    return index
+  }
+}
+
+function lexicalViews(source: string): LexicalViews {
+  return new LexicalViewBuilder(source).build()
 }
 
 function sourceWithoutShebang(source: string): string {
@@ -27,11 +178,10 @@ function sourceWithoutShebang(source: string): string {
     : source
 }
 
-function typeOnlySpecifiers(source: string): string[] {
-  const code = withoutNonCode(source)
+function typeOnlySpecifiers(views: LexicalViews): string[] {
   return typeDeclarationPatterns.flatMap((pattern) =>
-    [...source.matchAll(pattern)]
-      .filter((match) => match.index !== undefined && code[match.index] !== " ")
+    [...views.commentsRemoved.matchAll(pattern)]
+      .filter((match) => match.index !== undefined && views.code[match.index] !== " ")
       .flatMap((match) => match[2] === undefined ? [] : [match[2]])
   )
 }
@@ -48,13 +198,14 @@ function tripleSlashModuleSpecifiers(source: string): string[] {
 
 export function staticModuleSpecifiers(file: string, source: string): string[] {
   const scannedSource = sourceWithoutShebang(source)
+  const views = lexicalViews(scannedSource)
   const scannedImports = typescriptTranspiler.scanImports(scannedSource)
   const specifiers = new Set([
     ...scannedImports.map(({ path }) => path),
-    ...typeOnlySpecifiers(scannedSource),
+    ...typeOnlySpecifiers(views),
     ...tripleSlashModuleSpecifiers(scannedSource),
   ])
-  const moduleCallCount = [...withoutNonCode(scannedSource).matchAll(moduleCall)].length
+  const moduleCallCount = [...views.code.matchAll(moduleCall)].length
   if (moduleCallCount !== literalModuleCallCount(scannedImports)) {
     throw new NonliteralModuleSpecifierError(file)
   }

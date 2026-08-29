@@ -96,6 +96,7 @@ type RepositoryQualificationContract = {
     package_manager: string
     workspaces: readonly string[]
     exports: Readonly<Record<string, string>>
+    type_exports: Readonly<Record<string, readonly string[]>>
     bin: Readonly<Record<string, string>>
     scripts: Readonly<Record<string, string>>
     dev_dependencies: Readonly<Record<string, string>>
@@ -233,7 +234,7 @@ function repositoryEntry(
 }
 
 function isSkippedDirectory(name: string): boolean {
-  return name === ".git" || name === "node_modules"
+  return name === ".git" || name === ".fallow" || name === "node_modules"
 }
 
 function relativeEntryPath(prefix: string, name: string): string {
@@ -414,7 +415,21 @@ function verifyStructurePaths(contract: RepositoryQualificationContract): void {
       "restore-repository-bytes",
     )
   }
+  const declaredSourcePaths = contract.structure.required_paths
+    .filter((path) => path.startsWith("src/"))
+    .sort()
+  verifyExactSourcePaths(sourcePaths, declaredSourcePaths)
   verifyStructureGuidance(contract.structure)
+}
+
+function verifyExactSourcePaths(observed: string[], declared: string[]): void {
+  if (JSON.stringify(observed.sort()) === JSON.stringify(declared)) return
+  refuseRepository(
+    "repository-unqualified",
+    "path-drift",
+    "structure.required_paths",
+    "restore-current-declaration",
+  )
 }
 
 function verifyRequiredPathDeclaration(requiredPaths: readonly string[]): void {
@@ -662,14 +677,96 @@ function packageManifests(directory: string, prefix = ""): string[] {
   return repositoryEntries(directory, prefix, (name) => name === "package.json")
 }
 
+class PublicTypeExportParseError extends Error {}
+
+const declarationNonCode = /(["'])(?:\\.|(?!\1)[^\\\r\n])*\1|`(?:\\.|[^`])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g
+const directPublicTypeExport = /^export\s+(?:type(?!\s*\{)|interface)\s+([$A-Z_a-z][$\w]*)/gm
+const namedPublicTypeExportBlock = /^export\s+(type\s*)?\{([\s\S]*?)\}/gm
+const unsupportedPublicTypeExport = /^export\s+type\s+\*/m
+const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
+
+type LocatedPublicTypeExport = {
+  readonly index: number
+  readonly name: string
+}
+
+function declarationCode(source: string): string {
+  return source.replace(declarationNonCode, (match) => match.replace(/[^\r\n]/g, " "))
+}
+
+function namedPublicTypeExports(match: RegExpMatchArray): LocatedPublicTypeExport[] {
+  const allTypeOnly = match[1] !== undefined
+  const block = match[2] ?? ""
+  return block.split(",").flatMap((entry) => namedPublicTypeExport(entry, allTypeOnly, match.index ?? 0))
+}
+
+function namedPublicTypeExport(
+  entry: string,
+  allTypeOnly: boolean,
+  index: number,
+): LocatedPublicTypeExport[] {
+  const normalized = entry.trim()
+  if (normalized === "") return []
+  if (isValueNamedExport(normalized, allTypeOnly)) throw new PublicTypeExportParseError()
+  const parsed = normalized.match(namedTypeExport)
+  if (parsed === null) throw new PublicTypeExportParseError()
+  return [{ index, name: publicTypeExportName(parsed) }]
+}
+
+function isValueNamedExport(entry: string, allTypeOnly: boolean): boolean {
+  return !allTypeOnly && !entry.startsWith("type ")
+}
+
+function publicTypeExportName(match: RegExpMatchArray): string {
+  return (match[2] ?? match[1]) as string
+}
+
+function locatedPublicTypeExports(code: string): LocatedPublicTypeExport[] {
+  if (unsupportedPublicTypeExport.test(code)) throw new PublicTypeExportParseError()
+  const direct = [...code.matchAll(directPublicTypeExport)].map((match) => ({
+    index: match.index,
+    name: match[1] as string,
+  }))
+  const named = [...code.matchAll(namedPublicTypeExportBlock)].flatMap(namedPublicTypeExports)
+  return [...direct, ...named].sort((left, right) => left.index - right.index)
+}
+
+function publicTypeExports(path: string): string[] {
+  const code = declarationCode(readFileSync(resolve(repositoryRoot, path), "utf8"))
+  return [...new Set(locatedPublicTypeExports(code).map(({ name }) => name))]
+}
+
 function verifyPackageContract(contract: RepositoryQualificationContract): void {
   const root = packageJson("package.json")
   const manifestPaths = packageManifests(repositoryRoot)
   verifyDependencyBans(manifestPaths, contract.package_contract)
   verifyRootIdentity(root, contract.package_contract)
   verifyRootCollections(root, contract.package_contract)
+  verifyPublicTypeExports(contract.package_contract)
   verifyRootScripts(root.scripts, contract.package_contract.scripts)
   verifyOwnerManifests(contract.owner_manifests)
+}
+
+function verifyPublicTypeExports(
+  expected: RepositoryQualificationContract["package_contract"],
+): void {
+  if (JSON.stringify(Object.keys(expected.type_exports)) !== JSON.stringify(Object.keys(expected.exports))) {
+    packageDrift("package_contract.type_exports")
+  }
+  for (const [subpath, target] of Object.entries(expected.exports)) {
+    verifyPublicTypeExport(subpath, target, expected.type_exports[subpath])
+  }
+}
+
+function verifyPublicTypeExport(subpath: string, target: string, declared: readonly string[] | undefined): void {
+  const owner = `package_contract.type_exports[${JSON.stringify(subpath)}]`
+  let observed: readonly string[]
+  try {
+    observed = publicTypeExports(target)
+  } catch {
+    packageDrift(owner)
+  }
+  if (JSON.stringify(observed) !== JSON.stringify(declared)) packageDrift(owner)
 }
 
 function verifyDependencyBans(
@@ -973,6 +1070,7 @@ function validatePackageContractRecord(value: unknown): void {
     "package_manager",
     "workspaces",
     "exports",
+    "type_exports",
     "bin",
     "scripts",
     "dev_dependencies",
@@ -987,6 +1085,7 @@ function validatePackageContractRecord(value: unknown): void {
   contractString(contract.package_manager, "package_contract.package_manager")
   contractStringArray(contract.workspaces, "package_contract.workspaces")
   contractStringRecord(contract.exports, "package_contract.exports")
+  contractStringArrayRecord(contract.type_exports, "package_contract.type_exports")
   contractStringRecord(contract.bin, "package_contract.bin")
   contractStringRecord(contract.scripts, "package_contract.scripts")
   contractStringRecord(contract.dev_dependencies, "package_contract.dev_dependencies")
@@ -1201,6 +1300,17 @@ function contractStringRecord(value: unknown, owner: string): Readonly<Record<st
   const record = contractRecord(value, owner)
   if (Object.values(record).some((entry) => typeof entry !== "string")) contractInvalid(owner)
   return record as Readonly<Record<string, string>>
+}
+
+function contractStringArrayRecord(
+  value: unknown,
+  owner: string,
+): Readonly<Record<string, readonly string[]>> {
+  const record = contractRecord(value, owner)
+  for (const [key, entry] of Object.entries(record)) {
+    contractStringArray(entry, `${owner}[${JSON.stringify(key)}]`)
+  }
+  return record as Readonly<Record<string, readonly string[]>>
 }
 
 function contractIntegerRecord(value: unknown, owner: string): Readonly<Record<string, number>> {

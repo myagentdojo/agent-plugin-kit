@@ -490,6 +490,50 @@ test("required-path or declared-structure drift is refused", async () => {
       },
     },
     {
+      label: "undeclared Source Tree file present",
+      mutate: async (root: string) => {
+        await writeFile(join(root, "src/modules/runtime-custody/runtime.ts"), "export const runtime = undefined\n")
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "path-drift",
+            owner: "structure.required_paths",
+            repair_id: "restore-current-declaration",
+          },
+        ],
+      },
+    },
+    {
+      label: "current Source Tree declaration absent",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.structure.required_paths = contract.structure.required_paths.filter(
+            (path: string) => path !== "src/modules/runtime-custody/interface.ts",
+          )
+        })
+      },
+      expected: {
+        schema_version: 1,
+        command: "verify:repository-qualification",
+        status: "refused",
+        mode: "complete",
+        code: "repository-unqualified",
+        findings: [
+          {
+            kind: "path-drift",
+            owner: "structure.required_paths",
+            repair_id: "restore-current-declaration",
+          },
+        ],
+      },
+    },
+    {
       label: "repository quality module-specifier helper declaration absent",
       mutate: async (root: string) => {
         await mutateContract(root, (contract) => {
@@ -725,6 +769,15 @@ test("required-path or declared-structure drift is refused", async () => {
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(row.expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(row.expected)
   }
+
+  const cacheRoot = await copyRepositoryFixture()
+  const cacheDirectory = join(cacheRoot, "src/.fallow/runtime-custody")
+  await mkdir(cacheDirectory, { recursive: true })
+  await writeFile(join(cacheDirectory, "cache.ts"), "repository-local runtime cache\n")
+  const cacheObservation = await observeVerifier(cacheRoot)
+  expect(cacheObservation.exitCode, cacheObservation.stderr).toBe(0)
+  expect(cacheObservation.stderr).toBe("")
+  expect(cacheObservation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
 })
 
 test("Admission Source Closure drift, escape, or bare dependency is refused", async () => {
@@ -850,12 +903,37 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
       },
     },
     {
+      label: "commented type-only dependency import",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(
+          path,
+          `${await readFile(path, "utf8")}\nimport type /* dependency */ { Node } from "typescript"\n`,
+        )
+      },
+    },
+    {
+      label: "commented type-only dependency export",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(
+          path,
+          `${await readFile(path, "utf8")}\nexport /* declaration */ type { Node } /* source */ from "typescript"\n`,
+        )
+      },
+    },
+    {
       label: "unreferenced Admission production dependency import",
       mutate: async (root: string) => {
         await writeFile(
           join(root, "src/admission-bootstrap/unreferenced-production-source.ts"),
           'import "fallow"\nexport type UnreferencedProductionSource = never\n',
         )
+      },
+      expectedFinding: {
+        kind: "path-drift",
+        owner: "structure.required_paths",
+        repair_id: "restore-current-declaration",
       },
     },
     {
@@ -865,6 +943,16 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
         await writeFile(
           path,
           `${await readFile(path, "utf8")}\nconst dynamicDependency = "zod"\nawait import(dynamicDependency)\n`,
+        )
+      },
+    },
+    {
+      label: "computed nonliteral dynamic dependency import in template substitution",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(
+          path,
+          `${await readFile(path, "utf8")}\nconst dynamicDependency = "zod"\n\`${"${await import(dynamicDependency)}"}\`\n`,
         )
       },
     },
@@ -918,19 +1006,20 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
   for (const row of cases) {
     const root = await copyRepositoryFixture()
     await row.mutate(root)
+    const finding = "expectedFinding" in row
+      ? row.expectedFinding
+      : {
+          kind: "admission-closure-drift",
+          owner: "admission.source_closure",
+          repair_id: "restore-repository-bytes",
+        }
     const expected = {
       schema_version: 1,
       command: "verify:repository-qualification",
       status: "refused",
       mode: "complete",
       code: "repository-unqualified",
-      findings: [
-        {
-          kind: "admission-closure-drift",
-          owner: "admission.source_closure",
-          repair_id: "restore-repository-bytes",
-        },
-      ],
+      findings: [finding],
     } as const
     const observation = await observeVerifier(root)
     expect(observation.exitCode, row.label).toBe(1)
@@ -1161,6 +1250,58 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: "package_contract.exports",
     },
     {
+      label: "public type catalog and package exports disagree",
+      mutate: (root: string) => mutateContract(root, (contract) => {
+        delete contract.package_contract.type_exports["./runtime-custody"]
+      }),
+      expectedOwner: "package_contract.type_exports",
+    },
+    {
+      label: "public type export added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport type RuntimeCustodyState = "ready"\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public type export removed",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => source.replace("export type RuntimeCustodyCommand =", "type RuntimeCustodyCommand ="),
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public type export renamed",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => source.replace("RuntimeCustodyResult", "RuntimeExecutionResult"),
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "aliased named type re-export added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport { type RuntimeCustodyResult as RuntimeExecutionResult }\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "indeterminate star type re-export fails closed",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport type * from "../release-and-git-engine/interface"\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
       label: "Zod dependency",
       mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
         packageJson.devDependencies.zod = "4.0.0"
@@ -1244,7 +1385,11 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
           `${JSON.stringify({ name: "@agent-plugin-kit/unexpected-owner", private: true, type: "module" }, null, 2)}\n`,
         )
       },
-      expectedOwner: "owner_manifests",
+      expectedFinding: {
+        kind: "path-drift",
+        owner: "structure.required_paths",
+        repair_id: "restore-current-declaration",
+      },
     },
     {
       label: "owner manifest privacy",
@@ -1317,19 +1462,20 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
   for (const row of cases) {
     const root = await copyRepositoryFixture()
     await row.mutate(root)
+    const finding = "expectedFinding" in row
+      ? row.expectedFinding
+      : {
+          kind: "package-contract-drift",
+          owner: row.expectedOwner,
+          repair_id: "restore-repository-bytes",
+        }
     const expected = {
       schema_version: 1,
       command: "verify:repository-qualification",
       status: "refused",
       mode: "complete",
       code: "repository-unqualified",
-      findings: [
-        {
-          kind: "package-contract-drift",
-          owner: row.expectedOwner,
-          repair_id: "restore-repository-bytes",
-        },
-      ],
+      findings: [finding],
     } as const
     const observation = await observeVerifier(root)
     expect(observation.exitCode, row.label).toBe(1)
@@ -1337,6 +1483,21 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
   }
+
+  const lexicalRoot = await copyRepositoryFixture()
+  await mutateTextFile(
+    lexicalRoot,
+    "src/modules/runtime-custody/interface.ts",
+    (source) => `${source}
+/* export type CommentOnlyType = never */
+export const valueOnlyRuntimeMarker = "value-only"
+export const RuntimeCustodyResult = undefined
+`,
+  )
+  const lexicalObservation = await observeVerifier(lexicalRoot)
+  expect(lexicalObservation.exitCode, lexicalObservation.stderr).toBe(0)
+  expect(lexicalObservation.stderr).toBe("")
+  expect(lexicalObservation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
 
   const structureOnlyRoot = await copyRepositoryFixture()
   await mutateJsonFile(structureOnlyRoot, "package.json", (packageJson) => {
