@@ -781,11 +781,6 @@ test("required-path or declared-structure drift is refused", async () => {
   expect(cacheObservation.stderr).toBe("")
   expect(cacheObservation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
 
-  const nestedCacheRoot = await copyRepositoryFixture()
-  const nestedCacheDirectory = join(nestedCacheRoot, "src/modules/runtime-custody/.fallow")
-  await mkdir(nestedCacheDirectory, { recursive: true })
-  await writeFile(join(nestedCacheDirectory, "runtime.ts"), "nested runtime cache\n")
-  const nestedCacheObservation = await observeVerifier(nestedCacheRoot)
   const nestedCacheExpected = {
     schema_version: 1,
     command: "verify:repository-qualification",
@@ -800,10 +795,17 @@ test("required-path or declared-structure drift is refused", async () => {
       },
     ],
   } as const
-  expect(nestedCacheObservation.exitCode).toBe(1)
-  expect(nestedCacheObservation.stdout).toBe("")
-  expect(nestedCacheObservation.stderr).toBe(`${JSON.stringify(nestedCacheExpected)}\n`)
-  expect(JSON.parse(nestedCacheObservation.stderr)).toEqual(nestedCacheExpected)
+  for (const extension of [".ts", ".mts", ".cts", ".tsx"] as const) {
+    const nestedCacheRoot = await copyRepositoryFixture()
+    const nestedCacheDirectory = join(nestedCacheRoot, "src/modules/runtime-custody/.fallow")
+    await mkdir(nestedCacheDirectory, { recursive: true })
+    await writeFile(join(nestedCacheDirectory, `runtime${extension}`), "nested runtime cache\n")
+    const nestedCacheObservation = await observeVerifier(nestedCacheRoot)
+    expect(nestedCacheObservation.exitCode, extension).toBe(1)
+    expect(nestedCacheObservation.stdout, extension).toBe("")
+    expect(nestedCacheObservation.stderr, extension).toBe(`${JSON.stringify(nestedCacheExpected)}\n`)
+    expect(JSON.parse(nestedCacheObservation.stderr), extension).toEqual(nestedCacheExpected)
+  }
 })
 
 test("Admission Source Closure drift, escape, or bare dependency is refused", async () => {

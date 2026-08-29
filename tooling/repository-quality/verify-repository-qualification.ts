@@ -254,7 +254,7 @@ function directoryContainsTypeScript(directory: string): boolean {
   return readdirSync(directory, { withFileTypes: true }).some((entry) =>
     entry.isDirectory()
       ? directoryContainsTypeScript(resolve(directory, entry.name))
-      : entry.name.endsWith(".ts")
+      : [".ts", ".mts", ".cts", ".tsx"].some((extension) => entry.name.endsWith(extension))
   )
 }
 
