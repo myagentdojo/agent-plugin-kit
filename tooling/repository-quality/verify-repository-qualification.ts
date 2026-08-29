@@ -703,7 +703,7 @@ class PublicTypeExportParseError extends Error {}
 const declarationNonCode = /(["'])(?:\\.|(?!\1)[^\\\r\n])*\1|`(?:\\.|[^`])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g
 const directPublicTypeExport = /^[ \t]*export\s+(?:type(?!\s*\{)|interface)\s+([$A-Z_a-z][$\w]*)/gm
 const namedPublicTypeExportBlock = /^[ \t]*export\s+(type\s*)?\{([\s\S]*?)\}/gm
-const unsupportedPublicTypeExport = /^[ \t]*export\s+type\s+\*/m
+const unsupportedPublicTypeExport = /^[ \t]*export\s+(?:(?:type\s+)?\*|(?:(?:declare|abstract)\s+)*(?:class|(?:const\s+)?enum|namespace|module|import)\b)/m
 const unsupportedDefaultPublicTypeExport = /^[ \t]*export\s+default\b/m
 const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
 
@@ -756,7 +756,8 @@ function locatedPublicTypeExports(code: string): LocatedPublicTypeExport[] {
 }
 
 function publicTypeExports(path: string): string[] {
-  const code = declarationCode(readFileSync(resolve(repositoryRoot, path), "utf8"))
+  const source = readFileSync(resolve(repositoryRoot, path), "utf8")
+  const code = declarationCode(source)
   return [...new Set(locatedPublicTypeExports(code).map(({ name }) => name))]
 }
 

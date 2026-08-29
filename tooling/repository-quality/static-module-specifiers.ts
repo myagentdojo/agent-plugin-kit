@@ -1,6 +1,7 @@
 const typescriptTranspiler = new Bun.Transpiler({ loader: "ts" })
 
 const moduleCall = /\b(?:import|require)\s*\(/g
+const escapedIdentifier = /\\u(?:\{[0-9A-Fa-f]+\}|[0-9A-Fa-f]{4})/
 const leadingTrivia = /^(?:(?:\s+)|(?:\/\/[^\n]*(?:\n|$))|(?:\/\*[\s\S]*?\*\/))*/
 const blockComment = /\/\*[\s\S]*?\*\//g
 const tripleSlashDependency = /^\/\/\/\s*<(?:reference\s+(?:path|types)|amd-dependency\s+path)\s*=\s*(["'])([^"']+)\1[^>]*\/?>\s*$/gm
@@ -241,6 +242,7 @@ function tripleSlashModuleSpecifiers(source: string): string[] {
 export function staticModuleSpecifiers(file: string, source: string): string[] {
   const scannedSource = sourceWithoutShebang(source)
   const views = lexicalViews(scannedSource)
+  if (escapedIdentifier.test(views.code)) throw new NonliteralModuleSpecifierError(file)
   const scannedImports = typescriptTranspiler.scanImports(scannedSource)
   const specifiers = new Set([
     ...scannedImports.map(({ path }) => path),
