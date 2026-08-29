@@ -1491,15 +1491,17 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
     {
       label: "dynamically recovered require loader reference",
       mutate: async (root: string) => {
-        const path = join(root, "src/admission-bootstrap/interface.ts")
-        await writeFile(
-          path,
-          `${await readFile(path, "utf8")}\n` +
-            'const load = eval("require")\n' +
-          'load("zod")\n',
+        const runtimePath = "src/admission-bootstrap/runtime-dynamic-loader.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval("require")\nload("zod")\n`,
         )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
       },
-      expectedFinding: runtimeSourceFinding,
     },
     {
       label: "declared runtime source recovers loader through parenthesized eval",
