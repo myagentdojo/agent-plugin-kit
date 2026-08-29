@@ -90,7 +90,9 @@ function transpilerRecognizesRegularExpression(source: string, start: number, li
   const probe = `/__agent_plugin_kit_regex_probe_${start}__/${flags}`
   const probedSource = source.slice(0, start) + probe + source.slice(start + literal.length)
   try {
-    return typescriptTranspiler.transformSync(probedSource).includes(probe)
+    const originalOccurrences = typescriptTranspiler.transformSync(source).split(probe).length
+    const probedOccurrences = typescriptTranspiler.transformSync(probedSource).split(probe).length
+    return probedOccurrences > originalOccurrences
   } catch {
     return false
   }

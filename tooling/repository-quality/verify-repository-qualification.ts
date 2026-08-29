@@ -761,7 +761,8 @@ function publicTypeExportName(match: RegExpMatchArray): string {
 
 function isTopLevelMatch(code: string, match: RegExpMatchArray): boolean {
   const prefix = code.slice(0, match.index ?? 0)
-  return prefix.split("{").length === prefix.split("}").length
+  const followsMemberAccess = match[0]?.startsWith("export") === true && prefix.trimEnd().endsWith(".")
+  return !followsMemberAccess && prefix.split("{").length === prefix.split("}").length
 }
 
 function topLevelMatches(code: string, pattern: RegExp): RegExpMatchArray[] {

@@ -9,6 +9,10 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import {
+  NonliteralModuleSpecifierError,
+  staticModuleSpecifiers,
+} from "../static-module-specifiers.ts"
 
 const repositoryRoot = resolve(import.meta.dir, "../../..")
 const temporaryRoots: string[] = []
@@ -1216,6 +1220,15 @@ type NotATemplateDependency = \`import { type NotATemplateDependency } from "not
   expect(observation.stderr).toBe("")
   expect(observation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
   expect(JSON.parse(observation.stdout)).toEqual(initialSuccess)
+
+  const divisionPrefix = "const value = 10 "
+  const probe = `/__agent_plugin_kit_regex_probe_${divisionPrefix.length}__/`
+  const collidingProbeSource = `${divisionPrefix}/ requ\\u0069re(dynamicDependency) / 2\n` +
+    `const probeCollision = ${JSON.stringify(probe)}\n`
+  expect(
+    () => staticModuleSpecifiers("colliding-regex-probe.ts", collidingProbeSource),
+    "the inserted slash probe must be classified independently from matching source text",
+  ).toThrow(NonliteralModuleSpecifierError)
 })
 
 test("shell exit, sentinel, verdict, or proof-schema drift is refused", async () => {
@@ -1529,6 +1542,20 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         (source) => source.replace(
           "export type RuntimeCustodyResult =",
           'type Internal = string\n/export type RuntimeCustodyResult = never/.test("")\ntype RemovedRuntimeCustodyResult =',
+        ),
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "property named export cannot replace a following private type declaration",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => source.replace(
+          "export type RuntimeCustodyResult =",
+          "declare const publicLookalike: { export: unknown }\n" +
+            "type Prior = typeof publicLookalike.export\n" +
+            "type RuntimeCustodyResult =",
         ),
       ),
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
