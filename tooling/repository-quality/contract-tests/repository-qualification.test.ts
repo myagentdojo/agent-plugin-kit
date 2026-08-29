@@ -2362,6 +2362,25 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
     {
+      label: "public string-lookalike const target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        'export const marker = "export const runtimeCustodyValue = fixture"\n',
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public initialized declaration-file target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\n",
+        "./implementation/runtime-custody.d.ts",
+        runtimeCustodyDeclarationReexportSha256,
+        "runtime-custody.d.ts",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
       label: "public escaped-suffix const target remains type-catalog drift",
       mutate: (root: string) => addRuntimeCustodyValueReexport(
         root,

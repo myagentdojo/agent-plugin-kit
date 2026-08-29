@@ -789,6 +789,7 @@ const publicTypeIdentifier = /^[$A-Z_a-z][$\w]*$/
 const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
 const namedValueExport = /^([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
 const directRuntimeConstDeclaration = /\bexport\s+const\s+([$A-Z_a-z][$\w]*)\s*=/g
+const declarationTypeScriptFile = /\.d\.(?:c|m)?ts$/
 const supportedRelativeReexport = /^(?:\.\/|\.\.\/)[^\\]+$/
 const descendantRelativePath = /^(?!\.\.(?:\/|$)).+$/
 
@@ -896,13 +897,14 @@ function namedValueExportSourceName(entry: string): string | undefined {
 }
 
 function directlyExportsValueOnlyConst(target: string, sourceName: string): boolean {
+  if (declarationTypeScriptFile.test(target)) return false
   const source = readFileSync(target, "utf8")
   const code = typescriptLexicalCode(source)
   const targetPath = relative(repositoryRoot, target).replaceAll("\\", "/")
   const publicTypes = locatedPublicTypeExports(targetPath, source, code).map(({ name }) => name)
   let runtimeCode: string
   try {
-    runtimeCode = typescriptRuntimeCode(source)
+    runtimeCode = typescriptLexicalCode(typescriptRuntimeCode(source))
   } catch {
     return false
   }
