@@ -265,6 +265,12 @@ async function mutateContract(
   await writeFile(path, `${JSON.stringify(contract, null, 2)}\n`)
 }
 
+function proofGroup(contract: Record<string, any>, id: string): Record<string, any> {
+  const group = contract.proof_groups.find((candidate: { id?: string }) => candidate.id === id)
+  if (group === undefined) throw new Error(`fixture omitted proof group ${id}`)
+  return group
+}
+
 function extendAdmissionRuntimeSourcePaths(
   contract: Record<string, any>,
   paths: readonly string[],
@@ -440,8 +446,7 @@ test("an additional independently observed GREEN transition qualifies", async ()
   )
   await mutateContract(root, (contract) => {
     for (const groupId of ["kit-interface", "clean-fixture"]) {
-      const group = contract.proof_groups.find((candidate: { id?: string }) => candidate.id === groupId)
-      if (group === undefined) throw new Error(`mixed fixture omitted proof group ${groupId}`)
+      const group = proofGroup(contract, groupId)
       group.tests += 1
       group.passed += 1
     }
@@ -461,7 +466,7 @@ test("group and aggregate count imbalance is refused", async () => {
     {
       label: "group",
       mutate: (contract: Record<string, any>) => {
-        contract.proof_groups[0].failed = 2
+        contract.proof_groups[0].failed += 1
       },
       expected: {
         schema_version: 1,
@@ -481,7 +486,7 @@ test("group and aggregate count imbalance is refused", async () => {
     {
       label: "aggregate",
       mutate: (contract: Record<string, any>) => {
-        contract.aggregate.failed = 103
+        contract.aggregate.failed += 1
       },
       expected: {
         schema_version: 1,
@@ -700,27 +705,41 @@ test("an absent, unknown, or miscounted test-failure class is refused", async ()
   const cases = [
     {
       label: "absent failure class",
-      mutate: (contract: Record<string, any>) => {
-        delete contract.proof_groups[0].failure_classes["contract-absent"]
+      mutate: async (root: string) => {
+        await mutateTextFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
+          (source) => `${source}\ntest("fixture-local undeclared failure class", () => {\n  expect(false, "contract-absent: fixture-local failure must be declared").toBeTrue()\n})\n`,
+        )
+        await mutateContract(root, (contract) => {
+          for (const groupId of ["kit-interface", "clean-fixture"]) {
+            const group = proofGroup(contract, groupId)
+            group.tests += 1
+            group.failed += 1
+          }
+          contract.aggregate.tests += 1
+          contract.aggregate.failed += 1
+        })
       },
     },
     {
       label: "unknown failure class",
-      mutate: (contract: Record<string, any>) => {
+      mutate: (root: string) => mutateContract(root, (contract) => {
         contract.proof_groups[0].failure_classes.unknown = 3
-      },
+      }),
     },
     {
       label: "miscounted failure class",
-      mutate: (contract: Record<string, any>) => {
-        contract.proof_groups[0].failure_classes["contract-absent"] = 2
-      },
+      mutate: (root: string) => mutateContract(root, (contract) => {
+        const current = contract.proof_groups[0].failure_classes["contract-absent"] ?? 0
+        contract.proof_groups[0].failure_classes["contract-absent"] = current + 1
+      }),
     },
   ] as const
 
   for (const row of cases) {
     const root = await copyRepositoryFixture()
-    await mutateContract(root, row.mutate)
+    await row.mutate(root)
     const expected = {
       schema_version: 1,
       command: "verify:repository-qualification",
