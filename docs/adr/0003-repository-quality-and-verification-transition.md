@@ -43,8 +43,14 @@ The declaration and verifier must:
   exactly `admissionBootstrap`, Qualification Evidence preserves
   `VerificationProfile`, and the other seven named subpaths are empty;
 - hash the Admission runtime target independently from its declaration target;
-- derive the three-file Admission Source Closure from the runtime target and
-  classify only the private Admission Implementation as runtime source; and
+- derive this exact three-file Admission Source Closure from the runtime
+  target: `src/admission-bootstrap/implementation/admission-bootstrap.ts`,
+  `src/admission-bootstrap/interface.ts`, and
+  `src/modules/release-and-git-engine/interface.ts`; classify only the private
+  Admission Implementation as runtime source; keep
+  `src/admission-bootstrap/package.json` separately in `owner_manifest`, not in
+  `source_closure`; and require the Clean Fixture `copiedClosure` observation to
+  equal those three Source Tree paths in sorted order; and
 - reject a missing, reordered, additional, or escaped condition or target,
   runtime-value drift, and every additional deep-Implementation export key.
 
