@@ -1139,9 +1139,12 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
       label: "runtime source declaration duplicates a path",
       mutate: async (root: string) => {
         await mutateContract(root, (contract) => {
+          const existingPath = contract.admission.runtime_source_paths[0] ??
+            "src/admission-bootstrap/interface.ts"
           contract.admission.runtime_source_paths = [
-            "src/admission-bootstrap/interface.ts",
-            "src/admission-bootstrap/interface.ts",
+            ...contract.admission.runtime_source_paths,
+            existingPath,
+            existingPath,
           ]
         })
       },
@@ -1156,7 +1159,9 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
         ] as const
         await addAdmissionRuntimeSources(root, paths)
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [...paths].reverse()
+          contract.admission.runtime_source_paths = [
+            ...new Set([...contract.admission.runtime_source_paths, ...paths]),
+          ].sort().reverse()
         })
       },
       expectedFinding: runtimeSourceFinding,
@@ -1165,7 +1170,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
       label: "runtime source declaration names an absent path",
       mutate: async (root: string) => {
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = ["src/admission-bootstrap/missing.ts"]
+          extendAdmissionRuntimeSourcePaths(contract, ["src/admission-bootstrap/missing.ts"])
         })
       },
       expectedFinding: runtimeSourceFinding,
@@ -1176,7 +1181,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
         const path = "src/admission-bootstrap/runtime-outside-closure.ts"
         await addAdmissionRuntimeSources(root, [path], false)
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [path]
+          extendAdmissionRuntimeSourcePaths(contract, [path])
         })
       },
       expectedFinding: runtimeSourceFinding,
@@ -1191,8 +1196,14 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
     {
       label: "declared runtime source is runtime-empty",
       mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-empty.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await writeFile(
+          join(root, runtimePath),
+          "export type RuntimeEmpty = never\n",
+        )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = ["src/admission-bootstrap/interface.ts"]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: runtimeSourceFinding,
@@ -1206,7 +1217,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nexport const hiddenRuntime = 1\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = ["src/admission-bootstrap/interface.ts"]
+          extendAdmissionRuntimeSourcePaths(contract, ["src/admission-bootstrap/interface.ts"])
         })
       },
       expectedFinding: {
