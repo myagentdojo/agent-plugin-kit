@@ -342,23 +342,26 @@
     "sentinel_file": "clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts",
     "sentinel_name": "public Admission source is dependency-free before maintenance execution",
     "sentinel_count": 1,
-    "source_entry": "src/admission-bootstrap/interface.ts",
+    "source_entry": "src/admission-bootstrap/implementation/admission-bootstrap.ts",
     "source_closure": [
       "src/admission-bootstrap/implementation/admission-bootstrap.ts",
       "src/admission-bootstrap/interface.ts",
       "src/modules/release-and-git-engine/interface.ts"
     ],
-    "runtime_source_paths": [
-      "src/admission-bootstrap/implementation/admission-bootstrap.ts",
-      "src/admission-bootstrap/interface.ts"
-    ],
+    "runtime_source_paths": ["src/admission-bootstrap/implementation/admission-bootstrap.ts"],
     "owner_manifest": "src/admission-bootstrap/package.json",
     "consumer_fixture": "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-consumer.ts",
     "projection_fixture": "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-package-projection.json",
     "projection": {
       "name": "agent-plugin-kit",
       "type": "module",
-      "exports": {"./admission-bootstrap": "./src/admission-bootstrap/interface.ts"}
+      "exports": {
+        "./admission-bootstrap": {
+          "types": "./src/admission-bootstrap/interface.ts",
+          "import": "./src/admission-bootstrap/implementation/admission-bootstrap.ts",
+          "default": "./src/admission-bootstrap/implementation/admission-bootstrap.ts"
+        }
+      }
     },
     "forbidden_self_reports": ["admissionImportLedger", "importedOwners", "observeImport"],
     "self_report_files": [
@@ -476,7 +479,11 @@
     "workspaces": ["src/admission-bootstrap", "src/modules/*", "src/adapters/*"],
     "exports": {
       ".": "./src/interface.ts",
-      "./admission-bootstrap": "./src/admission-bootstrap/interface.ts",
+      "./admission-bootstrap": {
+        "types": "./src/admission-bootstrap/interface.ts",
+        "import": "./src/admission-bootstrap/implementation/admission-bootstrap.ts",
+        "default": "./src/admission-bootstrap/implementation/admission-bootstrap.ts"
+      },
       "./plugin-payload-production": "./src/modules/plugin-payload-production/interface.ts",
       "./runtime-custody": "./src/modules/runtime-custody/interface.ts",
       "./release-and-git-engine": "./src/modules/release-and-git-engine/interface.ts",
@@ -511,7 +518,6 @@
         "VerificationProfile",
         "AdmittedIdentity",
         "CandidateIdentity",
-        "FullCommitPin",
         "PackageIdentity",
         "ReleaseIdentity",
         "RepositoryIdentity",
@@ -538,7 +544,6 @@
         "PackageIdentity",
         "WorkflowIdentity",
         "CandidateIdentity",
-        "FullCommitPin",
         "AdmittedIdentity",
         "AdmissionRequest",
         "AdmissionRefusal",
@@ -599,7 +604,7 @@
     },
     "runtime_output_sha256": {
       ".": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "./admission-bootstrap": "47fdb795f528a479b217022f92c4749db86a91e96194d31ca183bfa7eaf58694",
+      "./admission-bootstrap": "7079ef9471b8be91daccfd643df201bbd3dd0b41294f0dbf34df33f7f218c4f8",
       "./plugin-payload-production": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "./runtime-custody": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "./release-and-git-engine": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",

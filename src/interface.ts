@@ -30,7 +30,6 @@ export type {
 export type {
   AdmittedIdentity,
   CandidateIdentity,
-  FullCommitPin,
   PackageIdentity,
   ReleaseIdentity,
   RepositoryIdentity,

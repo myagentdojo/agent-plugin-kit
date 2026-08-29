@@ -91,17 +91,7 @@ export const admissionInvariantCases = [
     id: "release-pin-mismatch",
     request: {
       ...agreeingRequest,
-      candidate: {
-        ...admittedCandidate,
-        release: {
-          ...admittedCandidate.release,
-          commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        },
-      },
-      release: {
-        ...agreeingRequest.release,
-        commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      },
+      release: { ...agreeingRequest.release, commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
     },
     expected: { kind: "refused", code: "release-pin-mismatch" },
   },
@@ -109,17 +99,7 @@ export const admissionInvariantCases = [
     id: "package-pin-mismatch",
     request: {
       ...agreeingRequest,
-      candidate: {
-        ...admittedCandidate,
-        package: {
-          ...admittedCandidate.package,
-          commit: "cccccccccccccccccccccccccccccccccccccccc",
-        },
-      },
-      package: {
-        ...agreeingRequest.package,
-        commit: "cccccccccccccccccccccccccccccccccccccccc",
-      },
+      package: { ...agreeingRequest.package, commit: "cccccccccccccccccccccccccccccccccccccccc" },
     },
     expected: { kind: "refused", code: "package-pin-mismatch" },
   },
@@ -127,17 +107,7 @@ export const admissionInvariantCases = [
     id: "workflow-pin-mismatch",
     request: {
       ...agreeingRequest,
-      candidate: {
-        ...admittedCandidate,
-        workflow: {
-          ...admittedCandidate.workflow,
-          commit: "dddddddddddddddddddddddddddddddddddddddd",
-        },
-      },
-      workflow: {
-        ...agreeingRequest.workflow,
-        commit: "dddddddddddddddddddddddddddddddddddddddd",
-      },
+      workflow: { ...agreeingRequest.workflow, commit: "dddddddddddddddddddddddddddddddddddddddd" },
     },
     expected: { kind: "refused", code: "workflow-pin-mismatch" },
   },

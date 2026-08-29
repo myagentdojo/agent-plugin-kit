@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { admissionBootstrap } from "../../interface"
+import { admissionBootstrap } from "../../../../clean-fixture/personal-verification-profile/contract-tests/adapters/contract-subjects"
 import type { AdmissionBootstrap } from "../../interface"
 
 export function createAdmissionContractHarness(

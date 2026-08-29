@@ -1179,7 +1179,11 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           ].sort().reverse()
         })
       },
-      expectedFinding: runtimeSourceFinding,
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
     },
     {
       label: "runtime source declaration names an absent path",
@@ -1206,7 +1210,11 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
       mutate: async (root: string) => {
         await addAdmissionRuntimeSources(root, ["src/admission-bootstrap/runtime-omitted.ts"])
       },
-      expectedFinding: runtimeSourceFinding,
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
     },
     {
       label: "declared runtime source is runtime-empty",
@@ -1221,7 +1229,11 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
-      expectedFinding: runtimeSourceFinding,
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
     },
     {
       label: "public Admission Interface runtime drift remains protected",
@@ -1236,8 +1248,8 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
         })
       },
       expectedFinding: {
-        kind: "package-contract-drift",
-        owner: 'package_contract.runtime_output_sha256["./admission-bootstrap"]',
+        kind: "admission-closure-drift",
+        owner: "admission.runtime_source_paths",
         repair_id: "restore-repository-bytes",
       },
     },
@@ -1862,29 +1874,118 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
       },
     },
     {
-      label: "Admission projection export disagrees with root Package Identity",
+      label: "Admission projection export conditions are missing",
       mutate: async (root: string) => {
         await mutateContract(root, (contract) => {
-          contract.admission.projection.exports["./admission-bootstrap"] = "./src/admission-bootstrap/drifted.ts"
+          delete contract.admission.projection.exports["./admission-bootstrap"].default
         })
         await mutateJsonFile(
           root,
           "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-package-projection.json",
           (projection) => {
-            projection.exports["./admission-bootstrap"] = "./src/admission-bootstrap/drifted.ts"
+            delete projection.exports["./admission-bootstrap"].default
           },
         )
+      },
+      expectedFinding: {
+        kind: "unknown-contract-key",
+        owner: 'admission.projection.exports["./admission-bootstrap"].default',
+        repair_id: "restore-current-declaration",
+      },
+      expectedCode: "contract-invalid",
+      expectedExitCode: 2,
+    },
+    {
+      label: "Admission projection export conditions are reordered",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          const entry = contract.admission.projection.exports["./admission-bootstrap"]
+          contract.admission.projection.exports["./admission-bootstrap"] = {
+            default: entry.default,
+            types: entry.types,
+            import: entry.import,
+          }
+        })
+        await mutateJsonFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-package-projection.json",
+          (projection) => {
+            const entry = projection.exports["./admission-bootstrap"]
+            projection.exports["./admission-bootstrap"] = {
+              default: entry.default,
+              types: entry.types,
+              import: entry.import,
+            }
+          },
+        )
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: 'admission.projection.exports["./admission-bootstrap"]',
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "Admission projection export conditions have an additional key",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.projection.exports["./admission-bootstrap"].development =
+            "./src/admission-bootstrap/implementation/admission-bootstrap.ts"
+        })
+      },
+      expectedFinding: {
+        kind: "unknown-contract-key",
+        owner: 'admission.projection.exports["./admission-bootstrap"].development',
+        repair_id: "restore-current-declaration",
+      },
+      expectedCode: "contract-invalid",
+      expectedExitCode: 2,
+    },
+    {
+      label: "Admission projection runtime targets are unequal",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.projection.exports["./admission-bootstrap"].default =
+            "./src/admission-bootstrap/interface.ts"
+        })
+        await mutateJsonFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-package-projection.json",
+          (projection) => {
+            projection.exports["./admission-bootstrap"].default =
+              "./src/admission-bootstrap/interface.ts"
+          },
+        )
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: 'admission.projection.exports["./admission-bootstrap"]',
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "Admission projection export target escapes the repository",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.projection.exports["./admission-bootstrap"].import = "../outside.ts"
+        })
+        await mutateJsonFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-package-projection.json",
+          (projection) => {
+            projection.exports["./admission-bootstrap"].import = "../outside.ts"
+          },
+        )
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: 'admission.projection.exports["./admission-bootstrap"]',
+        repair_id: "restore-repository-bytes",
       },
     },
   ] as const
 
-  const runtimeRoot = await copyRepositoryFixture()
-  const runtimePath = "src/admission-bootstrap/runtime.ts"
-  await addAdmissionRuntimeSources(runtimeRoot, [runtimePath])
-  await mutateTextFile(
-    runtimeRoot,
-    runtimePath,
-    (source) => `${source}
+  const localRuntimeSource = `
 import "node:fs"
 import type { ReleaseIdentity } from "../modules/release-and-git-engine/interface"
 type RuntimeIdentity = ReleaseIdentity
@@ -1893,25 +1994,11 @@ local . eval("require")
 local /* comment */ . eval("require")
 const localGlobal = { globalThis: local }
 localGlobal /* comment */ . globalThis . eval("require")
-`,
-  )
-  await mutateContract(runtimeRoot, (contract) => {
-    extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
-  })
-  const runtimeExpected = {
-    schema_version: 1,
-    command: "verify:repository-qualification",
-    status: "qualified",
-    mode: "structure-only",
-    contract: "tooling/repository-quality/repository-qualification-contract.json",
-    groups: [],
-    aggregate: null,
-  } as const
-  const runtimeObservation = await observeVerifier(runtimeRoot, ["--structure-only"])
-  expect(runtimeObservation.exitCode, runtimeObservation.stderr).toBe(0)
-  expect(runtimeObservation.stderr).toBe("")
-  expect(runtimeObservation.stdout).toBe(`${JSON.stringify(runtimeExpected)}\n`)
-  expect(JSON.parse(runtimeObservation.stdout)).toEqual(runtimeExpected)
+`
+  expect(staticModuleSpecifiers("runtime.ts", localRuntimeSource)).toEqual([
+    "node:fs",
+    "../modules/release-and-git-engine/interface",
+  ])
 
   await Promise.all(cases.map(async (row) => {
     const root = await copyRepositoryFixture()
@@ -1923,16 +2010,18 @@ localGlobal /* comment */ . globalThis . eval("require")
           owner: "admission.source_closure",
           repair_id: "restore-repository-bytes",
         }
+    const code = "expectedCode" in row ? row.expectedCode : "repository-unqualified"
+    const exitCode = "expectedExitCode" in row ? row.expectedExitCode : 1
     const expected = {
       schema_version: 1,
       command: "verify:repository-qualification",
       status: "refused",
       mode: "complete",
-      code: "repository-unqualified",
+      code,
       findings: [finding],
     } as const
     const observation = await observeVerifier(root)
-    expect(observation.exitCode, row.label).toBe(1)
+    expect(observation.exitCode, row.label).toBe(exitCode)
     expect(observation.stdout, row.label).toBe("")
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
@@ -2173,6 +2262,64 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         packageJson.exports["./maintenance-command-facade"] = "./src/adapters/maintenance-command-facade/interface.ts"
       }),
       expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission root export condition is missing",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        delete packageJson.exports["./admission-bootstrap"].default
+      }),
+      expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission root export conditions are reordered",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        const entry = packageJson.exports["./admission-bootstrap"]
+        packageJson.exports["./admission-bootstrap"] = {
+          default: entry.default,
+          types: entry.types,
+          import: entry.import,
+        }
+      }),
+      expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission root export has an additional condition",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.exports["./admission-bootstrap"].development =
+          "./src/admission-bootstrap/implementation/admission-bootstrap.ts"
+      }),
+      expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission root export runtime targets are unequal",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.exports["./admission-bootstrap"].default =
+          "./src/admission-bootstrap/interface.ts"
+      }),
+      expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission root export target escapes the repository",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.exports["./admission-bootstrap"].import = "../outside.ts"
+      }),
+      expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission root declaration target drifts",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.exports["./admission-bootstrap"].types = "./src/interface.ts"
+      }),
+      expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission deep Implementation export key is added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/admission-bootstrap/implementation/admission-bootstrap.ts",
+        (source) => `${source}\nexport const hiddenImplementation = 1\n`,
+      ),
+      expectedOwner: 'package_contract.runtime_output_sha256["./admission-bootstrap"]',
     },
     {
       label: "public type catalog and package exports disagree",

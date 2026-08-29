@@ -1,59 +1,54 @@
 export type RepositoryIdentity = {
-  readonly origin: string
+  origin: string
 }
 
 export type SourceIdentity = {
-  readonly repository: RepositoryIdentity
-  readonly commit: string
+  repository: RepositoryIdentity
+  commit: string
 }
 
 export type ReleaseIdentity = {
-  readonly reference: string
-  readonly commit: string
+  reference: string
+  commit: string
 }
 
 export type PackageIdentity = {
-  readonly repository: RepositoryIdentity
-  readonly commit: string
+  repository: RepositoryIdentity
+  commit: string
 }
 
 export type WorkflowIdentity = {
-  readonly repository: RepositoryIdentity
-  readonly path: string
-  readonly commit: string
+  repository: RepositoryIdentity
+  path: string
+  commit: string
 }
 
 export type CandidateIdentity = {
-  readonly source: SourceIdentity
-  readonly release: ReleaseIdentity
-  readonly package: PackageIdentity
-  readonly workflow: WorkflowIdentity
+  source: SourceIdentity
+  release: ReleaseIdentity
+  package: PackageIdentity
+  workflow: WorkflowIdentity
 }
 
-declare const fullCommitPinBrand: unique symbol
 declare const admittedIdentityBrand: unique symbol
-
-export type FullCommitPin = string & {
-  readonly [fullCommitPinBrand]: true
-}
 
 export type AdmittedIdentity = {
   readonly source: {
-    readonly repository: RepositoryIdentity
-    readonly commit: FullCommitPin
+    readonly repository: { readonly origin: string }
+    readonly commit: string
   }
   readonly release: {
     readonly reference: string
-    readonly commit: FullCommitPin
+    readonly commit: string
   }
   readonly package: {
-    readonly repository: RepositoryIdentity
-    readonly commit: FullCommitPin
+    readonly repository: { readonly origin: string }
+    readonly commit: string
   }
   readonly workflow: {
-    readonly repository: RepositoryIdentity
+    readonly repository: { readonly origin: string }
     readonly path: string
-    readonly commit: FullCommitPin
+    readonly commit: string
   }
   readonly [admittedIdentityBrand]: true
 }

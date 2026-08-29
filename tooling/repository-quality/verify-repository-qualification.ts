@@ -38,6 +38,14 @@ type WorkspaceSelector = BalancedCounts & {
   files: readonly string[]
 }
 
+type ConditionalPackageExport = {
+  readonly types: string
+  readonly import: string
+  readonly default: string
+}
+
+type PackageExportTarget = string | ConditionalPackageExport
+
 type ObservedCounts = BalancedCounts & {
   files: number
 }
@@ -86,7 +94,7 @@ type RepositoryQualificationContract = {
     projection: {
       name: string
       type: string
-      exports: Readonly<Record<string, string>>
+      exports: Readonly<Record<string, PackageExportTarget>>
     }
     forbidden_self_reports: readonly string[]
     self_report_files: readonly string[]
@@ -99,7 +107,7 @@ type RepositoryQualificationContract = {
     type: string
     package_manager: string
     workspaces: readonly string[]
-    exports: Readonly<Record<string, string>>
+    exports: Readonly<Record<string, PackageExportTarget>>
     type_exports: Readonly<Record<string, readonly string[]>>
     runtime_output_sha256: Readonly<Record<string, string>>
     bin: Readonly<Record<string, string>>
@@ -181,6 +189,13 @@ class QualificationRefusal extends Error {
 const repositoryRoot = resolve(import.meta.dir, "../..")
 const contractPath = resolve(repositoryRoot, "tooling/repository-quality/repository-qualification-contract.json")
 const repositoryQualityModuleSpecifierPath = "tooling/repository-quality/static-module-specifiers.ts"
+const admissionInterfacePath = "src/admission-bootstrap/interface.ts"
+const admissionImplementationPath = "src/admission-bootstrap/implementation/admission-bootstrap.ts"
+const admissionSourceClosure = [
+  admissionImplementationPath,
+  admissionInterfacePath,
+  "src/modules/release-and-git-engine/interface.ts",
+] as const
 const knownFailureClasses = new Set(["contract-absent"])
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
 let activeMode: "complete" | "structure-only" = "complete"
@@ -549,6 +564,13 @@ function discoverAdmissionSourceClosure(entry: string): string[] {
 
 function verifyAdmission(contract: RepositoryQualificationContract): void {
   const admission = contract.admission
+  if (admission.source_entry !== admissionImplementationPath) admissionDrift("admission.source_entry")
+  if (JSON.stringify(admission.source_closure) !== JSON.stringify(admissionSourceClosure)) {
+    admissionDrift("admission.source_closure")
+  }
+  if (JSON.stringify(admission.runtime_source_paths) !== JSON.stringify([admissionImplementationPath])) {
+    admissionDrift("admission.runtime_source_paths")
+  }
   verifyFirstGreenImplementationTransition(admission.first_green_implementation_transition)
   verifyAdmissionSentinel(admission)
   verifyAdmissionSelfReports(admission.forbidden_self_reports, admission.self_report_files)
@@ -734,6 +756,13 @@ function verifyAdmissionProjection(
   const projection = JSON.parse(readFileSync(resolve(repositoryRoot, path), "utf8")) as unknown
   if (JSON.stringify(projection) !== JSON.stringify(expected)) admissionDrift()
   const publicEntry = packageContract.exports["./admission-bootstrap"]
+  verifyAdmissionExportConditions(
+    publicEntry,
+    "package_contract.exports[\"./admission-bootstrap\"]",
+    packageDrift,
+  )
+  const projectionEntry = expected.exports["./admission-bootstrap"]
+  verifyAdmissionExportConditions(projectionEntry, "admission.projection.exports[\"./admission-bootstrap\"]")
   const agreements = [
     expected.name === packageContract.name,
     expected.type === packageContract.type,
@@ -741,6 +770,24 @@ function verifyAdmissionProjection(
     JSON.stringify(expected.exports) === JSON.stringify({ "./admission-bootstrap": publicEntry }),
   ]
   if (agreements.includes(false)) admissionDrift()
+}
+
+function verifyAdmissionExportConditions(
+  value: PackageExportTarget | undefined,
+  owner: string,
+  drift: (owner: string) => never = admissionDrift,
+): asserts value is ConditionalPackageExport {
+  if (value === undefined || typeof value === "string") drift(owner)
+  if (JSON.stringify(Object.keys(value)) !== JSON.stringify(["types", "import", "default"])) {
+    drift(owner)
+  }
+  if (
+    value.types !== `./${admissionInterfacePath}` ||
+    value.import !== `./${admissionImplementationPath}` ||
+    value.default !== value.import
+  ) {
+    drift(owner)
+  }
 }
 
 function verifyAdmissionConsumer(path: string): void {
@@ -1016,8 +1063,41 @@ function verifyPublicTypeExports(
     packageDrift("package_contract.runtime_output_sha256")
   }
   for (const [subpath, target] of Object.entries(expected.exports)) {
-    verifyPublicTypeExport(subpath, target, expected.type_exports[subpath])
-    verifyPublicRuntimeOutput(subpath, target, expected.runtime_output_sha256[subpath])
+    const targets = publicExportTargets(subpath, target)
+    verifyPublicTypeExport(subpath, targets.types, expected.type_exports[subpath])
+    verifyPublicRuntimeOutput(subpath, targets.runtime, expected.runtime_output_sha256[subpath])
+  }
+}
+
+function publicExportTargets(
+  subpath: string,
+  target: PackageExportTarget,
+): { readonly types: string; readonly runtime: string } {
+  if (typeof target === "string") {
+    verifyPublicTargetPath(target, `package_contract.exports[${JSON.stringify(subpath)}]`)
+    return { types: target, runtime: target }
+  }
+  verifyAdmissionExportConditions(
+    target,
+    `package_contract.exports[${JSON.stringify(subpath)}]`,
+    packageDrift,
+  )
+  if (subpath !== "./admission-bootstrap") {
+    packageDrift(`package_contract.exports[${JSON.stringify(subpath)}]`)
+  }
+  verifyPublicTargetPath(target.types, `package_contract.exports[${JSON.stringify(subpath)}].types`)
+  verifyPublicTargetPath(target.import, `package_contract.exports[${JSON.stringify(subpath)}].import`)
+  return { types: target.types, runtime: target.import }
+}
+
+function verifyPublicTargetPath(target: string, owner: string): void {
+  try {
+    if (isAbsolute(target)) packageDrift(owner)
+    const absolute = realpathSync(resolve(repositoryRoot, target))
+    const relativeTarget = relative(realpathSync(repositoryRoot), absolute).replaceAll("\\", "/")
+    if (!isDescendantRelativePath(relativeTarget) || !statSync(absolute).isFile()) packageDrift(owner)
+  } catch {
+    packageDrift(owner)
   }
 }
 
@@ -1363,7 +1443,7 @@ function validatePackageContractRecord(value: unknown): void {
   contractString(contract.type, "package_contract.type")
   contractString(contract.package_manager, "package_contract.package_manager")
   contractStringArray(contract.workspaces, "package_contract.workspaces")
-  contractStringRecord(contract.exports, "package_contract.exports")
+  validatePackageExportRecord(contract.exports, "package_contract.exports")
   contractStringArrayRecord(contract.type_exports, "package_contract.type_exports")
   contractStringRecord(contract.runtime_output_sha256, "package_contract.runtime_output_sha256")
   contractStringRecord(contract.bin, "package_contract.bin")
@@ -1470,7 +1550,18 @@ function validateAdmissionRecord(value: unknown): void {
   const projection = exactRecord(admission.projection, "admission.projection", ["name", "type", "exports"])
   contractString(projection.name, "admission.projection.name")
   contractString(projection.type, "admission.projection.type")
-  contractStringRecord(projection.exports, "admission.projection.exports")
+  validatePackageExportRecord(projection.exports, "admission.projection.exports")
+}
+
+function validatePackageExportRecord(value: unknown, owner: string): void {
+  const record = contractRecord(value, owner)
+  for (const [key, target] of Object.entries(record)) {
+    if (typeof target === "string") continue
+    const conditional = exactRecord(target, `${owner}[${JSON.stringify(key)}]`, ["types", "import", "default"])
+    contractString(conditional.types, `${owner}[${JSON.stringify(key)}].types`)
+    contractString(conditional.import, `${owner}[${JSON.stringify(key)}].import`)
+    contractString(conditional.default, `${owner}[${JSON.stringify(key)}].default`)
+  }
 }
 
 function validateShellRecords(value: unknown): void {
