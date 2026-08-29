@@ -1,38 +1,60 @@
 export type RepositoryIdentity = {
-  origin: string
+  readonly origin: string
 }
 
 export type SourceIdentity = {
-  repository: RepositoryIdentity
-  commit: string
+  readonly repository: RepositoryIdentity
+  readonly commit: string
 }
 
 export type ReleaseIdentity = {
-  reference: string
-  commit: string
+  readonly reference: string
+  readonly commit: string
 }
 
 export type PackageIdentity = {
-  repository: RepositoryIdentity
-  commit: string
+  readonly repository: RepositoryIdentity
+  readonly commit: string
 }
 
 export type WorkflowIdentity = {
-  repository: RepositoryIdentity
-  path: string
-  commit: string
+  readonly repository: RepositoryIdentity
+  readonly path: string
+  readonly commit: string
 }
 
 export type CandidateIdentity = {
-  source: SourceIdentity
-  release: ReleaseIdentity
-  package: PackageIdentity
-  workflow: WorkflowIdentity
+  readonly source: SourceIdentity
+  readonly release: ReleaseIdentity
+  readonly package: PackageIdentity
+  readonly workflow: WorkflowIdentity
 }
 
+declare const fullCommitPinBrand: unique symbol
 declare const admittedIdentityBrand: unique symbol
 
-export type AdmittedIdentity = CandidateIdentity & {
+export type FullCommitPin = string & {
+  readonly [fullCommitPinBrand]: true
+}
+
+export type AdmittedIdentity = {
+  readonly source: {
+    readonly repository: RepositoryIdentity
+    readonly commit: FullCommitPin
+  }
+  readonly release: {
+    readonly reference: string
+    readonly commit: FullCommitPin
+  }
+  readonly package: {
+    readonly repository: RepositoryIdentity
+    readonly commit: FullCommitPin
+  }
+  readonly workflow: {
+    readonly repository: RepositoryIdentity
+    readonly path: string
+    readonly commit: FullCommitPin
+  }
   readonly [admittedIdentityBrand]: true
 }
 

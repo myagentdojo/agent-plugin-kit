@@ -26,6 +26,7 @@ export const expectedRootTypeExports = [
   "PackageIdentity",
   "WorkflowIdentity",
   "CandidateIdentity",
+  "FullCommitPin",
   "AdmittedIdentity",
 ] as const
 
@@ -50,7 +51,7 @@ export const expectedSubpathTypeExports = {
     "ReleaseAndGitEngine", "ReleaseRequest", "ReleaseMutationRequest", "ReleasePlan",
     "ReleaseResult", "ReleaseCandidateApproval", "AdmissionRequest", "AdmissionRefusal",
     "RepositoryIdentity", "SourceIdentity", "ReleaseIdentity", "PackageIdentity",
-    "WorkflowIdentity", "CandidateIdentity", "AdmittedIdentity", "PackageObservation",
+    "WorkflowIdentity", "CandidateIdentity", "FullCommitPin", "AdmittedIdentity", "PackageObservation",
   ],
   "./maintenance-command-contract": [
     "MaintenanceCommands", "MaintenanceCommand", "MutatingMaintenanceCommand",
