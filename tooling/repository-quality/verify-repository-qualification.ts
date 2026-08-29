@@ -9,7 +9,7 @@ import {
   statSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, extname, join, relative, resolve } from "node:path"
+import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path"
 import {
   NonliteralModuleSpecifierError,
   staticModuleSpecifiers,
@@ -788,6 +788,8 @@ const unsupportedPublicTypePatterns = [
 const publicTypeIdentifier = /^[$A-Z_a-z][$\w]*$/
 const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
 const namedValueExport = /^([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
+const supportedRelativeReexport = /^(?:\.\/|\.\.\/)[^\\]+$/
+const descendantRelativePath = /^(?!\.\.(?:\/|$)).+$/
 
 type LocatedPublicTypeExport = {
   readonly index: number
@@ -884,8 +886,7 @@ function localValueReexport(
 }
 
 function relativeReexportSpecifier(specifier: string | undefined): string | undefined {
-  if (specifier === undefined) return undefined
-  return specifier.startsWith(".") ? specifier : undefined
+  return specifier !== undefined && supportedRelativeReexport.test(specifier) ? specifier : undefined
 }
 
 function namedValueExportSourceName(entry: string): string | undefined {
@@ -913,9 +914,10 @@ function resolvePublicReexportTarget(exporterPath: string, specifier: string): s
 }
 
 function pathInside(root: string, target: string): string | undefined {
-  const relativeTarget = relative(root, target).replaceAll("\\", "/")
-  if (relativeTarget === "" || relativeTarget === ".." || relativeTarget.startsWith("../")) return undefined
-  return target
+  const nativeRelativeTarget = relative(root, target)
+  if (isAbsolute(nativeRelativeTarget)) return undefined
+  const relativeTarget = nativeRelativeTarget.replaceAll("\\", "/")
+  return descendantRelativePath.test(relativeTarget) ? target : undefined
 }
 
 function ownerImplementationRoot(exporterPath: string): string | undefined {
