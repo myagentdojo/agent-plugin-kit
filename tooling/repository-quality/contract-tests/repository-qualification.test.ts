@@ -1024,6 +1024,19 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
       },
     },
     {
+      label: "escaped require between divisions after multiline property named if",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(
+          path,
+          `${await readFile(path, "utf8")}\n` +
+            'const controlLookalike = { if: (_value: boolean) => 1 }\n' +
+            'const dynamicDependency = "zod"\n' +
+            'controlLookalike.\nif(true) / requ\\u0069re(dynamicDependency) / 2\n',
+        )
+      },
+    },
+    {
       label: "computed nonliteral require with an escaped identifier",
       mutate: async (root: string) => {
         const path = join(root, "src/admission-bootstrap/interface.ts")
@@ -1413,6 +1426,15 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         root,
         "src/modules/runtime-custody/interface.ts",
         (source) => `${source}\n  export class HiddenPublicType {}\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "decorated named class declaration fails closed",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\n@sealed export class HiddenPublicType {}\n`,
       ),
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },

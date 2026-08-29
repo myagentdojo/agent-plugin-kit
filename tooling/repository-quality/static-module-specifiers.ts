@@ -58,11 +58,17 @@ function matchingOpeningParenthesis(source: string, closingIndex: number): numbe
   return undefined
 }
 
+function beginsControlStatementCondition(source: string): boolean {
+  const match = source.match(controlStatementBeforeCondition)
+  if (match?.index === undefined) return false
+  return !/\.\s*$/.test(source.slice(0, match.index))
+}
+
 function closesControlStatementCondition(code: string): boolean {
   const prefix = code.trimEnd()
   if (!prefix.endsWith(")")) return false
   const openingIndex = matchingOpeningParenthesis(prefix, prefix.length - 1)
-  return openingIndex !== undefined && controlStatementBeforeCondition.test(prefix.slice(0, openingIndex))
+  return openingIndex !== undefined && beginsControlStatementCondition(prefix.slice(0, openingIndex))
 }
 
 function canStartRegularExpression(source: string, code: string, index: number): boolean {
