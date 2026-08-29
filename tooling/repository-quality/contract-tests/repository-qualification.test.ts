@@ -1429,6 +1429,24 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: 'package_contract.type_exports["."]',
     },
     {
+      label: "root Interface declared function added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/interface.ts",
+        (source) => `${source}\nexport declare function HiddenPublicValue(): void\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["."]',
+    },
+    {
+      label: "root Interface declared const added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/interface.ts",
+        (source) => `${source}\nexport declare const HiddenPublicValue: string\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["."]',
+    },
+    {
       label: "public type export added",
       mutate: (root: string) => mutateTextFile(
         root,

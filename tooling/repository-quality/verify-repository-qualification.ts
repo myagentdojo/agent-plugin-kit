@@ -707,6 +707,7 @@ class PublicTypeExportParseError extends Error {}
 
 const directPublicTypeDeclaration = /^[ \t]*export\s+(?:declare\s+)?(?:type(?!\s*\{)|interface)\s+([^\s=<{;]+)/gm
 const namedPublicTypeExportBlock = /^[ \t]*export\s+(type\s*)?\{([\s\S]*?)\}/gm
+const declaredRootPublicValue = /^[ \t]*export\s+declare\s+(?:function|const|let|var)\b/gm
 const unsupportedPublicDecorator = /@/g
 const unsupportedPublicTypeExport = /^[ \t]*export\s+(?:(?:type\s+)?\*|(?:(?:declare|abstract)\s+)*(?:class|(?:const\s+)?enum|namespace|module|import)\b)/gm
 const unsupportedDefaultPublicTypeExport = /^[ \t]*export\s+default\b/gm
@@ -778,10 +779,13 @@ function locatedPublicTypeExports(code: string): LocatedPublicTypeExport[] {
 
 function publicTypeExports(path: string): string[] {
   const source = readFileSync(resolve(repositoryRoot, path), "utf8")
-  if (path === "./src/interface.ts" && typescriptRuntimeCode(source).trim() !== "") {
+  const code = typescriptLexicalCode(source)
+  if (
+    path === "./src/interface.ts" &&
+    (typescriptRuntimeCode(source).trim() !== "" || topLevelMatches(code, declaredRootPublicValue).length > 0)
+  ) {
     throw new PublicTypeExportParseError()
   }
-  const code = typescriptLexicalCode(source)
   return [...new Set(locatedPublicTypeExports(code).map(({ name }) => name))]
 }
 
