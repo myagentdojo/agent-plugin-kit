@@ -1522,6 +1522,18 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
     {
+      label: "regex text after type declaration replaces top-level export",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => source.replace(
+          "export type RuntimeCustodyResult =",
+          'type Internal = string\n/export type RuntimeCustodyResult = never/.test("")\ntype RemovedRuntimeCustodyResult =',
+        ),
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
       label: "declared public interface added",
       mutate: (root: string) => mutateTextFile(
         root,

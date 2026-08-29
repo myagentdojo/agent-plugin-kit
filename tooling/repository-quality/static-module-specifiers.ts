@@ -84,9 +84,23 @@ function canStartRegularExpression(code: string, index: number): boolean {
     closesControlStatementCondition(code)
 }
 
+function transpilerRecognizesRegularExpression(source: string, start: number, literal: string): boolean {
+  const closingSlash = literal.lastIndexOf("/")
+  const flags = literal.slice(closingSlash + 1)
+  const probe = `/__agent_plugin_kit_regex_probe_${start}__/${flags}`
+  const probedSource = source.slice(0, start) + probe + source.slice(start + literal.length)
+  try {
+    return typescriptTranspiler.transformSync(probedSource).includes(probe)
+  } catch {
+    return false
+  }
+}
+
 function regularExpressionEnd(source: string, code: string, start: number): number | undefined {
   const match = source.slice(start).match(regularExpressionLiteral)
-  return canStartRegularExpression(code, start) && match !== null
+  return match !== null && (
+    canStartRegularExpression(code, start) || transpilerRecognizesRegularExpression(source, start, match[0])
+  )
     ? start + match[0].length
     : undefined
 }
