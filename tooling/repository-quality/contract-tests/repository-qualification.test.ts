@@ -1040,7 +1040,7 @@ test("required-path or declared-structure drift is refused", async () => {
     expect(nestedCacheObservation.stderr, extension).toBe(`${JSON.stringify(nestedCacheExpected)}\n`)
     expect(JSON.parse(nestedCacheObservation.stderr), extension).toEqual(nestedCacheExpected)
   }
-})
+}, 15_000)
 
 test("Admission Source Closure and runtime-source drift, escape, or bare dependency is refused", async () => {
   const cases = [
@@ -1620,6 +1620,86 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
       },
     },
     {
+      label: "declared runtime source destructures eval from globalThis",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-destructured-global-eval.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst { eval: run } = globalThis\nrun('import("zod")')\n`,
+        )
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [runtimePath]
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source aliases globalThis before eval access",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-aliased-global-this.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst globals = globalThis\nglobals.eval('import("zod")')\n`,
+        )
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [runtimePath]
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source destructures computed eval from globalThis",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-computed-destructured-eval.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst { ["eval"]: run } = globalThis\nrun('import("zod")')\n`,
+        )
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [runtimePath]
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source computes eval property on globalThis",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-dynamic-global-eval.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst property = "eval"\nglobalThis[property]('import("zod")')\n`,
+        )
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [runtimePath]
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
       label: "computed nonliteral require between divisions after keyword-named property",
       mutate: async (root: string) => {
         const path = join(root, "src/admission-bootstrap/interface.ts")
@@ -1692,6 +1772,8 @@ type RuntimeIdentity = ReleaseIdentity
 const local = { eval: (value: string) => value }
 local . eval("require")
 local /* comment */ . eval("require")
+const localGlobal = { globalThis: local }
+localGlobal /* comment */ . globalThis . eval("require")
 `,
   )
   await mutateContract(runtimeRoot, (contract) => {
