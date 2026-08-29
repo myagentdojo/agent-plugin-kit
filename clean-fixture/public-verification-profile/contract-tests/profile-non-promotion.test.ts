@@ -11,7 +11,8 @@ import {
 
 test("local installation evidence cannot promote a hosted workflow claim", () => {
   const before = [...hostedEffectLedger]
-  const actual = qualificationEvidence?.reduce({ candidate: admittedCandidate, profile: publicProfile, cells: publicProfileCells() })
+  const outcome = qualificationEvidence?.reduce({ candidate: admittedCandidate, profile: publicProfile, cells: publicProfileCells() })
+  const actual = outcome?.status === "reduced" ? outcome.result : undefined
 
   expect(hostedEffectLedger).toEqual(before)
   const claim = actual?.claims.find((item) => item.claim === "workflow.called-revision")
@@ -21,7 +22,8 @@ test("local installation evidence cannot promote a hosted workflow claim", () =>
 
 test("hosted evidence cannot promote a Fresh-Native claim", () => {
   const before = [...hostedEffectLedger]
-  const actual = qualificationEvidence?.reduce({ candidate: admittedCandidate, profile: publicProfile, cells: publicProfileCells() })
+  const outcome = qualificationEvidence?.reduce({ candidate: admittedCandidate, profile: publicProfile, cells: publicProfileCells() })
+  const actual = outcome?.status === "reduced" ? outcome.result : undefined
 
   expect(hostedEffectLedger).toEqual(before)
   const claim = actual?.claims.find((item) => item.claim === "harness.codex.fresh-native")

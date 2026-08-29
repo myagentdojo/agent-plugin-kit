@@ -4,8 +4,6 @@ import type {
 import { VerificationProfile } from "../../interface"
 import type { CandidateIdentity } from "../../../release-and-git-engine/interface"
 
-type VerificationClaim = EvidenceCell["claim"]
-
 export const candidate: CandidateIdentity = {
   source: {
     repository: { origin: "https://github.com/myagentdojo/example-plugin.git" },
@@ -32,7 +30,9 @@ export const candidateDigest =
 export const personalProfile = VerificationProfile.personal
 export const publicProfile = VerificationProfile.public
 
-export function observedCell(overrides: Partial<EvidenceCell> = {}): EvidenceCell {
+export function observedCell(
+  overrides: Partial<Extract<EvidenceCell, { assertedStatus: "proved" }>> = {},
+): Extract<EvidenceCell, { assertedStatus: "proved" }> {
   return {
     schemaVersion: 1,
     id: "cell:admitted",
@@ -108,18 +108,32 @@ export function publicEvidenceCells(): EvidenceCell[] {
 }
 
 export function skipCell(
-  claim: VerificationClaim,
+  claim:
+    | "kit.identity.admitted"
+    | "kit.command.invoked"
+    | "kit.package.full-commit-pin"
+    | "kit.workflow.full-commit-pin"
+    | "plugin-payload.installed"
+    | "runtime.supported-platform"
+    | "release.identity.published"
+    | "workflow.called-revision"
+    | "canary.hosted-qualified"
+    | "harness.claude.fresh-native"
+    | "harness.codex.fresh-native",
   id: `cell:${string}` = "cell:skip",
-  skipRationale: EvidenceCell["skipRationale"] = "fresh-native-proof-not-run",
-): EvidenceCell {
-  return observedCell({
+  skipRationale: Extract<EvidenceCell, { unknownKind: "skip" }>["skipRationale"] = "fresh-native-proof-not-run",
+): Extract<EvidenceCell, { unknownKind: "skip" }> {
+  return {
+    ...observedCell(),
     id,
     claim,
-    actualProofLayer: null,
     assertedStatus: "unknown",
+    unknownKind: "skip",
+    actualProofLayer: null,
     observable: null,
     skipRationale,
     nonClaims: [claim],
     receipt: null,
-  })
+    resolves: [],
+  }
 }

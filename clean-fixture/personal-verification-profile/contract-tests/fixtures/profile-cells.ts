@@ -5,11 +5,13 @@ import {
 import { admittedCandidate } from "./admission-invariant-cases"
 
 type VerificationClaim = EvidenceCell["claim"]
+type ProvedEvidenceCell = Extract<EvidenceCell, { assertedStatus: "proved" }>
+type SkippedEvidenceCell = Extract<EvidenceCell, { assertedStatus: "unknown"; unknownKind: "skip" }>
 
 const candidateDigest =
   "sha256:2af031b2b3bc51ced417b607dd3e1d937b01534e37d831c392bf85022e903566" as const
 
-function observed(claim: VerificationClaim, id: `cell:${string}`): EvidenceCell {
+function observed(claim: VerificationClaim, id: `cell:${string}`): ProvedEvidenceCell {
   return {
     schemaVersion: 1,
     id,
@@ -51,15 +53,17 @@ function skipped(
   claim: VerificationClaim,
   id: `cell:${string}`,
   skipRationale: "hosted-proof-not-run" | "fresh-native-proof-not-run",
-): EvidenceCell {
+): SkippedEvidenceCell {
   return {
     ...observed(claim, id),
     actualProofLayer: null,
     assertedStatus: "unknown",
+    unknownKind: "skip",
     observable: null,
     skipRationale,
     nonClaims: [claim],
     receipt: null,
+    resolves: [],
   }
 }
 

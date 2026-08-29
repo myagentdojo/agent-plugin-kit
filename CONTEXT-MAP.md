@@ -16,15 +16,16 @@ Consumer rules: [`docs/agents/domain.md`](docs/agents/domain.md).
 ## Owner routes
 
 The current Interface, Admission Bootstrap, Maintenance Command Contract,
-Qualification Evidence, and Clean Fixture Contract Test paths are current.
-Other Contract Test paths, every Implementation path, and hosted workflows are
-future and remain absent until their owning artifact has real accepted content.
+Qualification Evidence, Repository Quality Tooling Implementation, and Clean
+Fixture Contract Test paths are current. Other Source Tree Contract Test paths,
+every Source Tree Implementation path, and hosted workflows are future and
+remain absent until their owning artifact has real accepted content.
 
-| Question | Governing language | Decision or proposal | Current or future Interface or Adapter | Current or future Contract Tests or independent proof | Future Implementation |
+| Question | Governing language | Decision or proposal | Current or future Interface or Adapter | Current or future Contract Tests or independent proof | Current repository tooling or future Source Tree Implementation |
 | --- | --- | --- | --- | --- | --- |
 | Where does package source live? | Source Tree | `docs/adr/0001-language-to-topology.md` | `src/interface.ts` | Owner-local paths below | `src/` |
 | Where is repository-wide quality policy owned? | Repository Quality Tooling | `docs/adr/0003-repository-quality-and-verification-transition.md`; Fallow guidance: [`docs/agents/fallow.md`](docs/agents/fallow.md) | `tooling/repository-quality/` | `tooling/repository-quality/contract-tests/` | `tooling/repository-quality/fallow-policy.ts` |
-| Who governs intentional RED to ticket-local GREEN repository transitions? | Verification Transition Contract | `docs/adr/0003-repository-quality-and-verification-transition.md` | Future `tooling/repository-quality/verification-transition-contract.json` | Repository Quality Tooling Contract Tests and independent Clean Fixture evidence | Repository Quality Tooling verifier |
+| What owns current repository-byte qualification? | Repository Quality Tooling and Repository Qualification | `docs/adr/0003-repository-quality-and-verification-transition.md` | `tooling/repository-quality/repository-qualification-contract.json` | `tooling/repository-quality/contract-tests/` and independent Clean Fixture evidence | `tooling/repository-quality/verify-repository-qualification.ts` |
 | How is a Plugin Payload produced? | Plugin Payload Production | `docs/adr/0001-language-to-topology.md` | `src/modules/plugin-payload-production/interface.ts` | `src/modules/plugin-payload-production/contract-tests/` | `src/modules/plugin-payload-production/implementation/` |
 | Who owns the portable runtime? | Runtime Custody | `docs/adr/0001-language-to-topology.md` | `src/modules/runtime-custody/interface.ts` | `src/modules/runtime-custody/contract-tests/` | `src/modules/runtime-custody/implementation/` |
 | Who owns Admission, readiness, or Git convergence? | Release and Git Engine | `docs/adr/0001-language-to-topology.md` | `src/modules/release-and-git-engine/interface.ts` | `src/modules/release-and-git-engine/contract-tests/` | `src/modules/release-and-git-engine/implementation/` |

@@ -8,9 +8,6 @@ import type {
   StationId,
 } from "../../modules/maintenance-command-contract/interface"
 
-type ObservableFailureClass = MaintenanceError["failureClass"] | "event_delivery"
-type ObservableNextAction = MaintenanceError["nextAction"]
-
 export type DiagnosticRecord = Readonly<{
   schema_version: 1
   record_type: "diagnostic"
@@ -22,11 +19,11 @@ export type DiagnosticRecord = Readonly<{
   run_id: string
   command?: MaintenanceCommand["command"]
   station_id?: StationId
-  failure_class?: ObservableFailureClass
+  failure_class?: MaintenanceError["failureClass"] | "event_delivery"
   result_code?: ResultCode
   transaction_state?: CommandPreview["transactionState"]
   retry_safety?: CommandPreview["retrySafety"]
-  next_action?: ObservableNextAction
+  next_action?: MaintenanceError["nextAction"]
   message: string
 }>
 
@@ -40,7 +37,7 @@ export type EventRecord = Readonly<{
   station_id: StationId
   outcome: "previewed" | "completed" | "refused" | "failed"
   result_code: ResultCode
-  failure_class?: ObservableFailureClass
+  failure_class?: MaintenanceError["failureClass"] | "event_delivery"
   transaction_state: CommandPreview["transactionState"]
   retry_safety: CommandPreview["retrySafety"]
   next_action_id: string

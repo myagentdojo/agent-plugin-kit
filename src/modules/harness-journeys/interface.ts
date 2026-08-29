@@ -4,8 +4,6 @@ import type {
   CandidateIdentity,
 } from "../release-and-git-engine/interface"
 
-type ApprovalDigest = `sha256:${string}`
-
 export type ClaudeRequest = {
   identity: AdmittedIdentity
   payload: PreparedPluginPayload
@@ -38,20 +36,20 @@ export type ClaudeTransitionApproval = {
   schemaVersion: 1
   issuer: "harness-journeys:claude"
   candidate: CandidateIdentity
-  candidateIdentitySha256: ApprovalDigest
-  inspectedStateSha256: ApprovalDigest
-  expectedEffectsSha256: ApprovalDigest
-  digest: ApprovalDigest
+  candidateIdentitySha256: `sha256:${string}`
+  inspectedStateSha256: `sha256:${string}`
+  expectedEffectsSha256: `sha256:${string}`
+  digest: `sha256:${string}`
 }
 
 export type CodexTransitionApproval = {
   schemaVersion: 1
   issuer: "harness-journeys:codex"
   candidate: CandidateIdentity
-  candidateIdentitySha256: ApprovalDigest
-  inspectedStateSha256: ApprovalDigest
-  expectedEffectsSha256: ApprovalDigest
-  digest: ApprovalDigest
+  candidateIdentitySha256: `sha256:${string}`
+  inspectedStateSha256: `sha256:${string}`
+  expectedEffectsSha256: `sha256:${string}`
+  digest: `sha256:${string}`
 }
 
 export type ClaudeApplyResult = {

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { dirname, relative, resolve } from "node:path"
 import packageMetadata from "../package.json"
-import { staticModuleSpecifiers } from "./static-module-specifiers"
+import { staticModuleSpecifiers } from "../tooling/repository-quality/static-module-specifiers"
 import { branchStationCatalog, deferredOwnerProofs } from "../src/modules/maintenance-command-contract/branch-stations"
 import { commandContractSchemaVersion, commandVocabulary } from "../src/modules/maintenance-command-contract/command-vocabulary"
 import { errorSchemaVersion, exitFamilies, failureNextActionProjection, hintVersion, maintenanceCommandContractId, resultSchemaVersion } from "../src/modules/maintenance-command-contract/result-vocabulary"

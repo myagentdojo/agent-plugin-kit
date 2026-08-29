@@ -91,10 +91,12 @@ If project-binary resolution fails, stop. Do not change global PATH, set
 
 ## Runtime state and repair
 
-`/.fallow/` is ignored repository-local runtime evidence. Inspect it when
-diagnosing, but never commit it. The tracked Codex and Claude skills are small
-version-matched pointers into ignored `node_modules`; a frozen Bun install must
-restore their target.
+Fallow may create a self-ignored `.fallow/` runtime cache at the repository
+root and at each invoked workspace root. Inspect these caches when diagnosing,
+but never commit them or place TypeScript source inside them; Repository
+Qualification refuses TypeScript found in any `.fallow/` directory. The
+tracked Codex and Claude skills are small version-matched pointers into ignored
+`node_modules`; a frozen Bun install must restore their target.
 
 Repair only the named refusal. Do not delete or weaken an accepted Contract
 Test, add a broad ignore, or turn the existing inventory into a suppression

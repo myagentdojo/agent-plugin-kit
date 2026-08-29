@@ -100,7 +100,7 @@ outside the Source Tree because it governs repository maintenance rather than
 caller-visible Package Identity.
 _Avoid_: Lint script, Fallow wrapper, Source Tree Module
 
-**Verification Transition Contract**:
+**Repository Qualification**:
 The Repository Quality Tooling-owned declaration of the exact paths, source
 closure, proof groups, and expected RED or GREEN states permitted at one
 reviewed repository transition. Clean Fixture may supply independent evidence

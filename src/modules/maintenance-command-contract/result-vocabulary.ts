@@ -1,11 +1,5 @@
 import type { CommandPreview, MaintenanceError, ResultCode } from "./interface"
 
-type FailureClass = MaintenanceError["failureClass"]
-type MaintenanceAction = MaintenanceError["action"]
-type NextAction = CommandPreview["nextAction"]
-type RetrySafety = CommandPreview["retrySafety"]
-type TransactionState = CommandPreview["transactionState"]
-
 export const maintenanceCommandContractId =
   "agent-plugin-kit.maintenance-command-result" as const
 export const resultSchemaVersion = 1 as const
@@ -22,7 +16,7 @@ export const actionVocabulary = [
   "run_command",
   "select_command",
   "wait",
-] as const satisfies readonly MaintenanceAction[]
+] as const satisfies readonly MaintenanceError["action"][]
 
 export type ExitFamilyId =
   | "accepted-success"
@@ -37,19 +31,19 @@ export type ResultDescriptor = {
   resultCode: ResultCode
   exitFamilyId: ExitFamilyId
   exitClass: 0 | 1 | 2 | 20 | 21 | 22 | 23
-  failureClass: FailureClass | null
+  failureClass: MaintenanceError["failureClass"] | null
   severity: "info" | "warning" | "error" | "fatal"
-  retrySafety: RetrySafety
-  transactionState: TransactionState
-  nextAction: NextAction
+  retrySafety: CommandPreview["retrySafety"]
+  transactionState: CommandPreview["transactionState"]
+  nextAction: CommandPreview["nextAction"]
 }
 
 const result = (
   resultCode: ResultCode,
   exitFamilyId: ExitFamilyId,
   exitClass: ResultDescriptor["exitClass"],
-  failureClass: FailureClass | null,
-  nextAction: NextAction,
+  failureClass: MaintenanceError["failureClass"] | null,
+  nextAction: CommandPreview["nextAction"],
   options: Partial<
     Pick<ResultDescriptor, "severity" | "retrySafety" | "transactionState">
   > = {},
@@ -66,10 +60,10 @@ const result = (
 
 const action = (
   id: string,
-  nextAction: MaintenanceAction,
+  nextAction: MaintenanceError["action"],
   summary: string,
-  commandId: NextAction["commandId"] = null,
-): NextAction => ({ id, action: nextAction, summary, commandId })
+  commandId: CommandPreview["nextAction"]["commandId"] = null,
+): CommandPreview["nextAction"] => ({ id, action: nextAction, summary, commandId })
 
 const contactSupport = action(
   "maintenance.contact-support",

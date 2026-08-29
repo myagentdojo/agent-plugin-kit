@@ -17,11 +17,10 @@ const qualificationEvidence: QualificationEvidence | undefined = undefined
 
 function reduceAttempt(profile: VerificationProfile, cells: readonly EvidenceCell[]) {
   if (!qualificationEvidence) return { kind: "contract-absent" } as const
-  try {
-    return { kind: "result", value: qualificationEvidence.reduce({ candidate, profile, cells }) } as const
-  } catch (error) {
-    return { kind: "refused", message: error instanceof Error ? error.message : String(error) } as const
-  }
+  const outcome = qualificationEvidence.reduce({ candidate, profile, cells })
+  return outcome.status === "reduced"
+    ? { kind: "result", value: outcome.result } as const
+    : { kind: "refused", refusal: outcome.refusal } as const
 }
 
 test("canonical Candidate Lineage agreement reduces to proved", () => {

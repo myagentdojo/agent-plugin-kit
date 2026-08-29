@@ -13,7 +13,8 @@ const qualificationEvidence: QualificationEvidence | undefined = undefined
 
 function reduceAttempt(profile: VerificationProfile, cells: readonly EvidenceCell[]) {
   if (!qualificationEvidence) return undefined
-  return qualificationEvidence.reduce({ candidate, profile, cells })
+  const outcome = qualificationEvidence.reduce({ candidate, profile, cells })
+  return outcome.status === "reduced" ? outcome.result : undefined
 }
 
 test("Proof Layer satisfaction is reflexive", () => {

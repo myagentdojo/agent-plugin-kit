@@ -36,12 +36,8 @@ export type RuntimeSpawnRecord = {
   control: RuntimeControlObservation | null
 }
 
-type MaintenanceTestAssembly = (
-  collaborators: MaintenanceTestCollaborators,
-) => MaintenanceCommands
-
 export function createMaintenanceContractHarness(
-  assemble?: MaintenanceTestAssembly,
+  assemble?: (collaborators: MaintenanceTestCollaborators) => MaintenanceCommands,
   options: { runtimeControls?: readonly RuntimeControlObservation[] } = {},
 ): MaintenanceContractHarness {
   const applyLedgers: Record<string, MaintenanceApplyRequest[]> = {

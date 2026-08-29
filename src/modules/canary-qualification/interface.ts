@@ -1,10 +1,8 @@
 import type { CandidateIdentity } from "../release-and-git-engine/interface"
 
-type Sha256Digest = `sha256:${string}`
-
 export type CanaryCandidate = {
   identity: CandidateIdentity
-  inertPayloadSha256: Sha256Digest
+  inertPayloadSha256: `sha256:${string}`
 }
 
 export type CanaryPlan = {
@@ -22,7 +20,7 @@ export type ProtectedCanaryAuthority = {
 export type CanaryResult = {
   candidate: CandidateIdentity
   hostedRunId: string
-  installedPayloadSha256: Sha256Digest
+  installedPayloadSha256: `sha256:${string}`
 }
 
 export interface CanaryQualification {

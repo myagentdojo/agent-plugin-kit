@@ -11,7 +11,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, parse, relative, resolve } from "node:path"
-import intentionalRedContract from "../../../intentional-red-contract.json"
+import repositoryQualificationContract from "../../../../tooling/repository-quality/repository-qualification-contract.json"
 
 const repositoryRoot = resolve(import.meta.dir, "../../../../")
 
@@ -57,19 +57,19 @@ export function observeAdmissionSourceImport(options?: {
 
   try {
     const projection = JSON.parse(
-      readFileSync(join(repositoryRoot, intentionalRedContract.admission.projectionFixture), "utf8"),
-    ) as typeof intentionalRedContract.admission.projection
+      readFileSync(join(repositoryRoot, repositoryQualificationContract.admission.projection_fixture), "utf8"),
+    ) as typeof repositoryQualificationContract.admission.projection
     writeFileSync(join(fixtureRoot, "package.json"), `${JSON.stringify(projection, null, 2)}\n`, {
       mode: 0o600,
     })
 
-    for (const relative of intentionalRedContract.admission.sourceClosure) {
+    for (const relative of repositoryQualificationContract.admission.source_closure) {
       const destination = join(fixtureRoot, relative)
       mkdirSync(dirname(destination), { recursive: true, mode: 0o700 })
       copyFileSync(join(repositoryRoot, relative), destination)
     }
     if (options?.bareSpecifierPerturbation !== undefined) {
-      const entry = join(fixtureRoot, intentionalRedContract.admission.sourceEntry)
+      const entry = join(fixtureRoot, repositoryQualificationContract.admission.source_entry)
       writeFileSync(
         entry,
         `${readFileSync(entry, "utf8")}\nimport ${JSON.stringify(options.bareSpecifierPerturbation)}\n`,
@@ -77,7 +77,7 @@ export function observeAdmissionSourceImport(options?: {
     }
 
     const childPath = join(fixtureRoot, "admission-consumer.ts")
-    copyFileSync(join(repositoryRoot, intentionalRedContract.admission.consumerFixture), childPath)
+    copyFileSync(join(repositoryRoot, repositoryQualificationContract.admission.consumer_fixture), childPath)
     const processResult = Bun.spawnSync({
       cmd: ["bun", `--config=${join(repositoryRoot, "bunfig.toml")}`, childPath],
       cwd: fixtureRoot,
