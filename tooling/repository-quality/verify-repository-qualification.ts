@@ -9,7 +9,10 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, extname, join, relative, resolve } from "node:path"
-import { staticModuleSpecifiers } from "./static-module-specifiers"
+import {
+  NonliteralModuleSpecifierError,
+  staticModuleSpecifiers,
+} from "./static-module-specifiers"
 
 type BalancedCounts = {
   tests: number
@@ -474,8 +477,9 @@ function admissionDrift(): never {
 function sourceSpecifiers(file: string, source: string): string[] {
   try {
     return staticModuleSpecifiers(file, source)
-  } catch {
-    admissionDrift()
+  } catch (error) {
+    if (error instanceof NonliteralModuleSpecifierError) admissionDrift()
+    throw error
   }
 }
 
@@ -749,6 +753,8 @@ function verifyRootScripts(value: unknown, expected: Readonly<Record<string, str
   if (scripts === undefined) packageDrift("package_contract.scripts")
   const mismatch = Object.entries(expected).find(([name, script]) => scripts[name] !== script)
   if (mismatch !== undefined) packageDrift(`package_contract.scripts.${mismatch[0]}`)
+  const undeclared = Object.keys(scripts).find((name) => expected[name] === undefined)
+  if (undeclared !== undefined) packageDrift(`package_contract.scripts.${undeclared}`)
 }
 
 function verifyOwnerManifests(
@@ -1240,7 +1246,7 @@ function exactRecord(
   const allowed = new Set(keys)
   const unknown = Object.keys(record).find((key) => !allowed.has(key))
   if (unknown !== undefined) {
-    const unknownOwner = `${owner}.${unknown}`.replace("contract.", "")
+    const unknownOwner = owner === "contract" ? unknown : `${owner}.${unknown}`
     refuseRepository("contract-invalid", "unknown-contract-key", unknownOwner, "restore-current-declaration")
   }
   return record

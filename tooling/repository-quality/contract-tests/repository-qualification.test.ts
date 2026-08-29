@@ -859,7 +859,7 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
       },
     },
     {
-      label: "computed dynamic dependency import",
+      label: "computed nonliteral dynamic dependency import",
       mutate: async (root: string) => {
         const path = join(root, "src/admission-bootstrap/interface.ts")
         await writeFile(
@@ -938,6 +938,32 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
   }
+
+  const lookalikes = `
+/*
+/// <reference types="not-a-block-comment-dependency" />
+import type { NotACommentDependency } from "not-a-comment-dependency"
+*/
+const notAStringDependency = 'export type * from "not-a-string-dependency"'
+const notATemplateDependency = \`import { type NotATemplateDependency } from "not-a-template-dependency"\`
+`
+  const root = await copyRepositoryFixture()
+  await mutateTextFile(
+    root,
+    "src/admission-bootstrap/interface.ts",
+    (source) => `${lookalikes}${source}`,
+  )
+  await mutateTextFile(
+    root,
+    "src/adapters/maintenance-command-facade/maintenance.ts",
+    (source) => source.replace("#!/usr/bin/env bun\n", `#!/usr/bin/env bun\n${lookalikes}`),
+  )
+
+  const observation = await observeVerifier(root)
+  expect(observation.exitCode, observation.stderr).toBe(0)
+  expect(observation.stderr).toBe("")
+  expect(observation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
+  expect(JSON.parse(observation.stdout)).toEqual(initialSuccess)
 })
 
 test("shell exit, sentinel, verdict, or proof-schema drift is refused", async () => {
@@ -1039,6 +1065,20 @@ test("shell exit, sentinel, verdict, or proof-schema drift is refused", async ()
   // receipt even when the reporter or observed test process is malformed.
   const processCases = [
     {
+      label: "unexpected static module scanner failure",
+      expectedOwner: "verifier",
+      mutate: async (root: string) => {
+        await mutateTextFile(root, "tooling/repository-quality/static-module-specifiers.ts", (source) => {
+          const declaration = "export function staticModuleSpecifiers(file: string, source: string): string[] {\n"
+          if (!source.includes(declaration)) throw new Error("static module scanner declaration was not found")
+          return source.replace(
+            declaration,
+            `${declaration}  throw new Error("unexpected internal module scanner failure")\n`,
+          )
+        })
+      },
+    },
+    {
       label: "missing JUnit reporter receipt",
       expectedOwner: "workspace_selectors[0]",
       mutate: async (root: string) => {
@@ -1105,6 +1145,13 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         packageJson.scripts["quality:fallow"] = "fallow check"
       }),
       expectedOwner: "package_contract.scripts.quality:fallow",
+    },
+    {
+      label: "undeclared root script",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.scripts["quality:undeclared"] = "bun run tooling/undeclared.ts"
+      }),
+      expectedOwner: "package_contract.scripts.quality:undeclared",
     },
     {
       label: "eleventh root export",
@@ -1396,6 +1443,32 @@ test("unknown orchestration or Git-shaped declaration keys are refused", async (
     expect(observation.stderr, key).toBe(`${JSON.stringify(expected)}\n`)
     expect(JSON.parse(observation.stderr), key).toEqual(expected)
   }
+
+  const nestedRoot = await copyRepositoryFixture()
+  await mutateContract(nestedRoot, (contract) => {
+    contract.package_contract.foo = "must-not-be-interpreted"
+  })
+  // Test-owned independent oracle: a nested unknown key is reported at its
+  // exact declaration owner rather than being rewritten as a root key.
+  const nestedExpected = {
+    schema_version: 1,
+    command: "verify:repository-qualification",
+    status: "refused",
+    mode: "complete",
+    code: "contract-invalid",
+    findings: [
+      {
+        kind: "unknown-contract-key",
+        owner: "package_contract.foo",
+        repair_id: "restore-current-declaration",
+      },
+    ],
+  } as const
+  const nestedObservation = await observeVerifier(nestedRoot)
+  expect(nestedObservation.exitCode).toBe(2)
+  expect(nestedObservation.stdout).toBe("")
+  expect(nestedObservation.stderr).toBe(`${JSON.stringify(nestedExpected)}\n`)
+  expect(JSON.parse(nestedObservation.stderr)).toEqual(nestedExpected)
 
   // Test-owned independent oracle: malformed scalar, array, integer, and enum
   // fields are declaration refusals, never internal proof-process failures.

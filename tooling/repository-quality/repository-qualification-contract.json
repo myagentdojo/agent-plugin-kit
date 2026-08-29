@@ -484,6 +484,9 @@
     "bin": {"agent-plugin-kit": "./src/adapters/maintenance-command-facade/maintenance.ts"},
     "scripts": {
       "check": "git diff --check && bun run biome:check && bun run typecheck && bun run check:structure && bun run test:quality:fallow-policy && bun run test:quality:repository-qualification && bun run --silent quality:fallow --changed-since HEAD && bun run verify:repository-qualification",
+      "biome:check": "biome check --diagnostic-level=error .",
+      "biome:fix": "biome check --write .",
+      "typecheck": "tsc --noEmit",
       "check:structure": "bun run tooling/repository-quality/verify-repository-qualification.ts --structure-only",
       "quality:fallow": "bun run tooling/repository-quality/fallow-policy.ts",
       "test:quality:fallow-policy": "bun test tooling/repository-quality/contract-tests/fallow-policy.test.ts",

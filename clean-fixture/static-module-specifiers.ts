@@ -5,7 +5,12 @@ type ModuleCall = {
 
 const transpiler = new Bun.Transpiler({ loader: "ts" })
 const leadingTrivia = /^(?:(?:\s+)|(?:\/\/[^\n]*(?:\n|$))|(?:\/\*[\s\S]*?\*\/))*/
+const blockComment = /\/\*[\s\S]*?\*\//g
 const tripleSlashDependency = /^\/\/\/\s*<(?:reference\s+(?:path|types)|amd-dependency\s+path)\s*=\s*(["'])([^"']+)\1[^>]*\/?>\s*$/gm
+const typeDeclarationPatterns = [
+  /\b(?:import|export)\s+type\s+(?:\{[^}]*\}|\*\s*(?:as\s+[$A-Z_a-z][$\w]*)?|[$A-Z_a-z][$\w]*)\s+from\s*(["'])([^"']+)\1/g,
+  /\b(?:import|export)\s*\{[^}]*\btype\b[^}]*\}\s*from\s*(["'])([^"']+)\1/g,
+]
 
 function codeMask(source: string): string {
   const mask = Array.from({ length: source.length }, () => " ")
@@ -129,26 +134,28 @@ function readModuleCall(file: string, source: string, start: number, kind: "impo
 
 function addLeadingReferenceDirectives(source: string, specifiers: Set<string>): void {
   const preamble = source.match(leadingTrivia)?.[0] ?? ""
-  for (const match of preamble.matchAll(tripleSlashDependency)) specifiers.add(match[2] as string)
+  const lineComments = preamble.replace(blockComment, (comment) => comment.replace(/[^\n]/g, " "))
+  for (const match of lineComments.matchAll(tripleSlashDependency)) specifiers.add(match[2] as string)
+}
+
+function typeDeclarationSpecifiers(source: string, mask: string): string[] {
+  return typeDeclarationPatterns.flatMap((pattern) =>
+    [...source.matchAll(pattern)]
+      .filter((match) => match.index !== undefined && mask[match.index] !== " ")
+      .flatMap((match) => match[2] === undefined ? [] : [match[2]])
+  )
 }
 
 export function staticModuleSpecifiers(file: string, source: string): string[] {
   const scanSource = source.startsWith("#!")
     ? source.replace(/^#![^\n]*/, (shebang) => " ".repeat(shebang.length))
     : source
-  const specifiers = new Set(transpiler.scanImports(scanSource).map(({ path }) => path))
-  addLeadingReferenceDirectives(scanSource, specifiers)
-  const typeDeclarationPatterns = [
-    /\b(?:import|export)\s+type\s+(?:\{[^}]*\}|\*\s*(?:as\s+[$A-Z_a-z][$\w]*)?|[$A-Z_a-z][$\w]*)\s+from\s*(["'])([^"']+)\1/g,
-    /\b(?:import|export)\s*\{[^}]*\btype\b[^}]*\}\s*from\s*(["'])([^"']+)\1/g,
-  ]
-  for (const pattern of typeDeclarationPatterns) {
-    for (const match of scanSource.matchAll(pattern)) {
-      const specifier = match[2]
-      if (specifier !== undefined) specifiers.add(specifier)
-    }
-  }
   const mask = codeMask(scanSource)
+  const specifiers = new Set([
+    ...transpiler.scanImports(scanSource).map(({ path }) => path),
+    ...typeDeclarationSpecifiers(scanSource, mask),
+  ])
+  addLeadingReferenceDirectives(scanSource, specifiers)
   const callPattern = /\b(import|require)\s*\(/g
   for (const match of mask.matchAll(callPattern)) {
     const kind = match[1]

@@ -16,11 +16,12 @@ Consumer rules: [`docs/agents/domain.md`](docs/agents/domain.md).
 ## Owner routes
 
 The current Interface, Admission Bootstrap, Maintenance Command Contract,
-Qualification Evidence, and Clean Fixture Contract Test paths are current.
-Other Contract Test paths, every Implementation path, and hosted workflows are
-future and remain absent until their owning artifact has real accepted content.
+Qualification Evidence, Repository Quality Tooling Implementation, and Clean
+Fixture Contract Test paths are current. Other Source Tree Contract Test paths,
+every Source Tree Implementation path, and hosted workflows are future and
+remain absent until their owning artifact has real accepted content.
 
-| Question | Governing language | Decision or proposal | Current or future Interface or Adapter | Current or future Contract Tests or independent proof | Future Implementation |
+| Question | Governing language | Decision or proposal | Current or future Interface or Adapter | Current or future Contract Tests or independent proof | Current repository tooling or future Source Tree Implementation |
 | --- | --- | --- | --- | --- | --- |
 | Where does package source live? | Source Tree | `docs/adr/0001-language-to-topology.md` | `src/interface.ts` | Owner-local paths below | `src/` |
 | Where is repository-wide quality policy owned? | Repository Quality Tooling | `docs/adr/0003-repository-quality-and-verification-transition.md`; Fallow guidance: [`docs/agents/fallow.md`](docs/agents/fallow.md) | `tooling/repository-quality/` | `tooling/repository-quality/contract-tests/` | `tooling/repository-quality/fallow-policy.ts` |
