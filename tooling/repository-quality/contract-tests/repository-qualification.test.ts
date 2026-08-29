@@ -55,7 +55,9 @@ const runtimeSourceFinding = {
 const admissionValueReexportRuntimeSha256 = "47fdb795f528a479b217022f92c4749db86a91e96194d31ca183bfa7eaf58694"
 const runtimeCustodyCrossOwnerReexportSha256 = "bcd6b7f38ab1d03cfe2a7d8b45d27c527231eb6752472ea798a1fe3daca9d26b"
 const runtimeCustodyDotPrefixedReexportSha256 = "5e1d1f9c0afc2f804f887373dc709231ef8152711f155d59dc943084ab9dabd7"
+const runtimeCustodyCtsDeclarationReexportSha256 = "3f31f9265cc942d0fdbf6766356ea73450cdb04c794793ce6041f8c291f36210"
 const runtimeCustodyDeclarationReexportSha256 = "701dc68d78cc7db409dd44252b16e3f9bc3be231279710407f82b72bc6cae838"
+const runtimeCustodyMtsDeclarationReexportSha256 = "fc695e39e894132e7fbbf5b80d86923db5630b9d249dd58024da60f1ffd4cbf8"
 const runtimeCustodySymlinkEscapeSha256 = "6057a279a505664aeb4ebc294ddfea8fe84f416d7194799ff4935d30e2a5aa86"
 const runtimeCustodyValueReexportSha256 = "e90983cb0c73421c56ac37d4cba36cb5308c3addd681a2b995acea850dacb725"
 const admissionValueImplementationSource = `import type { AdmissionBootstrap } from "../interface"
@@ -2377,6 +2379,36 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         "./implementation/runtime-custody.d.ts",
         runtimeCustodyDeclarationReexportSha256,
         "runtime-custody.d.ts",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public initialized MTS declaration-file target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\n",
+        "./implementation/runtime-custody.d.mts",
+        runtimeCustodyMtsDeclarationReexportSha256,
+        "runtime-custody.d.mts",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public initialized CTS declaration-file target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\n",
+        "./implementation/runtime-custody.d.cts",
+        runtimeCustodyCtsDeclarationReexportSha256,
+        "runtime-custody.d.cts",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public untranspilable const target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue =",
       ),
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
