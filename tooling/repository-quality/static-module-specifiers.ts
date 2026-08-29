@@ -33,7 +33,7 @@ type ScanStep = {
 
 const regularExpressionPrefix = /(?:^|[([{=,:;!?&|+\-*%^~<>]\s*|\b(?:await|case|delete|do|else|in|instanceof|new|of|return|throw|typeof|void|yield)\s*)$/
 const regularExpressionLiteral = /^\/(?:\\[\s\S]|\[(?:\\[\s\S]|[^\]\\\r\n])*\]|[^/\\[\]\r\n])*\/[A-Za-z]*/
-const controlStatementBeforeCondition = /\b(?:if|while|with|for(?:\s+await)?)\s*$/
+const controlStatementBeforeCondition = /(?:^|[\n;{}:)]|\b(?:do|else))\s*(?:if|while|with|for(?:\s+await)?)\s*$/
 
 function isQuote(character: string | undefined): character is "\"" | "'" {
   return character === "\"" || character === "'"

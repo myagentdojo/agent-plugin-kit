@@ -1011,6 +1011,19 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
       },
     },
     {
+      label: "computed nonliteral require between divisions after property named if",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(
+          path,
+          `${await readFile(path, "utf8")}\n` +
+            'const controlLookalike = { if: (_value: boolean) => 1 }\n' +
+            'const dynamicDependency = "zod"\n' +
+            'controlLookalike.if(true) / require(dynamicDependency) / 2\n',
+        )
+      },
+    },
+    {
       label: "Admission projection disagrees with root Package Identity",
       mutate: async (root: string) => {
         await mutateContract(root, (contract) => {
@@ -1370,6 +1383,15 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         root,
         "src/modules/runtime-custody/interface.ts",
         (source) => `${source}\nexport default class HiddenPublicType {}\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "indented default class declaration fails closed",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\n  export default class HiddenPublicType {}\n`,
       ),
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },

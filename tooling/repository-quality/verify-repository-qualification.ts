@@ -701,10 +701,10 @@ function packageManifests(directory: string, prefix = ""): string[] {
 class PublicTypeExportParseError extends Error {}
 
 const declarationNonCode = /(["'])(?:\\.|(?!\1)[^\\\r\n])*\1|`(?:\\.|[^`])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g
-const directPublicTypeExport = /^export\s+(?:type(?!\s*\{)|interface)\s+([$A-Z_a-z][$\w]*)/gm
-const namedPublicTypeExportBlock = /^export\s+(type\s*)?\{([\s\S]*?)\}/gm
-const unsupportedPublicTypeExport = /^export\s+type\s+\*/m
-const unsupportedDefaultPublicTypeExport = /^export\s+default\b/m
+const directPublicTypeExport = /^[ \t]*export\s+(?:type(?!\s*\{)|interface)\s+([$A-Z_a-z][$\w]*)/gm
+const namedPublicTypeExportBlock = /^[ \t]*export\s+(type\s*)?\{([\s\S]*?)\}/gm
+const unsupportedPublicTypeExport = /^[ \t]*export\s+type\s+\*/m
+const unsupportedDefaultPublicTypeExport = /^[ \t]*export\s+default\b/m
 const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
 
 type LocatedPublicTypeExport = {
