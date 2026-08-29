@@ -20,39 +20,13 @@ const repositoryRoot = resolve(import.meta.dir, "../../..")
 const temporaryRoots: string[] = []
 const temporaryReceiptDirectories: string[] = []
 
-// Test-owned independent oracle: this literal mixed receipt intentionally
-// restates one changed repository state so the public verifier cannot define
-// its own expected result.
-const mixedSuccess = {
-  schema_version: 1,
-  command: "verify:repository-qualification",
-  status: "qualified",
-  mode: "complete",
-  contract: "tooling/repository-quality/repository-qualification-contract.json",
-  groups: [
-    { id: "kit-interface", files: 1, tests: 3, passed: 1, failed: 2, skipped: 0, failure_classes: { "contract-absent": 2 } },
-    { id: "admission-bootstrap", files: 2, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
-    { id: "maintenance-command-contract", files: 3, tests: 24, passed: 0, failed: 24, skipped: 0, failure_classes: { "contract-absent": 24 } },
-    { id: "qualification-evidence", files: 2, tests: 14, passed: 0, failed: 14, skipped: 0, failure_classes: { "contract-absent": 14 } },
-    { id: "clean-fixture", files: 7, tests: 26, passed: 1, failed: 25, skipped: 0, failure_classes: { "contract-absent": 25 } },
-    { id: "maintenance-cli-unit", files: 1, tests: 12, passed: 0, failed: 12, skipped: 0, failure_classes: { "contract-absent": 12 } },
-    { id: "maintenance-cli-catalog", files: 1, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
-    { id: "maintenance-cli-process", files: 1, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
-    { id: "maintenance-cli-observability", files: 1, tests: 12, passed: 0, failed: 12, skipped: 0, failure_classes: { "contract-absent": 12 } },
-    { id: "maintenance-cli-clean-fixture", files: 1, tests: 5, passed: 0, failed: 5, skipped: 0, failure_classes: { "contract-absent": 5 } },
-    { id: "maintenance-cli-local-link", files: 1, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
-    { id: "maintenance-cli", files: 6, tests: 53, passed: 0, failed: 53, skipped: 0, failure_classes: { "contract-absent": 53 } },
-  ],
-  aggregate: { files: 17, tests: 104, passed: 1, failed: 103, skipped: 0 },
-} as const
-
 const runtimeSourceFinding = {
   kind: "admission-closure-drift",
   owner: "admission.runtime_source_paths",
   repair_id: "restore-repository-bytes",
 } as const
 
-const admissionValueReexportRuntimeSha256 = "47fdb795f528a479b217022f92c4749db86a91e96194d31ca183bfa7eaf58694"
+const emptyRuntimeOutputSha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 const runtimeCustodyCrossOwnerReexportSha256 = "bcd6b7f38ab1d03cfe2a7d8b45d27c527231eb6752472ea798a1fe3daca9d26b"
 const runtimeCustodyDotPrefixedReexportSha256 = "5e1d1f9c0afc2f804f887373dc709231ef8152711f155d59dc943084ab9dabd7"
 const runtimeCustodyCtsDeclarationReexportSha256 = "3f31f9265cc942d0fdbf6766356ea73450cdb04c794793ce6041f8c291f36210"
@@ -60,20 +34,6 @@ const runtimeCustodyDeclarationReexportSha256 = "701dc68d78cc7db409dd44252b16e3f
 const runtimeCustodyMtsDeclarationReexportSha256 = "fc695e39e894132e7fbbf5b80d86923db5630b9d249dd58024da60f1ffd4cbf8"
 const runtimeCustodySymlinkEscapeSha256 = "6057a279a505664aeb4ebc294ddfea8fe84f416d7194799ff4935d30e2a5aa86"
 const runtimeCustodyValueReexportSha256 = "e90983cb0c73421c56ac37d4cba36cb5308c3addd681a2b995acea850dacb725"
-const admissionValueImplementationSource = `import type { AdmissionBootstrap } from "../interface"
-
-export const admissionBootstrap = {
-  admit() {
-    throw new Error("test fixture only")
-  },
-} satisfies AdmissionBootstrap
-`
-
-type AdmissionValueReexportTransition = {
-  readonly updateRuntimeDigest: boolean
-  readonly implementationSource?: string
-}
-
 async function copyRepositoryFixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "agent-plugin-kit-repository-qualification-"))
   temporaryRoots.push(root)
@@ -305,6 +265,21 @@ async function mutateContract(
   await writeFile(path, `${JSON.stringify(contract, null, 2)}\n`)
 }
 
+function proofGroup(contract: Record<string, any>, id: string): Record<string, any> {
+  const group = contract.proof_groups.find((candidate: { id?: string }) => candidate.id === id)
+  if (group === undefined) throw new Error(`fixture omitted proof group ${id}`)
+  return group
+}
+
+function extendAdmissionRuntimeSourcePaths(
+  contract: Record<string, any>,
+  paths: readonly string[],
+): void {
+  contract.admission.runtime_source_paths = [
+    ...new Set([...contract.admission.runtime_source_paths, ...paths]),
+  ].sort()
+}
+
 async function mutateJsonFile(
   root: string,
   relativePath: string,
@@ -349,40 +324,6 @@ async function addAdmissionRuntimeSources(
   await mutateContract(root, (contract) => {
     contract.structure.required_paths.push(...paths)
     if (includeInClosure) contract.admission.source_closure.push(...paths)
-  })
-}
-
-async function addAdmissionValueReexportTransition(
-  root: string,
-  {
-    updateRuntimeDigest,
-    implementationSource = admissionValueImplementationSource,
-  }: AdmissionValueReexportTransition,
-): Promise<void> {
-  const implementationPath = "src/admission-bootstrap/implementation/admission-bootstrap.ts"
-  await mkdir(dirname(join(root, implementationPath)), { recursive: true })
-  await writeFile(join(root, implementationPath), implementationSource)
-  await mutateTextFile(
-    root,
-    "src/admission-bootstrap/interface.ts",
-    (source) => `${source}\nexport { admissionBootstrap } from "./implementation/admission-bootstrap"\n`,
-  )
-  await mutateContract(root, (contract) => {
-    contract.structure.required_paths.push(implementationPath)
-    const implementationDirectory = dirname(implementationPath)
-    contract.structure.forbidden_paths = contract.structure.forbidden_paths
-      .filter((path: string) => path !== implementationDirectory)
-    contract.structure.forbidden_source_path_segments = contract.structure.forbidden_source_path_segments
-      .filter((segment: string) => segment !== "implementation")
-    contract.admission.source_closure.push(implementationPath)
-    contract.admission.runtime_source_paths = [
-      implementationPath,
-      "src/admission-bootstrap/interface.ts",
-    ]
-    if (updateRuntimeDigest) {
-      contract.package_contract.runtime_output_sha256["./admission-bootstrap"] =
-        admissionValueReexportRuntimeSha256
-    }
   })
 }
 
@@ -496,33 +437,28 @@ test("the initial repository declaration qualifies the exact mixed RED baseline"
   expect(JSON.parse(observation.stdout)).toEqual(expected)
 })
 
-test("a literal mixed RED and GREEN declaration qualifies", async () => {
+test("an additional independently observed GREEN transition qualifies", async () => {
   const root = await copyRepositoryFixture()
   await mutateTextFile(
     root,
     "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
-    (source) => {
-      const assertion = '  expect(installedPackage?.rootTypeExports, "contract-absent: installed root type exports must be independently observed").toEqual(expectedRootTypeExports)\n'
-      if (!source.includes(assertion)) throw new Error("mixed fixture assertion was not found")
-      return source.replace(assertion, "")
-    },
+    (source) => `${source}\ntest("fixture-local GREEN transition", () => {\n  expect(true).toBe(true)\n})\n`,
   )
   await mutateContract(root, (contract) => {
-    contract.proof_groups[0].passed = 1
-    contract.proof_groups[0].failed = 2
-    contract.proof_groups[0].failure_classes = { "contract-absent": 2 }
-    contract.proof_groups[4].passed = 1
-    contract.proof_groups[4].failed = 25
-    contract.proof_groups[4].failure_classes = { "contract-absent": 25 }
-    contract.aggregate.passed = 1
-    contract.aggregate.failed = 103
-    contract.aggregate.failure_classes = { "contract-absent": 103 }
+    for (const groupId of ["kit-interface", "clean-fixture"]) {
+      const group = proofGroup(contract, groupId)
+      group.tests += 1
+      group.passed += 1
+    }
+    contract.aggregate.tests += 1
+    contract.aggregate.passed += 1
   })
+  const expected = await buildIndependentSuccessReceipt(root)
   const observation = await observeVerifier(root)
   expect(observation.exitCode).toBe(0)
   expect(observation.stderr).toBe("")
-  expect(observation.stdout).toBe(`${JSON.stringify(mixedSuccess)}\n`)
-  expect(JSON.parse(observation.stdout)).toEqual(mixedSuccess)
+  expect(observation.stdout).toBe(`${JSON.stringify(expected)}\n`)
+  expect(JSON.parse(observation.stdout)).toEqual(expected)
 })
 
 test("group and aggregate count imbalance is refused", async () => {
@@ -530,7 +466,7 @@ test("group and aggregate count imbalance is refused", async () => {
     {
       label: "group",
       mutate: (contract: Record<string, any>) => {
-        contract.proof_groups[0].failed = 2
+        contract.proof_groups[0].failed += 1
       },
       expected: {
         schema_version: 1,
@@ -550,7 +486,7 @@ test("group and aggregate count imbalance is refused", async () => {
     {
       label: "aggregate",
       mutate: (contract: Record<string, any>) => {
-        contract.aggregate.failed = 103
+        contract.aggregate.failed += 1
       },
       expected: {
         schema_version: 1,
@@ -738,10 +674,11 @@ test("selector discovery or aggregate de-duplication drift is refused", async ()
   await mutateTextFile(
     workspaceRoot,
     "src/admission-bootstrap/contract-tests/identity-refusal.test.ts",
-    (source) => source.replace(
-      'test("workflow pin mismatch fails closed", () => assertRefusal(6))',
-      'test("workflow pin mismatch fails closed", () => {})',
-    ),
+    (source) => {
+      const testCase = 'test("workflow pin mismatch fails closed", () => assertRefusal(6))\n'
+      if (!source.includes(testCase)) throw new Error("workspace selector fixture test was not found")
+      return source.replace(testCase, "")
+    },
   )
   const workspaceExpected = {
     schema_version: 1,
@@ -768,27 +705,41 @@ test("an absent, unknown, or miscounted test-failure class is refused", async ()
   const cases = [
     {
       label: "absent failure class",
-      mutate: (contract: Record<string, any>) => {
-        delete contract.proof_groups[0].failure_classes["contract-absent"]
+      mutate: async (root: string) => {
+        await mutateTextFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
+          (source) => `${source}\ntest("fixture-local undeclared failure class", () => {\n  expect(false, "contract-absent: fixture-local failure must be declared").toBeTrue()\n})\n`,
+        )
+        await mutateContract(root, (contract) => {
+          for (const groupId of ["kit-interface", "clean-fixture"]) {
+            const group = proofGroup(contract, groupId)
+            group.tests += 1
+            group.failed += 1
+          }
+          contract.aggregate.tests += 1
+          contract.aggregate.failed += 1
+        })
       },
     },
     {
       label: "unknown failure class",
-      mutate: (contract: Record<string, any>) => {
+      mutate: (root: string) => mutateContract(root, (contract) => {
         contract.proof_groups[0].failure_classes.unknown = 3
-      },
+      }),
     },
     {
       label: "miscounted failure class",
-      mutate: (contract: Record<string, any>) => {
-        contract.proof_groups[0].failure_classes["contract-absent"] = 2
-      },
+      mutate: (root: string) => mutateContract(root, (contract) => {
+        const current = contract.proof_groups[0].failure_classes["contract-absent"] ?? 0
+        contract.proof_groups[0].failure_classes["contract-absent"] = current + 1
+      }),
     },
   ] as const
 
   for (const row of cases) {
     const root = await copyRepositoryFixture()
-    await mutateContract(root, row.mutate)
+    await row.mutate(root)
     const expected = {
       schema_version: 1,
       command: "verify:repository-qualification",
@@ -968,7 +919,11 @@ test("required-path or declared-structure drift is refused", async () => {
     {
       label: "unexpected Implementation path segment present",
       mutate: async (root: string) => {
-        const directory = join(root, "src/modules/unlisted-owner/implementation")
+        const forbiddenSegment = "fixture-forbidden-segment"
+        await mutateContract(root, (contract) => {
+          contract.structure.forbidden_source_path_segments.push(forbiddenSegment)
+        })
+        const directory = join(root, "src/modules/unlisted-owner", forbiddenSegment)
         await mkdir(directory, { recursive: true })
         await writeFile(join(directory, "index.ts"), "export {}\n")
       },
@@ -1199,9 +1154,12 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
       label: "runtime source declaration duplicates a path",
       mutate: async (root: string) => {
         await mutateContract(root, (contract) => {
+          const existingPath = contract.admission.runtime_source_paths[0] ??
+            "src/admission-bootstrap/interface.ts"
           contract.admission.runtime_source_paths = [
-            "src/admission-bootstrap/interface.ts",
-            "src/admission-bootstrap/interface.ts",
+            ...contract.admission.runtime_source_paths,
+            existingPath,
+            existingPath,
           ]
         })
       },
@@ -1216,7 +1174,9 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
         ] as const
         await addAdmissionRuntimeSources(root, paths)
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [...paths].reverse()
+          contract.admission.runtime_source_paths = [
+            ...new Set([...contract.admission.runtime_source_paths, ...paths]),
+          ].sort().reverse()
         })
       },
       expectedFinding: runtimeSourceFinding,
@@ -1225,7 +1185,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
       label: "runtime source declaration names an absent path",
       mutate: async (root: string) => {
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = ["src/admission-bootstrap/missing.ts"]
+          extendAdmissionRuntimeSourcePaths(contract, ["src/admission-bootstrap/missing.ts"])
         })
       },
       expectedFinding: runtimeSourceFinding,
@@ -1236,7 +1196,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
         const path = "src/admission-bootstrap/runtime-outside-closure.ts"
         await addAdmissionRuntimeSources(root, [path], false)
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [path]
+          extendAdmissionRuntimeSourcePaths(contract, [path])
         })
       },
       expectedFinding: runtimeSourceFinding,
@@ -1251,8 +1211,14 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
     {
       label: "declared runtime source is runtime-empty",
       mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-empty.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await writeFile(
+          join(root, runtimePath),
+          "export type RuntimeEmpty = never\n",
+        )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = ["src/admission-bootstrap/interface.ts"]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: runtimeSourceFinding,
@@ -1266,7 +1232,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nexport const hiddenRuntime = 1\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = ["src/admission-bootstrap/interface.ts"]
+          extendAdmissionRuntimeSourcePaths(contract, ["src/admission-bootstrap/interface.ts"])
         })
       },
       expectedFinding: {
@@ -1540,15 +1506,17 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
     {
       label: "dynamically recovered require loader reference",
       mutate: async (root: string) => {
-        const path = join(root, "src/admission-bootstrap/interface.ts")
-        await writeFile(
-          path,
-          `${await readFile(path, "utf8")}\n` +
-            'const load = eval("require")\n' +
-          'load("zod")\n',
+        const runtimePath = "src/admission-bootstrap/runtime-dynamic-loader.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval("require")\nload("zod")\n`,
         )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
       },
-      expectedFinding: runtimeSourceFinding,
     },
     {
       label: "declared runtime source recovers loader through parenthesized eval",
@@ -1561,7 +1529,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = (eval)("require")\nload("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1581,7 +1549,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = eval(("require"))\nload("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1601,7 +1569,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = eval("require" as string)\nload("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1621,7 +1589,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = (0, eval)("require")\nload("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1641,7 +1609,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = eval?.("require")\nload?.("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1661,7 +1629,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst computed = eval("1 + 1")\nvoid computed\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1681,7 +1649,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = eval(\`require\`)\nload("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1701,7 +1669,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst load = eval("requ" + "ire")\nload("zod")\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1721,7 +1689,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst run = eval\nrun('import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1741,7 +1709,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\neval.call(undefined, 'import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1761,7 +1729,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst run = globalThis["eval"]\nrun('import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1781,7 +1749,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst { eval: run } = globalThis\nrun('import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1801,7 +1769,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst globals = globalThis\nglobals.eval('import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1821,7 +1789,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst { ["eval"]: run } = globalThis\nrun('import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1841,7 +1809,7 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           (source) => `${source}\nconst property = "eval"\nglobalThis[property]('import("zod")')\n`,
         )
         await mutateContract(root, (contract) => {
-          contract.admission.runtime_source_paths = [runtimePath]
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
         })
       },
       expectedFinding: {
@@ -1928,7 +1896,7 @@ localGlobal /* comment */ . globalThis . eval("require")
 `,
   )
   await mutateContract(runtimeRoot, (contract) => {
-    contract.admission.runtime_source_paths = [runtimePath]
+    extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
   })
   const runtimeExpected = {
     schema_version: 1,
@@ -2312,24 +2280,29 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
     },
     {
       label: "public named value re-export keeps a stale runtime digest",
-      mutate: (root: string) => addAdmissionValueReexportTransition(root, { updateRuntimeDigest: false }),
-      expectedOwner: 'package_contract.runtime_output_sha256["./admission-bootstrap"]',
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\n",
+        "./implementation/runtime-custody",
+        emptyRuntimeOutputSha256,
+      ),
+      expectedOwner: 'package_contract.runtime_output_sha256["./runtime-custody"]',
     },
     {
       label: "public class re-export remains type-catalog drift",
-      mutate: (root: string) => addAdmissionValueReexportTransition(root, {
-        updateRuntimeDigest: true,
-        implementationSource: "export class admissionBootstrap {}\n",
-      }),
-      expectedOwner: 'package_contract.type_exports["./admission-bootstrap"]',
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export class runtimeCustodyValue {}\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
     {
       label: "public enum re-export remains type-catalog drift",
-      mutate: (root: string) => addAdmissionValueReexportTransition(root, {
-        updateRuntimeDigest: true,
-        implementationSource: "export enum admissionBootstrap { fixture }\n",
-      }),
-      expectedOwner: 'package_contract.type_exports["./admission-bootstrap"]',
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export enum runtimeCustodyValue { fixture }\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
     {
       label: "public cross-owner const re-export remains type-catalog drift",
@@ -2338,11 +2311,11 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
     },
     {
       label: "public dual-space target re-export remains type-catalog drift",
-      mutate: (root: string) => addAdmissionValueReexportTransition(root, {
-        updateRuntimeDigest: true,
-        implementationSource: `${admissionValueImplementationSource}\nexport interface admissionBootstrap {}\n`,
-      }),
-      expectedOwner: 'package_contract.type_exports["./admission-bootstrap"]',
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\nexport interface runtimeCustodyValue {}\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
     {
       label: "public dollar-suffixed const target remains type-catalog drift",
@@ -2851,7 +2824,10 @@ type EscapedTypeTemplate = \`export interface \\u0048iddenTemplateType {}\`
   expect(JSON.parse(lexicalObservation.stdout)).toEqual(lexicalExpected)
 
   const valueReexportRoot = await copyRepositoryFixture()
-  await addAdmissionValueReexportTransition(valueReexportRoot, { updateRuntimeDigest: true })
+  await addRuntimeCustodyValueReexport(
+    valueReexportRoot,
+    "export const runtimeCustodyValue = {}\n",
+  )
   const valueReexportExpected = {
     schema_version: 1,
     command: "verify:repository-qualification",
