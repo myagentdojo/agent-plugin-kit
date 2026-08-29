@@ -33,6 +33,7 @@ type ScanStep = {
 
 const regularExpressionPrefix = /(?:^|[([{=,:;!?&|+\-*%^~<>]\s*|\b(?:await|case|delete|do|else|in|instanceof|new|of|return|throw|typeof|void|yield)\s*)$/
 const regularExpressionLiteral = /^\/(?:\\[\s\S]|\[(?:\\[\s\S]|[^\]\\\r\n])*\]|[^/\\[\]\r\n])*\/[A-Za-z]*/
+const controlStatementBeforeCondition = /\b(?:if|while|with|for(?:\s+await)?)\s*$/
 
 function isQuote(character: string | undefined): character is "\"" | "'" {
   return character === "\"" || character === "'"
@@ -46,13 +47,30 @@ function closingBraceTransition(depth: number): BraceTransition {
   return depth === 0 ? { depth, done: true } : { depth: depth - 1, done: false }
 }
 
-function canStartRegularExpression(source: string, index: number): boolean {
-  return regularExpressionPrefix.test(source.slice(0, index))
+function matchingOpeningParenthesis(source: string, closingIndex: number): number | undefined {
+  const parentheses = [...source.slice(0, closingIndex + 1).matchAll(/[()]/g)]
+  let depth = 0
+  for (const parenthesis of parentheses.reverse()) {
+    depth += parenthesis[0] === ")" ? 1 : -1
+    if (depth === 0) return parenthesis.index
+  }
+  return undefined
 }
 
-function regularExpressionEnd(source: string, start: number): number | undefined {
+function closesControlStatementCondition(code: string): boolean {
+  const prefix = code.trimEnd()
+  if (!prefix.endsWith(")")) return false
+  const openingIndex = matchingOpeningParenthesis(prefix, prefix.length - 1)
+  return openingIndex !== undefined && controlStatementBeforeCondition.test(prefix.slice(0, openingIndex))
+}
+
+function canStartRegularExpression(source: string, code: string, index: number): boolean {
+  return regularExpressionPrefix.test(source.slice(0, index)) || closesControlStatementCondition(code)
+}
+
+function regularExpressionEnd(source: string, code: string, start: number): number | undefined {
   const match = source.slice(start).match(regularExpressionLiteral)
-  return canStartRegularExpression(source, start) && match !== null
+  return canStartRegularExpression(source, code, start) && match !== null
     ? start + match[0].length
     : undefined
 }
@@ -118,7 +136,7 @@ class LexicalViewBuilder {
   }
 
   #regularExpressionEnd(start: number): number | undefined {
-    return regularExpressionEnd(this.source, start)
+    return regularExpressionEnd(this.source, this.#code.slice(0, start).join(""), start)
   }
 
   #templateEnd(start: number): number | undefined {

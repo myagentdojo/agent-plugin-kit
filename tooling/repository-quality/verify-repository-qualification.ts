@@ -703,7 +703,8 @@ class PublicTypeExportParseError extends Error {}
 const declarationNonCode = /(["'])(?:\\.|(?!\1)[^\\\r\n])*\1|`(?:\\.|[^`])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g
 const directPublicTypeExport = /^export\s+(?:type(?!\s*\{)|interface)\s+([$A-Z_a-z][$\w]*)/gm
 const namedPublicTypeExportBlock = /^export\s+(type\s*)?\{([\s\S]*?)\}/gm
-const unsupportedPublicTypeExport = /^(?:export\s+default\s+interface\b|export\s+type\s+\*)/m
+const unsupportedPublicTypeExport = /^export\s+type\s+\*/m
+const unsupportedDefaultPublicTypeExport = /^export\s+default\b/m
 const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
 
 type LocatedPublicTypeExport = {
@@ -743,7 +744,9 @@ function publicTypeExportName(match: RegExpMatchArray): string {
 }
 
 function locatedPublicTypeExports(code: string): LocatedPublicTypeExport[] {
-  if (unsupportedPublicTypeExport.test(code)) throw new PublicTypeExportParseError()
+  if (unsupportedPublicTypeExport.test(code) || unsupportedDefaultPublicTypeExport.test(code)) {
+    throw new PublicTypeExportParseError()
+  }
   const direct = [...code.matchAll(directPublicTypeExport)].map((match) => ({
     index: match.index,
     name: match[1] as string,

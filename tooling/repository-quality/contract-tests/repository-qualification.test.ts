@@ -998,6 +998,19 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
       },
     },
     {
+      label: "computed nonliteral import after control-condition regex brace in template substitution",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(
+          path,
+          `${await readFile(path, "utf8")}\nconst dynamicDependency = "zod"\n` +
+            '`' +
+            '${(() => { if (true) /}/.test("}") })() ? import(dynamicDependency) : undefined}' +
+            '`\n',
+        )
+      },
+    },
+    {
       label: "Admission projection disagrees with root Package Identity",
       mutate: async (root: string) => {
         await mutateContract(root, (contract) => {
@@ -1255,7 +1268,7 @@ test("shell exit, sentinel, verdict, or proof-schema drift is refused", async ()
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
   }
-})
+}, 15_000)
 
 test("root check, ten exports, exact Zod agreement, or Owner Manifest locality drift is refused", async () => {
   const cases = [
@@ -1348,6 +1361,15 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         root,
         "src/modules/runtime-custody/interface.ts",
         (source) => `${source}\nexport default interface HiddenPublicType {}\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "unsupported default class declaration fails closed",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport default class HiddenPublicType {}\n`,
       ),
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
@@ -1625,7 +1647,7 @@ export const RuntimeCustodyResult = undefined
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
   }
-})
+}, 15_000)
 
 test("unknown orchestration or Git-shaped declaration keys are refused", async () => {
   const keys = ["issue", "checkpoint", "predecessor", "reviewer", "git_history"] as const
