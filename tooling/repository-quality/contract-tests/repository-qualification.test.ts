@@ -1512,6 +1512,24 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: 'package_contract.runtime_output_sha256["./runtime-custody"]',
     },
     {
+      label: "public subpath ambient global value added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\ndeclare global { const HiddenRuntimeSurface: string }\n`,
+      ),
+      expectedOwner: 'package_contract.runtime_output_sha256["./runtime-custody"]',
+    },
+    {
+      label: "public subpath ambient module value added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\ndeclare module "agent-plugin-kit/runtime-custody" { const HiddenRuntimeSurface: string }\n`,
+      ),
+      expectedOwner: 'package_contract.runtime_output_sha256["./runtime-custody"]',
+    },
+    {
       label: "public interface with an escaped identifier",
       mutate: (root: string) => mutateTextFile(
         root,

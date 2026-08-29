@@ -710,6 +710,7 @@ class PublicTypeExportParseError extends Error {}
 const directPublicTypeDeclaration = /\bexport\s+(?:declare\s+)?(?:type(?!\s*\{)|interface)\s+([^\s=<{;]+)/g
 const namedPublicTypeExportBlock = /\bexport\s+(type\s*)?\{([\s\S]*?)\}/g
 const declaredPublicValue = /\bexport\s+declare\s+(?:function|const|let|var)\b/g
+const ambientPublicDeclaration = /\bdeclare\s+(?:global|module|namespace)\b/g
 const unsupportedPublicDecorator = /@/g
 const unsupportedPublicTypeExport = /\bexport\s+(?:(?:type\s+)?\*|(?:(?:declare|abstract)\s+)*(?:class|(?:const\s+)?enum|namespace|module|import)\b)/g
 const unsupportedDefaultPublicTypeExport = /\bexport\s+default\b/g
@@ -789,7 +790,12 @@ function publicTypeExports(path: string): string[] {
 function runtimeOutputSha256(path: string): string {
   const source = readFileSync(resolve(repositoryRoot, path), "utf8")
   const code = typescriptLexicalCode(source)
-  if (topLevelMatches(code, declaredPublicValue).length > 0) throw new PublicTypeExportParseError()
+  if (
+    topLevelMatches(code, declaredPublicValue).length > 0 ||
+    topLevelMatches(code, ambientPublicDeclaration).length > 0
+  ) {
+    throw new PublicTypeExportParseError()
+  }
   return createHash("sha256").update(typescriptRuntimeCode(source)).digest("hex")
 }
 
