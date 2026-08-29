@@ -1049,6 +1049,18 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
       },
     },
     {
+      label: "aliased require loader reference",
+      mutate: async (root: string) => {
+        const path = join(root, "src/admission-bootstrap/interface.ts")
+        await writeFile(
+          path,
+          `${await readFile(path, "utf8")}\n` +
+            'const admissionRequire = require\n' +
+            'admissionRequire("zod")\n',
+        )
+      },
+    },
+    {
       label: "Admission projection disagrees with root Package Identity",
       mutate: async (root: string) => {
         await mutateContract(root, (contract) => {
@@ -1394,6 +1406,36 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
     {
+      label: "nested type export cannot replace a top-level public type",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source.replace(
+          "export type RuntimeCustodyResult =",
+          "type RuntimeCustodyResult =",
+        )}\nnamespace Internal {\n  export type RuntimeCustodyResult = never\n}\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "declared public interface added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport declare interface HiddenPublicType {}\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "declared public type added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport declare type HiddenPublicType = string\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
       label: "public type export renamed",
       mutate: (root: string) => mutateTextFile(
         root,
@@ -1657,6 +1699,7 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
 /* export interface \\u0048iddenCommentType {} */
 export const valueOnlyRuntimeMarker = "value-only"
 export const RuntimeCustodyResult = undefined
+export const regexAtMarker = /@/
 export const escapedTypeString = "export interface \\u0048iddenStringType {}"
 export const escapedTypeTemplate = \`export interface \\u0048iddenTemplateType {}\`
 `,

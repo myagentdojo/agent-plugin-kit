@@ -1,6 +1,7 @@
 const typescriptTranspiler = new Bun.Transpiler({ loader: "ts" })
 
 const moduleCall = /\b(?:import|require)\s*\(/g
+const requireReference = /\brequire\b/g
 const escapedIdentifier = /\\u(?:\{[0-9A-Fa-f]+\}|[0-9A-Fa-f]{4})/
 const leadingTrivia = /^(?:(?:\s+)|(?:\/\/[^\n]*(?:\n|$))|(?:\/\*[\s\S]*?\*\/))*/
 const blockComment = /\/\*[\s\S]*?\*\//g
@@ -227,6 +228,10 @@ function sourceWithoutShebang(source: string): string {
     : source
 }
 
+export function typescriptLexicalCode(source: string): string {
+  return lexicalViews(sourceWithoutShebang(source)).code
+}
+
 function typeOnlySpecifiers(views: LexicalViews): string[] {
   return typeDeclarationPatterns.flatMap((pattern) =>
     [...views.commentsRemoved.matchAll(pattern)]
@@ -237,6 +242,10 @@ function typeOnlySpecifiers(views: LexicalViews): string[] {
 
 function literalModuleCallCount(imports: readonly Bun.Import[]): number {
   return imports.filter(({ kind }) => kind === "dynamic-import" || kind === "require-call").length
+}
+
+function literalRequireCallCount(imports: readonly Bun.Import[]): number {
+  return imports.filter(({ kind }) => kind === "require-call").length
 }
 
 function tripleSlashModuleSpecifiers(source: string): string[] {
@@ -256,7 +265,11 @@ export function staticModuleSpecifiers(file: string, source: string): string[] {
     ...tripleSlashModuleSpecifiers(scannedSource),
   ])
   const moduleCallCount = [...views.code.matchAll(moduleCall)].length
-  if (moduleCallCount !== literalModuleCallCount(scannedImports)) {
+  const requireReferenceCount = [...views.code.matchAll(requireReference)].length
+  if (
+    moduleCallCount !== literalModuleCallCount(scannedImports) ||
+    requireReferenceCount !== literalRequireCallCount(scannedImports)
+  ) {
     throw new NonliteralModuleSpecifierError(file)
   }
   return [...specifiers]

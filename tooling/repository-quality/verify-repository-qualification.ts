@@ -12,6 +12,7 @@ import { dirname, extname, join, relative, resolve } from "node:path"
 import {
   NonliteralModuleSpecifierError,
   staticModuleSpecifiers,
+  typescriptLexicalCode,
 } from "./static-module-specifiers"
 
 type BalancedCounts = {
@@ -700,12 +701,11 @@ function packageManifests(directory: string, prefix = ""): string[] {
 
 class PublicTypeExportParseError extends Error {}
 
-const declarationNonCode = /(["'])(?:\\.|(?!\1)[^\\\r\n])*\1|`(?:\\.|[^`])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g
-const directPublicTypeDeclaration = /^[ \t]*export\s+(?:type(?!\s*\{)|interface)\s+([^\s=<{;]+)/gm
+const directPublicTypeDeclaration = /^[ \t]*export\s+(?:declare\s+)?(?:type(?!\s*\{)|interface)\s+([^\s=<{;]+)/gm
 const namedPublicTypeExportBlock = /^[ \t]*export\s+(type\s*)?\{([\s\S]*?)\}/gm
-const unsupportedPublicDecorator = /@/
-const unsupportedPublicTypeExport = /^[ \t]*export\s+(?:(?:type\s+)?\*|(?:(?:declare|abstract)\s+)*(?:class|(?:const\s+)?enum|namespace|module|import)\b)/m
-const unsupportedDefaultPublicTypeExport = /^[ \t]*export\s+default\b/m
+const unsupportedPublicDecorator = /@/g
+const unsupportedPublicTypeExport = /^[ \t]*export\s+(?:(?:type\s+)?\*|(?:(?:declare|abstract)\s+)*(?:class|(?:const\s+)?enum|namespace|module|import)\b)/gm
+const unsupportedDefaultPublicTypeExport = /^[ \t]*export\s+default\b/gm
 const unsupportedPublicTypePatterns = [
   unsupportedPublicDecorator,
   unsupportedPublicTypeExport,
@@ -717,10 +717,6 @@ const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$
 type LocatedPublicTypeExport = {
   readonly index: number
   readonly name: string
-}
-
-function declarationCode(source: string): string {
-  return source.replace(declarationNonCode, (match) => match.replace(/[^\r\n]/g, " "))
 }
 
 function namedPublicTypeExports(match: RegExpMatchArray): LocatedPublicTypeExport[] {
@@ -758,18 +754,27 @@ function publicTypeExportName(match: RegExpMatchArray): string {
   return (match[2] ?? match[1]) as string
 }
 
+function isTopLevelMatch(code: string, match: RegExpMatchArray): boolean {
+  const prefix = code.slice(0, match.index ?? 0)
+  return prefix.split("{").length === prefix.split("}").length
+}
+
+function topLevelMatches(code: string, pattern: RegExp): RegExpMatchArray[] {
+  return [...code.matchAll(pattern)].filter((match) => isTopLevelMatch(code, match))
+}
+
 function locatedPublicTypeExports(code: string): LocatedPublicTypeExport[] {
-  if (unsupportedPublicTypePatterns.some((pattern) => pattern.test(code))) {
+  if (unsupportedPublicTypePatterns.some((pattern) => topLevelMatches(code, pattern).length > 0)) {
     throw new PublicTypeExportParseError()
   }
-  const direct = [...code.matchAll(directPublicTypeDeclaration)].map(directPublicTypeExport)
-  const named = [...code.matchAll(namedPublicTypeExportBlock)].flatMap(namedPublicTypeExports)
+  const direct = topLevelMatches(code, directPublicTypeDeclaration).map(directPublicTypeExport)
+  const named = topLevelMatches(code, namedPublicTypeExportBlock).flatMap(namedPublicTypeExports)
   return [...direct, ...named].sort((left, right) => left.index - right.index)
 }
 
 function publicTypeExports(path: string): string[] {
   const source = readFileSync(resolve(repositoryRoot, path), "utf8")
-  const code = declarationCode(source)
+  const code = typescriptLexicalCode(source)
   return [...new Set(locatedPublicTypeExports(code).map(({ name }) => name))]
 }
 
