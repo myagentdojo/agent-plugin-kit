@@ -436,21 +436,17 @@ test("an additional independently observed GREEN transition qualifies", async ()
   await mutateTextFile(
     root,
     "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
-    (source) => {
-      const assertion = '  expect(installedPackage?.rootTypeExports, "contract-absent: installed root type exports must be independently observed").toEqual(expectedRootTypeExports)\n'
-      if (!source.includes(assertion)) throw new Error("mixed fixture assertion was not found")
-      return source.replace(assertion, "")
-    },
+    (source) => `${source}\ntest("fixture-local GREEN transition", () => {\n  expect(true).toBe(true)\n})\n`,
   )
   await mutateContract(root, (contract) => {
-    for (const groupIndex of [0, 4]) {
-      contract.proof_groups[groupIndex].passed += 1
-      contract.proof_groups[groupIndex].failed -= 1
-      contract.proof_groups[groupIndex].failure_classes["contract-absent"] -= 1
+    for (const groupId of ["kit-interface", "clean-fixture"]) {
+      const group = contract.proof_groups.find((candidate: { id?: string }) => candidate.id === groupId)
+      if (group === undefined) throw new Error(`mixed fixture omitted proof group ${groupId}`)
+      group.tests += 1
+      group.passed += 1
     }
+    contract.aggregate.tests += 1
     contract.aggregate.passed += 1
-    contract.aggregate.failed -= 1
-    contract.aggregate.failure_classes["contract-absent"] -= 1
   })
   const expected = await buildIndependentSuccessReceipt(root)
   const observation = await observeVerifier(root)
