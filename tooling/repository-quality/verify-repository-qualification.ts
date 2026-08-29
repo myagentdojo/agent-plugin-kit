@@ -701,18 +701,17 @@ function packageManifests(directory: string, prefix = ""): string[] {
 class PublicTypeExportParseError extends Error {}
 
 const declarationNonCode = /(["'])(?:\\.|(?!\1)[^\\\r\n])*\1|`(?:\\.|[^`])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g
-const directPublicTypeExport = /^[ \t]*export\s+(?:type(?!\s*\{)|interface)\s+([$A-Z_a-z][$\w]*)/gm
+const directPublicTypeDeclaration = /^[ \t]*export\s+(?:type(?!\s*\{)|interface)\s+([^\s=<{;]+)/gm
 const namedPublicTypeExportBlock = /^[ \t]*export\s+(type\s*)?\{([\s\S]*?)\}/gm
 const unsupportedPublicDecorator = /@/
-const unsupportedEscapedPublicTypeIdentifier = /^[ \t]*export\s+(?:type(?!\s*\{)|interface)\s+(?:[$A-Z_a-z][$\w]*)?\\u/m
 const unsupportedPublicTypeExport = /^[ \t]*export\s+(?:(?:type\s+)?\*|(?:(?:declare|abstract)\s+)*(?:class|(?:const\s+)?enum|namespace|module|import)\b)/m
 const unsupportedDefaultPublicTypeExport = /^[ \t]*export\s+default\b/m
 const unsupportedPublicTypePatterns = [
   unsupportedPublicDecorator,
-  unsupportedEscapedPublicTypeIdentifier,
   unsupportedPublicTypeExport,
   unsupportedDefaultPublicTypeExport,
 ]
+const publicTypeIdentifier = /^[$A-Z_a-z][$\w]*$/
 const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
 
 type LocatedPublicTypeExport = {
@@ -728,6 +727,14 @@ function namedPublicTypeExports(match: RegExpMatchArray): LocatedPublicTypeExpor
   const allTypeOnly = match[1] !== undefined
   const block = match[2] ?? ""
   return block.split(",").flatMap((entry) => namedPublicTypeExport(entry, allTypeOnly, match.index ?? 0))
+}
+
+function directPublicTypeExport(match: RegExpMatchArray): LocatedPublicTypeExport {
+  const name = match[1]
+  if (name === undefined || !publicTypeIdentifier.test(name)) {
+    throw new PublicTypeExportParseError()
+  }
+  return { index: match.index ?? 0, name }
 }
 
 function namedPublicTypeExport(
@@ -755,10 +762,7 @@ function locatedPublicTypeExports(code: string): LocatedPublicTypeExport[] {
   if (unsupportedPublicTypePatterns.some((pattern) => pattern.test(code))) {
     throw new PublicTypeExportParseError()
   }
-  const direct = [...code.matchAll(directPublicTypeExport)].map((match) => ({
-    index: match.index,
-    name: match[1] as string,
-  }))
+  const direct = [...code.matchAll(directPublicTypeDeclaration)].map(directPublicTypeExport)
   const named = [...code.matchAll(namedPublicTypeExportBlock)].flatMap(namedPublicTypeExports)
   return [...direct, ...named].sort((left, right) => left.index - right.index)
 }

@@ -1367,6 +1367,24 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
     {
+      label: "public interface with an escape after a non-ASCII identifier character",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport interface Å\\u0062 {}\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public interface with a non-ASCII identifier",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport interface Å {}\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
       label: "public type export removed",
       mutate: (root: string) => mutateTextFile(
         root,
