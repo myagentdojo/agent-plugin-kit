@@ -84,102 +84,6 @@ async function observeVerifier(
   return { exitCode, stdout, stderr }
 }
 
-const independentProofGroups = [
-  {
-    id: "kit-interface",
-    files: ["clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts"],
-  },
-  {
-    id: "admission-bootstrap",
-    files: [
-      "src/admission-bootstrap/contract-tests/admitted-identity-before-execution.test.ts",
-      "src/admission-bootstrap/contract-tests/identity-refusal.test.ts",
-    ],
-  },
-  {
-    id: "maintenance-command-contract",
-    files: [
-      "src/modules/maintenance-command-contract/contract-tests/effect-class-and-retry-safety.test.ts",
-      "src/modules/maintenance-command-contract/contract-tests/human-and-agent-result-vocabulary.test.ts",
-      "src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
-    ],
-  },
-  {
-    id: "qualification-evidence",
-    files: [
-      "src/modules/qualification-evidence/contract-tests/candidate-lineage-reduction.test.ts",
-      "src/modules/qualification-evidence/contract-tests/proof-layer-and-non-claim.test.ts",
-    ],
-  },
-  {
-    id: "clean-fixture",
-    files: [
-      "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
-      "clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts",
-      "clean-fixture/personal-verification-profile/contract-tests/installation-evidence.test.ts",
-      "clean-fixture/personal-verification-profile/contract-tests/fresh-native-non-claims.test.ts",
-      "clean-fixture/public-verification-profile/contract-tests/profile-non-promotion.test.ts",
-      "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts",
-      "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts",
-    ],
-  },
-  {
-    id: "maintenance-cli-unit",
-    files: ["src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts"],
-  },
-  {
-    id: "maintenance-cli-catalog",
-    files: ["src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts"],
-  },
-  {
-    id: "maintenance-cli-process",
-    files: ["src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts"],
-  },
-  {
-    id: "maintenance-cli-observability",
-    files: ["src/adapters/maintenance-command-facade/contract-tests/observability.test.ts"],
-  },
-  {
-    id: "maintenance-cli-clean-fixture",
-    files: ["clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts"],
-  },
-  {
-    id: "maintenance-cli-local-link",
-    files: ["clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts"],
-  },
-  {
-    id: "maintenance-cli",
-    files: [
-      "src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts",
-      "src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
-      "src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts",
-      "src/adapters/maintenance-command-facade/contract-tests/observability.test.ts",
-      "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts",
-      "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts",
-    ],
-  },
-] as const
-
-const independentAggregateFiles = [
-  "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
-  "src/admission-bootstrap/contract-tests/admitted-identity-before-execution.test.ts",
-  "src/admission-bootstrap/contract-tests/identity-refusal.test.ts",
-  "src/modules/maintenance-command-contract/contract-tests/effect-class-and-retry-safety.test.ts",
-  "src/modules/maintenance-command-contract/contract-tests/human-and-agent-result-vocabulary.test.ts",
-  "src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
-  "src/modules/qualification-evidence/contract-tests/candidate-lineage-reduction.test.ts",
-  "src/modules/qualification-evidence/contract-tests/proof-layer-and-non-claim.test.ts",
-  "clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts",
-  "clean-fixture/personal-verification-profile/contract-tests/installation-evidence.test.ts",
-  "clean-fixture/personal-verification-profile/contract-tests/fresh-native-non-claims.test.ts",
-  "clean-fixture/public-verification-profile/contract-tests/profile-non-promotion.test.ts",
-  "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli.test.ts",
-  "clean-fixture/personal-verification-profile/contract-tests/maintenance-cli-local-link.test.ts",
-  "src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts",
-  "src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts",
-  "src/adapters/maintenance-command-facade/contract-tests/observability.test.ts",
-] as const
-
 type IndependentCounts = {
   files: number
   tests: number
@@ -189,19 +93,25 @@ type IndependentCounts = {
   failure_classes: Readonly<Record<string, number>>
 }
 
-let independentSuccessPromise: Promise<Record<string, unknown>> | undefined
+type IndependentSuite = Omit<IndependentCounts, "files"> & { file: string }
+type IndependentProcess = IndependentCounts & { suites: readonly IndependentSuite[] }
+type CurrentDeclaration = {
+  proof_groups: readonly { id: string; files: readonly string[] }[]
+  aggregate: { selected_files: readonly string[] }
+}
 
 async function independentSuccessReceipt(root: string): Promise<Record<string, unknown>> {
-  independentSuccessPromise ??= buildIndependentSuccessReceipt(root)
-  return independentSuccessPromise
+  return buildIndependentSuccessReceipt(root)
 }
 
 async function buildIndependentSuccessReceipt(root: string): Promise<Record<string, unknown>> {
-  const groups = await Promise.all(independentProofGroups.map(async ({ id, files }) => ({
-    id,
-    ...await observeIndependentTests(root, files),
-  })))
-  const aggregate = await observeIndependentTests(root, independentAggregateFiles)
+  const declarationPath = join(root, "tooling/repository-quality/repository-qualification-contract.json")
+  const declaration = JSON.parse(await readFile(declarationPath, "utf8")) as CurrentDeclaration
+  const aggregate = await observeIndependentTests(root, declaration.aggregate.selected_files)
+  const groups = declaration.proof_groups.map((group) => ({
+    id: group.id,
+    ...independentGroupCounts(aggregate.suites, group.files),
+  }))
   return {
     schema_version: 1,
     command: "verify:repository-qualification",
@@ -219,10 +129,32 @@ async function buildIndependentSuccessReceipt(root: string): Promise<Record<stri
   }
 }
 
+function independentGroupCounts(
+  suites: readonly IndependentSuite[],
+  files: readonly string[],
+): IndependentCounts {
+  const selected = files.map((file) => {
+    const suite = suites.find((candidate) => candidate.file === file)
+    if (suite === undefined) throw new Error(`independent test process omitted ${file}`)
+    return suite
+  })
+  return selected.reduce(
+    (total, suite) => ({
+      files: total.files + 1,
+      tests: total.tests + suite.tests,
+      passed: total.passed + suite.passed,
+      failed: total.failed + suite.failed,
+      skipped: total.skipped + suite.skipped,
+      failure_classes: mergeIndependentFailureClasses(total.failure_classes, suite.failure_classes),
+    }),
+    { files: 0, tests: 0, passed: 0, failed: 0, skipped: 0, failure_classes: {} },
+  )
+}
+
 async function observeIndependentTests(
   root: string,
   files: readonly string[],
-): Promise<IndependentCounts> {
+): Promise<IndependentProcess> {
   const receiptDirectory = await mkdtemp(join(tmpdir(), "agent-plugin-kit-independent-proof-"))
   temporaryReceiptDirectories.push(receiptDirectory)
   const receiptPath = join(receiptDirectory, "receipt.xml")
@@ -254,22 +186,46 @@ async function observeIndependentTests(
   return observed
 }
 
-function parseIndependentReceipt(source: string, files: readonly string[]): IndependentCounts {
+function parseIndependentReceipt(source: string, files: readonly string[]): IndependentProcess {
   const root = xmlTag(source, "testsuites")
-  const suites = [...source.matchAll(/<testsuite\b[^>]*>/g)].map((match) => match[0] as string)
-  const observedFiles = suites.map((suite) => xmlAttribute(suite, "file"))
+  const suites = [...source.matchAll(/<testsuite\b[^>]*>[\s\S]*?<\/testsuite>/g)].map((match) => match[0] as string)
+  const observedFiles = suites.map((suite) => xmlAttribute(xmlTag(suite, "testsuite"), "file"))
   if (suites.length !== files.length || JSON.stringify([...observedFiles].sort()) !== JSON.stringify([...files].sort())) {
     throw new Error("independent test process did not report the selected files")
   }
   const tests = xmlInteger(root, "tests")
   const failed = xmlInteger(root, "failures")
   const skipped = xmlInteger(root, "skipped")
-  const failureTags = [...source.matchAll(/<failure\b[^>]*>/g)].map((match) => match[0] as string)
-  if (failureTags.length !== failed || failed + skipped > tests) {
+  const parsedSuites = suites.map((suite) => parseIndependentSuite(suite))
+  const failureCount = parsedSuites.reduce((total, suite) => total + suite.failed, 0)
+  const skippedCount = parsedSuites.reduce((total, suite) => total + suite.skipped, 0)
+  const testCount = parsedSuites.reduce((total, suite) => total + suite.tests, 0)
+  if (failureCount !== failed || skippedCount !== skipped || testCount !== tests || failed + skipped > tests) {
     throw new Error("independent test process reported inconsistent JUnit counts")
   }
   return {
     files: suites.length,
+    tests,
+    passed: tests - failed - skipped,
+    failed,
+    skipped,
+    failure_classes: mergeIndependentFailureClasses({}, ...parsedSuites.map((suite) => suite.failure_classes)),
+    suites: parsedSuites,
+  }
+}
+
+function parseIndependentSuite(source: string): IndependentSuite {
+  const tag = xmlTag(source, "testsuite")
+  const file = xmlAttribute(tag, "file")
+  const tests = xmlInteger(tag, "tests")
+  const failed = xmlInteger(tag, "failures")
+  const skipped = xmlInteger(tag, "skipped")
+  const failureTags = [...source.matchAll(/<failure\b[^>]*>/g)].map((match) => match[0] as string)
+  if (failureTags.length !== failed || failed + skipped > tests) {
+    throw new Error(`independent test process reported inconsistent counts for ${file}`)
+  }
+  return {
+    file,
     tests,
     passed: tests - failed - skipped,
     failed,
@@ -305,6 +261,18 @@ function independentFailureClasses(failureTags: readonly string[]): Readonly<Rec
     classes[failureClass] = (classes[failureClass] ?? 0) + 1
   }
   return classes
+}
+
+function mergeIndependentFailureClasses(
+  ...failureClasses: readonly Readonly<Record<string, number>>[]
+): Readonly<Record<string, number>> {
+  const merged: Record<string, number> = {}
+  for (const classes of failureClasses) {
+    for (const [failureClass, count] of Object.entries(classes)) {
+      merged[failureClass] = (merged[failureClass] ?? 0) + count
+    }
+  }
+  return merged
 }
 
 async function mutateContract(
@@ -1436,18 +1404,23 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
       expectedFinding: runtimeSourceFinding,
     },
     {
-      label: "declared runtime source recovers forbidden external loader",
+      label: "declared runtime source recovers loader through parenthesized eval",
       mutate: async (root: string) => {
         const runtimePath = "src/admission-bootstrap/runtime-recovered-loader.ts"
         await addAdmissionRuntimeSources(root, [runtimePath])
         await mutateTextFile(
           root,
           runtimePath,
-          (source) => `${source}\nconst load = eval("require")\nload("zod")\n`,
+          (source) => `${source}\nconst load = (eval)("require")\nload("zod")\n`,
         )
         await mutateContract(root, (contract) => {
           contract.admission.runtime_source_paths = [runtimePath]
         })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
       },
     },
     {
@@ -1520,6 +1493,8 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
 import "node:fs"
 import type { ReleaseIdentity } from "../modules/release-and-git-engine/interface"
 type RuntimeIdentity = ReleaseIdentity
+const local = { eval: (value: string) => value }
+local.eval("require")
 `,
   )
   await mutateContract(runtimeRoot, (contract) => {
@@ -1535,7 +1510,7 @@ type RuntimeIdentity = ReleaseIdentity
     aggregate: null,
   } as const
   const runtimeObservation = await observeVerifier(runtimeRoot, ["--structure-only"])
-  expect(runtimeObservation.exitCode).toBe(0)
+  expect(runtimeObservation.exitCode, runtimeObservation.stderr).toBe(0)
   expect(runtimeObservation.stderr).toBe("")
   expect(runtimeObservation.stdout).toBe(`${JSON.stringify(runtimeExpected)}\n`)
   expect(JSON.parse(runtimeObservation.stdout)).toEqual(runtimeExpected)
@@ -1603,7 +1578,7 @@ type NotAEvalTemplate = \`eval("require")\`
     () => staticModuleSpecifiers("colliding-regex-probe.ts", collidingProbeSource),
     "the inserted slash probe must be classified independently from matching source text",
   ).toThrow(NonliteralModuleSpecifierError)
-})
+}, 15_000)
 
 test("shell exit, sentinel, verdict, or proof-schema drift is refused", async () => {
   const cases = [

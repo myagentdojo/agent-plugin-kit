@@ -694,7 +694,29 @@ function verifyAdmissionProductionSource(
 }
 
 function hasRecoveredExternalLoader(source: string): boolean {
-  return /\beval\s*\(/.test(typescriptLexicalCode(source))
+  const code = typescriptLexicalCode(source)
+  return [...code.matchAll(/\beval\b/g)].some((match) => {
+    const index = match.index
+    return index !== undefined &&
+      isUnqualifiedEval(code, index) &&
+      isEvalCall(code, index) &&
+      hasRequireEvalArgument(source, index)
+  })
+}
+
+function isUnqualifiedEval(code: string, index: number): boolean {
+  const preceding = code[index - 1]
+  return preceding === undefined || !/[A-Za-z0-9_$\.]/.test(preceding)
+}
+
+function isEvalCall(code: string, index: number): boolean {
+  return /^\s*(?:\)\s*)*\(/.test(code.slice(index + "eval".length))
+}
+
+function hasRequireEvalArgument(source: string, index: number): boolean {
+  return /^eval(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*(?:\)(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*\s*)*\((?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*(?:"require"|'require')(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*\)/.test(
+    source.slice(index),
+  )
 }
 
 function isForbiddenAdmissionSpecifier(specifier: string): boolean {
