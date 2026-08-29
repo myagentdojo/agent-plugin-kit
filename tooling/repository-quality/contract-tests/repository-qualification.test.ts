@@ -100,10 +100,6 @@ type CurrentDeclaration = {
   aggregate: { selected_files: readonly string[] }
 }
 
-async function independentSuccessReceipt(root: string): Promise<Record<string, unknown>> {
-  return buildIndependentSuccessReceipt(root)
-}
-
 async function buildIndependentSuccessReceipt(root: string): Promise<Record<string, unknown>> {
   const declarationPath = join(root, "tooling/repository-quality/repository-qualification-contract.json")
   const declaration = JSON.parse(await readFile(declarationPath, "utf8")) as CurrentDeclaration
@@ -341,7 +337,7 @@ afterAll(async () => {
 
 test("the initial repository declaration qualifies the exact mixed RED baseline", async () => {
   const root = await copyRepositoryFixture()
-  const expected = await independentSuccessReceipt(root)
+  const expected = await buildIndependentSuccessReceipt(root)
   const observation = await observeVerifier(root)
   expect(observation.exitCode).toBe(0)
   expect(observation.stderr).toBe("")
@@ -1013,7 +1009,7 @@ test("required-path or declared-structure drift is refused", async () => {
   const cacheDirectory = join(cacheRoot, ".fallow/runtime-custody")
   await mkdir(cacheDirectory, { recursive: true })
   await writeFile(join(cacheDirectory, "cache.bin"), "repository-local runtime cache\n")
-  const cacheExpected = await independentSuccessReceipt(cacheRoot)
+  const cacheExpected = await buildIndependentSuccessReceipt(cacheRoot)
   const cacheObservation = await observeVerifier(cacheRoot)
   expect(cacheObservation.exitCode, cacheObservation.stderr).toBe(0)
   expect(cacheObservation.stderr).toBe("")
@@ -1424,6 +1420,86 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
       },
     },
     {
+      label: "declared runtime source recovers loader through parenthesized require argument",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-parenthesized-require.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval(("require"))\nload("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [runtimePath]
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source recovers loader through type-wrapped require argument",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-type-wrapped-require.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval("require" as string)\nload("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [runtimePath]
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source recovers loader through indirect eval",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-indirect-eval-require.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = (0, eval)("require")\nload("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [runtimePath]
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source recovers loader through optional eval",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-optional-eval-require.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval?.("require")\nload?.("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [runtimePath]
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
       label: "computed nonliteral require between divisions after keyword-named property",
       mutate: async (root: string) => {
         const path = join(root, "src/admission-bootstrap/interface.ts")
@@ -1494,7 +1570,8 @@ import "node:fs"
 import type { ReleaseIdentity } from "../modules/release-and-git-engine/interface"
 type RuntimeIdentity = ReleaseIdentity
 const local = { eval: (value: string) => value }
-local.eval("require")
+local . eval("require")
+local /* comment */ . eval("require")
 `,
   )
   await mutateContract(runtimeRoot, (contract) => {
@@ -1563,7 +1640,7 @@ type NotAEvalTemplate = \`eval("require")\`
     (source) => source.replace("#!/usr/bin/env bun\n", `#!/usr/bin/env bun\n${lookalikes}`),
   )
 
-  const expected = await independentSuccessReceipt(root)
+  const expected = await buildIndependentSuccessReceipt(root)
   const observation = await observeVerifier(root)
   expect(observation.exitCode, observation.stderr).toBe(0)
   expect(observation.stderr).toBe("")
@@ -2239,7 +2316,7 @@ type EscapedTypeString = "export interface \\u0048iddenStringType {}"
 type EscapedTypeTemplate = \`export interface \\u0048iddenTemplateType {}\`
 `,
   )
-  const lexicalExpected = await independentSuccessReceipt(lexicalRoot)
+  const lexicalExpected = await buildIndependentSuccessReceipt(lexicalRoot)
   const lexicalObservation = await observeVerifier(lexicalRoot)
   expect(lexicalObservation.exitCode, lexicalObservation.stderr).toBe(0)
   expect(lexicalObservation.stderr).toBe("")
