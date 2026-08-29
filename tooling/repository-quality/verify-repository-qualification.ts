@@ -788,6 +788,7 @@ const unsupportedPublicTypePatterns = [
 const publicTypeIdentifier = /^[$A-Z_a-z][$\w]*$/
 const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
 const namedValueExport = /^([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
+const directPublicConstDeclaration = /\bexport\s+const\s+([$A-Z_a-z][$\w]*)(?=\s*(?::|=))/g
 const supportedRelativeReexport = /^(?:\.\/|\.\.\/)[^\\]+$/
 const descendantRelativePath = /^(?!\.\.(?:\/|$)).+$/
 
@@ -897,10 +898,11 @@ function namedValueExportSourceName(entry: string): string | undefined {
 function directlyExportsValueOnlyConst(target: string, sourceName: string): boolean {
   const source = readFileSync(target, "utf8")
   const code = typescriptLexicalCode(source)
-  const declaration = new RegExp(`\\bexport\\s+const\\s+${escapeRegExp(sourceName)}\\b`, "g")
   const targetPath = relative(repositoryRoot, target).replaceAll("\\", "/")
   const publicTypes = locatedPublicTypeExports(targetPath, source, code).map(({ name }) => name)
-  return topLevelMatches(code, declaration).length === 1 && !publicTypes.includes(sourceName)
+  const sourceDeclarations = topLevelMatches(code, directPublicConstDeclaration)
+    .filter((match) => match[1] === sourceName)
+  return sourceDeclarations.length === 1 && !publicTypes.includes(sourceName)
 }
 
 function resolvePublicReexportTarget(exporterPath: string, specifier: string): string | undefined {

@@ -2341,6 +2341,30 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: 'package_contract.type_exports["./admission-bootstrap"]',
     },
     {
+      label: "public dollar-suffixed const target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue$other = {}\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public escaped-suffix const target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue\\u0024other = {}\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public Unicode-suffixed const target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValueÅ = {}\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
       label: "public escaped dual-space target re-export remains type-catalog drift",
       mutate: (root: string) => addRuntimeCustodyValueReexport(
         root,
