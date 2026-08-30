@@ -1,82 +1,214 @@
 import { expect, test } from "bun:test"
-import type { EvidenceCell, QualificationEvidence, VerificationProfile } from "../interface"
+import type {
+  EvidenceCell,
+  QualificationOutcome,
+  QualificationRefusal,
+  QualificationResult,
+  VerificationProfile,
+} from "../interface"
+import { qualificationEvidence } from "../implementation/qualification-evidence"
+import {
+  parseEvidenceCell,
+  parseQualificationOutcome,
+  parseQualificationRefusal,
+  parseQualificationResult,
+  parseVerificationProfile,
+  serializeEvidenceCell,
+  serializeQualificationOutcome,
+  serializeQualificationRefusal,
+  serializeQualificationResult,
+  serializeVerificationProfile,
+} from "../serialized-values"
 import {
   candidate,
+  failureCell,
   observedCell,
   personalEvidenceCells,
   personalProfile,
+  provedAbsenceCell,
   publicEvidenceCells,
   publicProfile,
+  skipCell,
+  unavailableCell,
+  unknownObservationCell,
 } from "./fixtures/evidence-cells"
 
-const qualificationEvidence: QualificationEvidence | undefined = undefined
-
-function reduceAttempt(profile: VerificationProfile, cells: readonly EvidenceCell[]) {
-  if (!qualificationEvidence) return undefined
-  const outcome = qualificationEvidence.reduce({ candidate, profile, cells })
-  return outcome.status === "reduced" ? outcome.result : undefined
+function reducedFixture(profile: VerificationProfile = personalProfile): QualificationResult {
+  const outcome = qualificationEvidence.reduce({ candidate, profile, cells: personalEvidenceCells() })
+  if (outcome.status !== "reduced") throw new Error("expected reduced fixture")
+  return outcome.result
 }
 
-test("Proof Layer satisfaction is reflexive", () => {
-  const actual = reduceAttempt(personalProfile, personalEvidenceCells())
-  const claim = actual?.claims.find((item) => item.claim === "kit.identity.admitted")
-  expect(claim, "contract-absent: clean-fixture must satisfy itself").toMatchObject({ status: "proved", actualProofLayer: "clean-fixture" })
+function refusedFixture(): QualificationRefusal {
+  const outcome = qualificationEvidence.reduce({ candidate, profile: personalProfile, cells: [] })
+  if (outcome.status !== "refused") throw new Error("expected refused fixture")
+  return outcome.refusal
+}
+
+test("declared and inferred values make exact JSON round trips", () => {
+  const cell = observedCell()
+  const profile = personalProfile
+  const result = reducedFixture()
+  const refusal = refusedFixture()
+  const reducedOutcome: QualificationOutcome = { status: "reduced", result }
+  const refusedOutcome: QualificationOutcome = { status: "refused", refusal }
+
+  expect(parseEvidenceCell(JSON.parse(serializeEvidenceCell(cell)))).toEqual(cell)
+  expect(parseVerificationProfile(JSON.parse(serializeVerificationProfile(profile)))).toEqual(profile)
+  expect(parseQualificationResult(JSON.parse(serializeQualificationResult(result)))).toEqual(result)
+  expect(parseQualificationRefusal(JSON.parse(serializeQualificationRefusal(refusal)))).toEqual(refusal)
+  expect(parseQualificationOutcome(JSON.parse(serializeQualificationOutcome(reducedOutcome)))).toEqual(reducedOutcome)
+  expect(parseQualificationOutcome(JSON.parse(serializeQualificationOutcome(refusedOutcome)))).toEqual(refusedOutcome)
 })
 
-test("clean-fixture satisfies public-process and in-process", () => {
-  const cells = personalEvidenceCells()
-  cells[5] = observedCell({ id: "cell:runtime-clean", claim: "runtime.supported-platform", actualProofLayer: "clean-fixture" })
-  const actual = reduceAttempt(personalProfile, cells)
-  const claim = actual?.claims.find((item) => item.claim === "runtime.supported-platform")
-  expect(claim, "contract-absent: clean-fixture must satisfy public-process and in-process").toMatchObject({ status: "proved", actualProofLayer: "clean-fixture" })
+test("ingress accepts all seven Evidence Cell forms and both exact profiles", () => {
+  const variants: readonly EvidenceCell[] = [
+    observedCell({ id: "cell:observed-qualified" }),
+    observedCell({ id: "cell:observed-insufficient", actualProofLayer: "public-process" }),
+    failureCell("kit.identity.admitted", "cell:failure"),
+    provedAbsenceCell("kit.identity.admitted", "cell:proved-absence"),
+    unavailableCell("kit.identity.admitted", "cell:unavailable"),
+    unknownObservationCell("kit.identity.admitted", "cell:unknown-observation"),
+    skipCell("kit.identity.admitted", "cell:skip-variant"),
+  ]
+
+  for (const variant of variants) {
+    expect(parseEvidenceCell(JSON.parse(serializeEvidenceCell(variant)))).toEqual(variant)
+  }
+  expect(parseVerificationProfile(JSON.parse(serializeVerificationProfile(personalProfile)))).toEqual(personalProfile)
+  expect(parseVerificationProfile(JSON.parse(serializeVerificationProfile(publicProfile)))).toEqual(publicProfile)
 })
 
-test("hosted cannot satisfy fresh-native", () => {
-  const cells = personalEvidenceCells()
-  cells[6] = observedCell({ id: "cell:claude-hosted", claim: "harness.claude.fresh-native", actualProofLayer: "hosted" })
-  const actual = reduceAttempt(personalProfile, cells)
-  const hostedForNative = actual?.claims.find((item) => item.claim === "harness.claude.fresh-native")
-  expect(hostedForNative, "contract-absent: hosted cannot satisfy fresh-native").toMatchObject({ status: "not-proved", actualProofLayer: "hosted" })
+test("strict ingress rejects mismatches, unknown fields, versions, coercion, defaults, undefined, and raw detail", () => {
+  const cell = observedCell()
+  const invalidValues: readonly unknown[] = [
+    { ...cell, assertedStatus: "proved", observable: { kind: "failure", code: "BAD_STATUS" } },
+    { ...cell, assertedStatus: "proved", actualProofLayer: null },
+    { ...cell, extraField: "not-allowed" },
+    { ...cell, schemaVersion: 2 },
+    { ...cell, receipt: { ...cell.receipt!, receiptSchemaVersion: "1" } },
+    { ...cell, observable: { kind: "observed" } },
+    { ...cell, receipt: undefined },
+    { ...cell, raw: { secret: "private" } },
+    { ...skipCell("kit.identity.admitted"), observable: { kind: "observed", code: "BAD_SKIP" } },
+    { ...personalProfile, schemaVersion: 2 },
+    { ...personalProfile, requirements: [...personalProfile.requirements].reverse() },
+  ]
 
-  const publicCells = publicEvidenceCells()
-  publicCells[7] = observedCell({
-    id: "cell:workflow-native",
-    claim: "workflow.called-revision",
-    actualProofLayer: "fresh-native",
-    lineage: {
-      ...observedCell().lineage,
-      hostedRun: {
-        provider: "github-actions",
-        repository: candidate.source.repository,
-        runId: "12345",
-        attempt: 1,
-        headCommit: candidate.source.commit,
-      },
-    },
+  for (const value of invalidValues) {
+    expect(parseEvidenceCell(value)).toBeUndefined()
+  }
+  expect(parseVerificationProfile(invalidValues[9])).toBeUndefined()
+  expect(parseVerificationProfile(invalidValues[10])).toBeUndefined()
+  expect(JSON.stringify(parseEvidenceCell(invalidValues[7])) ?? "").not.toContain("private")
+})
+
+test("profiles retain exact order and lineage while Proof Layer satisfaction is reflexive and incomparable at the top", () => {
+  expect(personalProfile.schemaVersion).toBe(1)
+  expect(publicProfile.schemaVersion).toBe(1)
+  expect(personalProfile.requirements.map(({ claim }) => claim)).toEqual([
+    "kit.identity.admitted",
+    "kit.command.invoked",
+    "kit.package.full-commit-pin",
+    "kit.workflow.full-commit-pin",
+    "plugin-payload.installed",
+    "runtime.supported-platform",
+    "harness.claude.fresh-native",
+    "harness.codex.fresh-native",
+  ])
+  expect(publicProfile.requirements).toHaveLength(11)
+  expect(personalProfile.requirements[0]?.requiredLineage).toEqual(["source", "release", "package", "workflow"])
+  expect(personalProfile.requirements[5]?.requiredProofLayer).toBe("public-process")
+  expect(publicProfile.requirements[4]?.requiredProofLayer).toBe("hosted")
+  expect(publicProfile.requirements[9]?.requiredProofLayer).toBe("fresh-native")
+
+  const reflexive = reducedFixture()
+  expect(reflexive.claims[0]).toMatchObject({ status: "proved", actualProofLayer: "clean-fixture" })
+
+  const hostedAsFresh = publicEvidenceCells().map((cell) =>
+    cell.claim === "harness.claude.fresh-native"
+      ? observedCell({ id: "cell:hosted-as-fresh", claim: cell.claim, actualProofLayer: "hosted" })
+      : cell,
+  )
+  const hostedAsFreshOutcome = qualificationEvidence.reduce({ candidate, profile: publicProfile, cells: hostedAsFresh })
+  expect(hostedAsFreshOutcome.status).toBe("reduced")
+  if (hostedAsFreshOutcome.status === "reduced") {
+    expect(hostedAsFreshOutcome.result.claims.find(({ claim }) => claim === "harness.claude.fresh-native")).toMatchObject({
+      status: "not-proved",
+      actualProofLayer: "hosted",
+    })
+  }
+
+  const freshAsHosted = publicEvidenceCells().map((cell) =>
+    cell.claim === "plugin-payload.installed"
+      ? observedCell({ id: "cell:fresh-as-hosted", claim: cell.claim, actualProofLayer: "fresh-native" })
+      : cell,
+  )
+  const freshAsHostedOutcome = qualificationEvidence.reduce({ candidate, profile: publicProfile, cells: freshAsHosted })
+  expect(freshAsHostedOutcome.status).toBe("reduced")
+  if (freshAsHostedOutcome.status === "reduced") {
+    expect(freshAsHostedOutcome.result.claims.find(({ claim }) => claim === "plugin-payload.installed")).toMatchObject({
+      status: "not-proved",
+      actualProofLayer: "fresh-native",
+    })
+  }
+})
+
+test("reduced and refused outcomes preserve counts, skip distinction, and never promote a weak observation", () => {
+  const reduced = reducedFixture()
+  const reducedOutcome: QualificationOutcome = { status: "reduced", result: reduced }
+  const refusal = refusedFixture()
+  const refusedOutcome: QualificationOutcome = { status: "refused", refusal }
+  expect(parseQualificationOutcome(JSON.parse(serializeQualificationOutcome(reducedOutcome)))).toEqual(reducedOutcome)
+  expect(parseQualificationOutcome(JSON.parse(serializeQualificationOutcome(refusedOutcome)))).toEqual(refusedOutcome)
+
+  const observedUnknownCells = personalEvidenceCells().map((cell) =>
+    cell.claim === "runtime.supported-platform"
+      ? unavailableCell(cell.claim, "cell:runtime-unavailable")
+      : cell,
+  )
+  const observedUnknown = qualificationEvidence.reduce({ candidate, profile: personalProfile, cells: observedUnknownCells })
+  expect(observedUnknown.status).toBe("reduced")
+  if (observedUnknown.status === "reduced") {
+    expect(observedUnknown.result.counts).toEqual({ selected: 8, covered: 6, skipped: 2, proved: 5, notProved: 0, unknown: 1 })
+    expect(observedUnknown.result.claims.find(({ claim }) => claim === "runtime.supported-platform")).toMatchObject({
+      status: "unknown",
+      unknownKind: "observation",
+      observationKind: "unavailable",
+    })
+  }
+  expect(reduced.claims.find(({ claim }) => claim === "harness.claude.fresh-native")).toMatchObject({
+    status: "unknown",
+    unknownKind: "skip",
+    skipRationale: "fresh-native-proof-not-run",
   })
-  const publicActual = reduceAttempt(publicProfile, publicCells)
-  const nativeForHosted = publicActual?.claims.find((item) => item.claim === "workflow.called-revision")
-  expect(nativeForHosted, "contract-absent: fresh-native cannot satisfy hosted").toMatchObject({ status: "not-proved", actualProofLayer: "fresh-native" })
 })
 
-test("insufficient layer never promotes a mechanics observation", () => {
-  const cells = personalEvidenceCells()
-  cells[0] = observedCell({ id: "cell:admitted-process", actualProofLayer: "public-process" })
-  const actual = reduceAttempt(personalProfile, cells)
-  const claim = actual?.claims.find((item) => item.claim === "kit.identity.admitted")
-  expect(claim, "contract-absent: lower-layer mechanics must remain not-proved").toMatchObject({ status: "not-proved", actualProofLayer: "public-process" })
-})
+test("serialized egress is allowlisted, preserves bounded evidence, and fails closed", () => {
+  const result = reducedFixture()
+  const refusal = refusedFixture()
+  const reducedSerialized = serializeQualificationResult(result)
+  const refusalSerialized = serializeQualificationRefusal(refusal)
+  const reducedOutcome: QualificationOutcome = { status: "reduced", result }
+  const refusedOutcome: QualificationOutcome = { status: "refused", refusal }
 
-test("skip accounting preserves selected covered and skipped counts", () => {
-  const actual = reduceAttempt(personalProfile, personalEvidenceCells())
-  expect(actual, "contract-absent: every uncovered claim must retain one Skip Rationale").toMatchObject({ counts: { selected: 8, covered: 6, skipped: 2, proved: 6, notProved: 0, unknown: 0 } })
-})
+  expect(parseQualificationResult(JSON.parse(reducedSerialized))).toEqual(result)
+  expect(parseQualificationRefusal(JSON.parse(refusalSerialized))).toEqual(refusal)
+  expect(parseQualificationOutcome(JSON.parse(serializeQualificationOutcome(reducedOutcome)))).toEqual(reducedOutcome)
+  expect(parseQualificationOutcome(JSON.parse(serializeQualificationOutcome(refusedOutcome)))).toEqual(refusedOutcome)
+  expect(reducedSerialized).toContain("workflow.called-revision")
+  expect(reducedSerialized).toContain("sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+  expect(reducedSerialized).not.toContain("raw")
+  expect(reducedSerialized).not.toContain("private")
 
-test("Non-Claims and receipt digests survive reduction without raw receipt content", () => {
-  const actual = reduceAttempt(personalProfile, personalEvidenceCells())
-  expect(actual, "contract-absent: reduction must retain bounded Non-Claims and receipt digests").toMatchObject({
-    nonClaims: expect.arrayContaining(["workflow.called-revision", "harness.claude.fresh-native", "harness.codex.fresh-native"]),
-    receiptDigests: expect.arrayContaining(["sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"]),
-  })
-  expect(JSON.stringify(actual ?? {})).not.toContain("raw")
+  expect(() => serializeQualificationResult({ ...result, extraField: true } as QualificationResult)).toThrow(
+    "qualification-evidence: invalid serialized value",
+  )
+  expect(() => serializeQualificationRefusal({ ...refusal, code: "raw" } as unknown as QualificationRefusal)).toThrow(
+    "qualification-evidence: invalid serialized value",
+  )
+  expect(() => serializeQualificationOutcome({
+    status: "reduced",
+    result: { ...result, schemaVersion: 2 },
+  } as unknown as QualificationOutcome)).toThrow("qualification-evidence: invalid serialized value")
 })

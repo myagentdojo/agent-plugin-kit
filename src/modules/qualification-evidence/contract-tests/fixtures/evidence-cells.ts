@@ -137,3 +137,53 @@ export function skipCell(
     resolves: [],
   }
 }
+
+export function failureCell(
+  claim: EvidenceCell["claim"],
+  id: `cell:${string}` = "cell:failure",
+): Extract<EvidenceCell, { assertedStatus: "not-proved" }> {
+  const base = observedCell({ id, claim })
+  return {
+    ...base,
+    assertedStatus: "not-proved",
+    observable: { kind: "failure", code: "QUALIFICATION_FAILED" },
+  }
+}
+
+export function provedAbsenceCell(
+  claim: EvidenceCell["claim"],
+  id: `cell:${string}` = "cell:proved-absence",
+): Extract<EvidenceCell, { assertedStatus: "not-proved" }> {
+  const base = observedCell({ id, claim })
+  return {
+    ...base,
+    assertedStatus: "not-proved",
+    observable: { kind: "proved-absence", code: "QUALIFICATION_ABSENT" },
+  }
+}
+
+export function unavailableCell(
+  claim: EvidenceCell["claim"],
+  id: `cell:${string}` = "cell:unavailable",
+): Extract<EvidenceCell, { assertedStatus: "unknown"; unknownKind: "observation" }> {
+  const base = observedCell({ id, claim })
+  return {
+    ...base,
+    assertedStatus: "unknown",
+    unknownKind: "observation",
+    observable: { kind: "unavailable", code: "QUALIFICATION_UNAVAILABLE" },
+  }
+}
+
+export function unknownObservationCell(
+  claim: EvidenceCell["claim"],
+  id: `cell:${string}` = "cell:unknown",
+): Extract<EvidenceCell, { assertedStatus: "unknown"; unknownKind: "observation" }> {
+  const base = observedCell({ id, claim })
+  return {
+    ...base,
+    assertedStatus: "unknown",
+    unknownKind: "observation",
+    observable: { kind: "unknown", code: "QUALIFICATION_UNKNOWN" },
+  }
+}

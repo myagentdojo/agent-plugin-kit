@@ -86,6 +86,8 @@ export const expectedInstalledFiles = [
   "src/modules/harness-journeys/interface.ts",
   "src/modules/canary-qualification/interface.ts",
   "src/modules/qualification-evidence/interface.ts",
+  "src/modules/qualification-evidence/serialized-values.ts",
+  "src/modules/qualification-evidence/implementation/qualification-evidence.ts",
   "src/adapters/reusable-workflow-adapter/interface.ts",
   "src/adapters/maintenance-command-facade/interface.ts",
   "src/adapters/maintenance-command-facade/maintenance.ts",
