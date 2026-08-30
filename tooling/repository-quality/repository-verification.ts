@@ -360,7 +360,10 @@ function checkDependencyVersions(
 
 function checkAdmissionDependencies(owners: readonly Owner[], findings: RepositoryFinding[]): void {
 	const admission = owners.find((owner) => owner.path === "src/admission-bootstrap")
-	if (admission === undefined) return
+	if (admission === undefined) {
+		findings.push(finding("owner-manifest-invalid", "package.json#workspaces"))
+		return
+	}
 	const dependencies = inspectDependencies(admission.manifest, allDependencyFields)
 	const hasDependency = !dependencies.valid || dependencies.values.size > 0
 	if (hasDependency) findings.push(finding("dependency-locality-invalid", admission.manifestPath))

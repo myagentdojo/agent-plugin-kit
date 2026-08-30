@@ -599,16 +599,14 @@ This proposal claims none of the following, at any Proof Layer:
   caller-supplied field can create `AdmittedIdentity` or
   `ProtectedCanaryAuthority`.
 
-## Implementation admission prerequisites
+## Historical implementation admission prerequisites
 
-Two prerequisites must be satisfied before any manifest, schema, Interface, or
-test change is made. Neither is optional and neither is a formality.
+When this decision was accepted, two prerequisites applied before its first
+manifest, schema, Interface, or test change. They are retained as acceptance
+history, not as current admission gates. Current work follows ADR 0005 and the
+owning Contract Tests.
 
-1. Current Repository Verification under
-   `docs/adr/0005-simple-repository-quality-ownership.md`. Owner Manifests and
-   their Contract Tests own dependency and schema changes; Repository
-   Verification owns exact cross-owner version agreement and the root Zod
-   mirror. The implementation checkpoint inventories
+1. The implementation checkpoint inventoried
    every Interface and contract amendment named here: Maintenance-owned
    Failure Class vocabulary; Maintenance-owned Qualification Refusal Code to
    Result Code and Exit Family mapping; the `EvidenceCell` and Reduced Claim
@@ -620,15 +618,13 @@ test change is made. Neither is optional and neither is a formality.
    Canary Authority Source Seam and protected-file reference; nullable
    `NextAction.commandId`; private owner-local validator siblings and their
    installed inventory; the stderr `error` object version carriers; and the two
-   named TypeScript strictness repairs. No unnamed count or source-closure
-   change is admitted.
+   named TypeScript strictness repairs.
 2. A matching respecification of the accepted P3 Full Test Design's
    Qualification Evidence brief. That brief pins the reducer as the place
    where a cell is validated without trusting `assertedStatus`, and pins the
    exact two-file, fourteen-test split. This decision keeps the truth table
-   and moves its enforcement point to the owner's serialized parse, so the
-   brief must be respecified before the first test change rather than
-   silently diverged from.
+   and moves its enforcement point to the owner's serialized parse. The brief
+   was respecified before the first test change.
 
 ## Implementation admission proof gate
 

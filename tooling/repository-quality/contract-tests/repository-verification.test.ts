@@ -141,6 +141,15 @@ const manifestMutations = [
 		expected: [expectedFinding("owner-manifest-invalid", "package.json#workspaces")],
 	},
 	{
+		name: "missing Admission workspace owner",
+		mutate: async (root: string) => {
+			await mutateJson(join(root, "package.json"), (manifest) => {
+				manifest.workspaces = ["src/modules/*"]
+			})
+		},
+		expected: [expectedFinding("owner-manifest-invalid", "package.json#workspaces")],
+	},
+	{
 		name: "unmatched wildcard workspace",
 		mutate: async (root: string) => {
 			await mutateJson(join(root, "package.json"), (manifest) => {

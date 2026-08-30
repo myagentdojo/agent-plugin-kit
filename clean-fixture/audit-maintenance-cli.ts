@@ -95,7 +95,7 @@ const resolveRelativeModule = (importer: string, specifier: string) => {
 const runtimeModuleSpecifiers = (file: string) => {
   const loader = file.endsWith(".tsx") ? "tsx" : "ts"
   const source = readFileSync(file, "utf8").replace(/^#![^\n]*\n/, "")
-  return new Bun.Transpiler({ loader }).scanImports(source).map(({ path }) => path)
+  return new Bun.Transpiler({ loader }).scan(source).imports.map(({ path }) => path)
 }
 const relativeImports = (file: string) => {
   return runtimeModuleSpecifiers(file).flatMap((specifier) => {
