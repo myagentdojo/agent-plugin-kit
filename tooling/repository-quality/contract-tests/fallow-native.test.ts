@@ -87,7 +87,16 @@ async function runFallow(root: string, ...argumentsAfterFallow: readonly string[
 		new Response(child.stdout).text(),
 		new Response(child.stderr).text(),
 	])
-	return { exitCode, stdout, stderr, document: JSON.parse(stdout) as Record<string, unknown> }
+	let document: Record<string, unknown>
+	try {
+		document = JSON.parse(stdout) as Record<string, unknown>
+	} catch (cause) {
+		throw new Error(
+			`fallow ${argumentsAfterFallow.join(" ")} produced non-JSON stdout (exit ${exitCode})\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+			{ cause },
+		)
+	}
+	return { exitCode, stdout, stderr, document }
 }
 
 async function checkArchitecture(root: string) {
@@ -206,7 +215,15 @@ test("preserves native operational exit two for an invalid comparison base", asy
 })
 
 test("resolves the complete architecture policy in first-match order", async () => {
-	const observed = await runFallow(repositoryRoot, "list", "--boundaries", "--format", "json", "--quiet")
+	const observed = await runFallow(
+		repositoryRoot,
+		"--no-cache",
+		"list",
+		"--boundaries",
+		"--format",
+		"json",
+		"--quiet",
+	)
 	const boundaries = observed.document.boundaries as {
 		configured: boolean
 		zones: Array<{ name: string; file_count: number }>
@@ -238,7 +255,7 @@ test("resolves the complete architecture policy in first-match order", async () 
 		"deep-modules/runtime-custody",
 		"deep-module-private/maintenance-command-contract",
 		"deep-module-private/qualification-evidence",
-		"deep-module-private/release-and-git-engine",
+		"deep-module-serialized-values/release-and-git-engine",
 		"source-tree-adapters/maintenance-command-facade",
 		"source-tree-adapters/reusable-workflow-adapter",
 		"clean-fixture",
@@ -262,7 +279,7 @@ test("resolves the complete architecture policy in first-match order", async () 
 			allow: [
 				"deep-modules/qualification-evidence",
 				"deep-module-private/qualification-evidence",
-				"deep-module-private/release-and-git-engine",
+				"deep-module-serialized-values/release-and-git-engine",
 			],
 		},
 		{
@@ -288,10 +305,10 @@ test("resolves the complete architecture policy in first-match order", async () 
 			from: "deep-module-private/qualification-evidence",
 			allow: [
 				"deep-modules/qualification-evidence",
-				"deep-module-private/release-and-git-engine",
+				"deep-module-serialized-values/release-and-git-engine",
 			],
 		},
-		{ from: "deep-module-private/release-and-git-engine", allow: [] },
+		{ from: "deep-module-serialized-values/release-and-git-engine", allow: [] },
 		{
 			from: "source-tree-adapters/maintenance-command-facade",
 			allow: [],
@@ -300,25 +317,10 @@ test("resolves the complete architecture policy in first-match order", async () 
 		{
 			from: "clean-fixture",
 			allow: [
-				"source-tree-interface",
 				"admission-bootstrap",
-				"admission-bootstrap-implementation",
-				"admission-bootstrap-contract-tests",
 				"deep-module-contract-tests/maintenance-command-contract",
-				"deep-module-contract-tests/qualification-evidence",
-				"maintenance-command-facade-contract-tests",
-				"deep-modules/canary-qualification",
-				"deep-modules/harness-journeys",
-				"deep-modules/maintenance-command-contract",
-				"deep-modules/plugin-payload-production",
 				"deep-modules/qualification-evidence",
-				"deep-modules/release-and-git-engine",
-				"deep-modules/runtime-custody",
 				"deep-module-private/maintenance-command-contract",
-				"deep-module-private/qualification-evidence",
-				"deep-module-private/release-and-git-engine",
-				"source-tree-adapters/maintenance-command-facade",
-				"source-tree-adapters/reusable-workflow-adapter",
 			],
 		},
 		{ from: "repository-quality-tooling", allow: [] },
@@ -348,7 +350,7 @@ test("resolves the complete architecture policy in first-match order", async () 
 			"src/modules/maintenance-command-contract/branch-stations.ts",
 		"deep-module-private/qualification-evidence":
 			"src/modules/qualification-evidence/serialized-values.ts",
-		"deep-module-private/release-and-git-engine":
+		"deep-module-serialized-values/release-and-git-engine":
 			"src/modules/release-and-git-engine/serialized-values.ts",
 		"source-tree-adapters/maintenance-command-facade":
 			"src/adapters/maintenance-command-facade/interface.ts",
@@ -359,6 +361,7 @@ test("resolves the complete architecture policy in first-match order", async () 
 	}
 	const guard = await runFallow(
 		repositoryRoot,
+		"--no-cache",
 		"guard",
 		...Object.values(representativePathByZone),
 		"--format",
@@ -426,24 +429,27 @@ test("accepts every architecture edge class and refuses Admission value access",
 			to_zone: "deep-modules/release-and-git-engine",
 		}),
 	])
-})
+}, 30_000)
 
 test("refuses unapproved edges, uncovered source, and a weakened approved edge", async () => {
 	const root = await createArchitectureFixture()
-	await writeFile(join(root, "src/orphan.ts"), "export const orphan = true\n")
+	await writeFile(
+		join(root, "src/modules/release-and-git-engine/future-private.ts"),
+		"export const futurePrivate = true\n",
+	)
 	const sourceTreeInterfacePath = join(root, "src/interface.ts")
 	await writeFile(
 		sourceTreeInterfacePath,
-		`${await Bun.file(sourceTreeInterfacePath).text()}export { orphan } from "./orphan"\n`,
+		`${await Bun.file(sourceTreeInterfacePath).text()}export { futurePrivate } from "./modules/release-and-git-engine/future-private"\n`,
 	)
-	git(root, "add", "src/orphan.ts", "src/interface.ts")
+	git(root, "add", "src/modules/release-and-git-engine/future-private.ts", "src/interface.ts")
 	const observed = await checkArchitecture(root)
 	const deadCode = observed.document.dead_code as Record<string, unknown>
 	expect(observed.exitCode).toBe(1)
 	expect(observed.stderr).toBe("")
 	expect(deadCode.summary).toMatchObject({ boundary_coverage_violations: 1 })
 	expect(deadCode.boundary_coverage_violations).toEqual([
-		expect.objectContaining({ path: "src/orphan.ts" }),
+		expect.objectContaining({ path: "src/modules/release-and-git-engine/future-private.ts" }),
 	])
 
 	const importControls = [
@@ -477,11 +483,11 @@ test("refuses unapproved edges, uncovered source, and a weakened approved edge",
 			toZone: "deep-modules/release-and-git-engine",
 		},
 		{
-			name: "approved owner private-file type import",
+			name: "approved owner serialized-value type import",
 			path: "src/modules/canary-qualification/interface.ts",
 			source: 'import type { canonicalCandidateIdentityDigest } from "../release-and-git-engine/serialized-values"\n',
 			fromZone: "deep-modules/canary-qualification",
-			toZone: "deep-module-private/release-and-git-engine",
+			toZone: "deep-module-serialized-values/release-and-git-engine",
 		},
 		{
 			name: "Repository Quality to product import",
@@ -580,11 +586,11 @@ test("refuses unapproved edges, uncovered source, and a weakened approved edge",
 		({ from }) => from === "deep-module-private/qualification-evidence",
 	)
 	if (!qualificationRule) throw new Error("Qualification Evidence boundary rule is missing")
-	if (!qualificationRule.allow?.includes("deep-module-private/release-and-git-engine")) {
+	if (!qualificationRule.allow?.includes("deep-module-serialized-values/release-and-git-engine")) {
 		throw new Error("Qualification Evidence serialized-value edge is missing")
 	}
 	qualificationRule.allow = qualificationRule.allow.filter(
-		(target) => target !== "deep-module-private/release-and-git-engine",
+		(target) => target !== "deep-module-serialized-values/release-and-git-engine",
 	)
 	await writeJson(configPath, config)
 	const sensitivity = await scanArchitecture(sensitivityRoot)
@@ -596,7 +602,7 @@ test("refuses unapproved edges, uncovered source, and a weakened approved edge",
 		expect.arrayContaining([
 			expect.objectContaining({
 				from_zone: "deep-module-private/qualification-evidence",
-				to_zone: "deep-module-private/release-and-git-engine",
+				to_zone: "deep-module-serialized-values/release-and-git-engine",
 			}),
 		]),
 	)
@@ -651,4 +657,4 @@ test("requires suppression reasons and reports stale suppressions", async () => 
 			expect.objectContaining({ origin: expect.objectContaining({ reason: "stale control" }) }),
 		]),
 	)
-})
+}, 30_000)

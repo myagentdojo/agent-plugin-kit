@@ -74,8 +74,8 @@
         "patterns": ["src/modules/qualification-evidence/**/*.ts"]
       },
       {
-        "name": "deep-module-private/release-and-git-engine",
-        "patterns": ["src/modules/release-and-git-engine/**/*.ts"]
+        "name": "deep-module-serialized-values/release-and-git-engine",
+        "patterns": ["src/modules/release-and-git-engine/serialized-values.ts"]
       },
       {
         "name": "source-tree-adapters/maintenance-command-facade",
@@ -140,7 +140,7 @@
         "allow": [
           "deep-modules/qualification-evidence",
           "deep-module-private/qualification-evidence",
-          "deep-module-private/release-and-git-engine"
+          "deep-module-serialized-values/release-and-git-engine"
         ],
         "allowTypeOnly": [
           "deep-modules/qualification-evidence",
@@ -204,7 +204,7 @@
         "from": "deep-module-private/qualification-evidence",
         "allow": [
           "deep-modules/qualification-evidence",
-          "deep-module-private/release-and-git-engine"
+          "deep-module-serialized-values/release-and-git-engine"
         ],
         "allowTypeOnly": [
           "deep-modules/qualification-evidence",
@@ -212,7 +212,7 @@
         ]
       },
       {
-        "from": "deep-module-private/release-and-git-engine",
+        "from": "deep-module-serialized-values/release-and-git-engine",
         "allowTypeOnly": ["deep-modules/release-and-git-engine"]
       },
       {
@@ -229,25 +229,15 @@
       {
         "from": "clean-fixture",
         "allow": [
-          "source-tree-interface",
           "admission-bootstrap",
-          "admission-bootstrap-implementation",
-          "admission-bootstrap-contract-tests",
           "deep-module-contract-tests/maintenance-command-contract",
-          "deep-module-contract-tests/qualification-evidence",
-          "maintenance-command-facade-contract-tests",
-          "deep-modules/canary-qualification",
-          "deep-modules/harness-journeys",
-          "deep-modules/maintenance-command-contract",
-          "deep-modules/plugin-payload-production",
           "deep-modules/qualification-evidence",
+          "deep-module-private/maintenance-command-contract"
+        ],
+        "allowTypeOnly": [
+          "deep-modules/maintenance-command-contract",
           "deep-modules/release-and-git-engine",
-          "deep-modules/runtime-custody",
-          "deep-module-private/maintenance-command-contract",
-          "deep-module-private/qualification-evidence",
-          "deep-module-private/release-and-git-engine",
-          "source-tree-adapters/maintenance-command-facade",
-          "source-tree-adapters/reusable-workflow-adapter"
+          "source-tree-adapters/maintenance-command-facade"
         ]
       },
       {
