@@ -17,7 +17,8 @@ Each tool owns one proof kind:
   import-to-manifest declaration rules.
 - TypeScript owns type correctness.
 - Bun Contract Tests own product and public-process behaviour.
-- native Fallow 3.19.0 owns changed-code quality.
+- native Fallow 3.19.0 owns changed-code quality, architecture zones,
+  cross-zone import policy, reachable-source coverage, and suppression hygiene.
 - Repository Verification owns only unavoidable cross-owner manifest and
   filesystem relationships.
 
@@ -58,9 +59,21 @@ Manifest. Focused pinned-version canaries protect this configuration.
 
 Fallow runs directly. The repository config requires complete type-aware
 evidence and promotes every applicable warn-default rule to `error`, so the
-native process exit is the gate. The repository does not parse or normalize
-Fallow JSON. Pinned-version tests prove a promoted finding, incomplete
-type-aware evidence, and an invalid comparison base.
+native process exit is the gate. Its ordered zones classify the Source Tree,
+Clean Fixture, and Repository Quality Tooling. Every Module Interface, private
+production lane, Contract Test lane, and Adapter is explicit. Directory-wide
+auto-discovery is intentionally absent: it would silently grant a public
+Interface zone to a future private file. First-match order gives specific
+Interfaces and Contract Tests their own policy before a broader accepted
+private-production lane. A new owner or unrecognised source shape remains
+unzoned and fails closed until this decision is updated. Explicit rules admit
+only accepted value or type-only edges. Reachable source coverage and
+reasoned, non-stale suppressions fail closed.
+
+The repository does not parse or normalize Fallow JSON. Pinned-version tests
+prove a promoted finding, incomplete type-aware evidence, an invalid comparison
+base, resolved zone order, accepted and refused edges, reachable unzoned
+source, and suppression hygiene.
 
 ## Clean Fixture Boundary
 
@@ -71,8 +84,9 @@ governance as a product oracle.
 
 ## Consequences
 
-- Adding valid source or a Contract Test does not require a repository-policy
-  respecification.
+- Adding source inside an accepted private-production or Contract Test lane
+  does not require a repository-policy respecification. Adding an owner,
+  Interface, Adapter, or new source shape does.
 - Product failures stay with their owning Contract Tests.
 - Repository Verification changes only when a real cross-owner or filesystem
   invariant changes.

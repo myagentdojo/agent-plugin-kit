@@ -12,6 +12,8 @@ and repository checks own mechanically enforced rules.
   behind that Interface.
 - Put a production Adapter only at an Accepted Decision-backed Seam where
   behaviour actually varies.
+- Import another Module or Adapter through its Interface. Use a value edge only
+  for required runtime behaviour; use a type-only edge for type knowledge.
 
 ## Results and refusals
 
@@ -63,6 +65,17 @@ and repository checks own mechanically enforced rules.
   observations outside the Implementation path.
 - Name one disposable perturbation that makes the Contract Test RED, then
   restore GREEN in the same harness.
+
+## Executable architecture enforcement
+
+- Enforce each accepted architecture decision with the cheapest suitable
+  executable owner: Fallow for import graphs, source coverage, and direct-call
+  restrictions; Biome for file-local syntax and dependency declarations;
+  TypeScript for type constraints; and Bun Contract Tests for runtime or
+  domain semantics.
+- Keep Repository Verification only for irreducible cross-manifest and
+  filesystem relationships. Do not add a bespoke verifier when a pinned
+  native tool proves the same invariant with equally clear repair guidance.
 
 ## Test Fixture, fake, and test-only Adapter ownership
 
