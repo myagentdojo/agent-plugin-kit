@@ -6,10 +6,12 @@ import type {
 } from "../interface"
 import type { CandidateIdentity } from "../../release-and-git-engine/interface"
 import { qualificationEvidence } from "../implementation/qualification-evidence"
+import { serializeQualificationRefusal } from "../serialized-values"
 import { canonicalCandidateIdentityDigest } from "../../release-and-git-engine/serialized-values"
 import {
   candidate,
   candidateDigest,
+  failureCell,
   observedCell,
   personalEvidenceCells,
   personalProfile,
@@ -156,7 +158,7 @@ test("a cell outside the selected profile is refused", () => {
   expectRefusal(outcome, "out-of-profile", "release.identity.published")
 })
 
-test("Candidate Lineage, installed payload, and receipt disagreement are refused", () => {
+test("Candidate Lineage, installed payload, and receipt disagreement are refused while hosted observations may differ", () => {
   const digestMismatch = personalEvidenceCells()
   digestMismatch[0] = observedCell({
     id: "cell:digest-mismatch",
@@ -254,7 +256,7 @@ test("Candidate Lineage, installed payload, and receipt disagreement are refused
   )
   expect(reduceAttempt(publicProfile, correct).status).toBe("reduced")
 
-  const wrongRepository = correct.map((cell) =>
+  const alternateHostedObservation = correct.map((cell) =>
     cell.id === hostedCell.id
       ? {
           ...hostedCell,
@@ -263,33 +265,24 @@ test("Candidate Lineage, installed payload, and receipt disagreement are refused
             hostedRun: {
               ...hostedCell.lineage.hostedRun!,
               repository: { origin: "https://github.com/myagentdojo/not-the-candidate.git" },
-            },
-          },
-        }
-      : cell,
-  )
-  const wrongCommit = correct.map((cell) =>
-    cell.id === hostedCell.id
-      ? {
-          ...hostedCell,
-          lineage: {
-            ...hostedCell.lineage,
-            hostedRun: {
-              ...hostedCell.lineage.hostedRun!,
               headCommit: "2222222222222222222222222222222222222222",
             },
           },
         }
       : cell,
   )
-  expectRefusal(reduceAttempt(publicProfile, wrongRepository), "lineage-disagreement")
-  expectRefusal(reduceAttempt(publicProfile, wrongCommit), "lineage-disagreement")
+  expect(reduceAttempt(publicProfile, alternateHostedObservation).status).toBe("reduced")
 })
 
 test("malformed and duplicate cell identifiers are refused", () => {
   const malformed = personalEvidenceCells()
   malformed[0] = observedCell({ id: "cell:Uppercase" as EvidenceCell["id"] })
-  expectRefusal(reduceAttempt(personalProfile, malformed), "invalid-cell-id")
+  const malformedOutcome = reduceAttempt(personalProfile, malformed)
+  expectRefusal(malformedOutcome, "invalid-cell-id")
+  if (malformedOutcome.status === "refused") {
+    expect(malformedOutcome.refusal.evidenceCellId).toBeNull()
+    expect(JSON.parse(serializeQualificationRefusal(malformedOutcome.refusal))).toEqual(malformedOutcome.refusal)
+  }
 
   const duplicate = personalEvidenceCells()
   duplicate[1] = observedCell({ id: duplicate[0]!.id })
@@ -322,7 +315,15 @@ test("unknown, forward, cross-candidate, and cross-claim resolutions are refused
   }
 })
 
-test("an unqualified lower-layer, incomplete-lineage, or incomparable resolver is refused", () => {
+test("an individually unproved, lower-layer, incomplete-lineage, or incomparable resolver is refused", () => {
+  const individuallyUnproved = personalEvidenceCells().filter((cell) => cell.claim !== "harness.claude.fresh-native")
+  individuallyUnproved.unshift(skipCell("harness.claude.fresh-native", "cell:unproved-skip"))
+  individuallyUnproved.push({
+    ...failureCell("harness.claude.fresh-native", "cell:unproved-resolver"),
+    actualProofLayer: "fresh-native",
+    resolves: ["cell:unproved-skip"],
+  })
+
   const lowerLayer = personalEvidenceCells().filter((cell) => cell.claim !== "harness.claude.fresh-native")
   lowerLayer.unshift(skipCell("harness.claude.fresh-native", "cell:lower-layer-skip"))
   lowerLayer.push(observedCell({
@@ -351,7 +352,7 @@ test("an unqualified lower-layer, incomplete-lineage, or incomparable resolver i
     resolves: ["cell:incomparable-skip"],
   }))
 
-  for (const cells of [lowerLayer, incompleteLineage, incomparable]) {
+  for (const cells of [individuallyUnproved, lowerLayer, incompleteLineage, incomparable]) {
     expectRefusal(reduceAttempt(personalProfile, cells), "unqualified-resolution")
   }
 })
@@ -386,11 +387,13 @@ test("an unresolved skip plus observation is refused, while explicit resolution 
       ? skipCell(cell.claim, "cell:personal-invalid-rationale", "hosted-proof-not-run")
       : cell,
   )
-  const invalidSkipWithResolution = invalidPersonalRationale.map((cell) =>
-    cell.id === "cell:personal-invalid-rationale"
-      ? ({ ...cell, resolves: ["cell:missing"] as const } as unknown as EvidenceCell)
-      : cell,
-  )
+  const invalidSkipWithResolution = personalEvidenceCells()
+    .filter((cell) => cell.claim !== "harness.claude.fresh-native")
+  invalidSkipWithResolution.unshift(skipCell("harness.claude.fresh-native", "cell:personal-earlier-valid-skip"))
+  invalidSkipWithResolution.push({
+    ...skipCell("harness.claude.fresh-native", "cell:personal-skip-with-resolution"),
+    resolves: ["cell:personal-earlier-valid-skip"] as const,
+  } as unknown as EvidenceCell)
   const invalidPersonalClaim = personalEvidenceCells().map((cell) =>
     cell.claim === "runtime.supported-platform"
       ? skipCell(cell.claim, "cell:personal-invalid-claim")
@@ -418,7 +421,7 @@ test("an unresolved skip plus observation is refused, while explicit resolution 
   )
 
   expectRefusal(reduceAttempt(personalProfile, invalidPersonalRationale), "out-of-profile")
-  expectRefusal(reduceAttempt(personalProfile, invalidSkipWithResolution), "out-of-profile")
+  expectRefusal(reduceAttempt(personalProfile, invalidSkipWithResolution), "invalid-resolution")
   expectRefusal(reduceAttempt(personalProfile, invalidPersonalClaim), "out-of-profile")
   expectRefusal(reduceAttempt(publicProfile, invalidPublicMechanics), "out-of-profile")
   expectRefusal(reduceAttempt(publicProfile, invalidPublicHostedRationale), "out-of-profile")

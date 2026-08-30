@@ -76,14 +76,6 @@ function sameReceiptDigest(candidateDigest: CandidateIdentityDigest, receipt: No
   return receipt === null || receipt.candidateIdentitySha256 === candidateDigest
 }
 
-function hostedRunMatches(candidate: CandidateIdentity, cell: EvidenceCell): boolean {
-  const hostedRun = cell.lineage.hostedRun
-  return hostedRun === undefined || (
-    hostedRun.repository.origin === candidate.source.repository.origin &&
-    hostedRun.headCommit === candidate.source.commit
-  )
-}
-
 function lineageMatchesCandidate(
   candidate: CandidateIdentity,
   cell: EvidenceCell,
@@ -115,7 +107,6 @@ function lineageMatchesCandidate(
         expected.path === actual.path &&
         expected.commit === actual.commit,
     ),
-    hostedRunMatches(candidate, cell),
     sameReceiptDigest(candidateDigest, cell.receipt),
   ].every(Boolean)
 }
@@ -333,15 +324,7 @@ function decisiveClaim(
   decisive: Decisive | undefined,
 ): ReducedClaim {
   if (decisive === undefined) {
-    return {
-      claim: requirement.claim,
-      ...metadata,
-      status: "unknown",
-      unknownKind: "observation",
-      actualProofLayer: "in-process",
-      observationKind: "unknown",
-      skipRationale: null,
-    }
+    throw new Error("qualification-evidence: decisive status invariant violated")
   }
   switch (decisive.status) {
     case "proved":
@@ -412,7 +395,7 @@ function validateReductionInput(input: {
   cells: readonly EvidenceCell[]
 }): { profile: VerificationProfile } | QualificationOutcome {
   const invalidId = findInvalidCellId(input.cells)
-  if (invalidId !== null) return refusal("invalid-cell-id", null, invalidId)
+  if (invalidId !== null) return refusal("invalid-cell-id", null, isEvidenceCellId(invalidId) ? invalidId : null)
   const profile = parseVerificationProfile(input.profile)
   if (profile === undefined) return refusal("out-of-profile")
   const checks: readonly (() => QualificationOutcome | null)[] = [

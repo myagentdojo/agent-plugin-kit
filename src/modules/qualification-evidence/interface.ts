@@ -183,7 +183,7 @@ export type QualificationResult = {
     & {
       claim: EvidenceCell["claim"]
       nonClaims: readonly EvidenceCell["claim"][]
-      receiptDigests: readonly EvidenceCell["lineage"]["candidateIdentitySha256"][]
+      receiptDigests: readonly NonNullable<EvidenceCell["receipt"]>["digest"][]
       evidenceCellIds: readonly EvidenceCell["id"][]
     }
     & (
@@ -224,7 +224,7 @@ export type QualificationResult = {
     unknown: number
   }
   nonClaims: readonly EvidenceCell["claim"][]
-  receiptDigests: readonly EvidenceCell["lineage"]["candidateIdentitySha256"][]
+  receiptDigests: readonly NonNullable<EvidenceCell["receipt"]>["digest"][]
 }
 
 export type QualificationRefusalCode =
@@ -257,6 +257,18 @@ export interface QualificationEvidence {
    * order, `selected = covered + skipped`, `covered = proved + notProved +
    * unknown`, at least one globally unique contributing Evidence Cell ID per
    * claim, and first-occurrence claim and aggregate metadata.
+   *
+   * A Personal profile may skip only either Fresh-Native harness claim, using
+   * `fresh-native-proof-not-run`. In a Public profile,
+   * `plugin-payload.installed`, `release.identity.published`, and
+   * `workflow.called-revision` accept `hosted-proof-not-run`,
+   * `host-unavailable`, or `not-applicable`; `runtime.supported-platform`
+   * additionally accepts `platform-not-selected`; `canary.hosted-qualified`
+   * instead additionally accepts `protected-authority-unavailable`; and each
+   * Fresh-Native harness claim accepts `fresh-native-proof-not-run`,
+   * `host-unavailable`, or `not-applicable`.
+   * `out-of-profile` covers a noncanonical profile table, a cell whose claim
+   * is outside that profile, or a skip not admitted by these rules.
    */
   reduce(input: {
     candidate: CandidateIdentity

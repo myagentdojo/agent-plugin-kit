@@ -2,6 +2,7 @@ import { z } from "zod"
 import { VerificationProfile as verificationProfiles } from "./interface"
 import {
   candidateIdentitySchema,
+  commitSchema,
   packageIdentitySchema,
   releaseIdentitySchema,
   repositoryIdentitySchema,
@@ -78,8 +79,6 @@ export function isEvidenceCellId(value: unknown): value is EvidenceCell["id"] {
 const cellIdSchema = z.custom<EvidenceCellId>(isEvidenceCellId)
 const emptyCellIdsSchema = z.custom<readonly []>((value) => Array.isArray(value) && value.length === 0)
 const observationCodeSchema = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/)
-const commitSchema = z.string().regex(/^[0-9a-f]{40}$/)
-
 const hostedRunSchema = z.strictObject({
   provider: z.literal("github-actions"),
   repository: repositoryIdentitySchema,

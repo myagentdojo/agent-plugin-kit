@@ -126,7 +126,7 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
     "https://198.51.100.10/myagentdojo/example-plugin.git",
     "https://203.0.113.10/myagentdojo/example-plugin.git",
     "https://[::1]/myagentdojo/example-plugin.git",
-    "https://[::ffff:192.168.1.4]/myagentdojo/example-plugin.git",
+    "https://[::ffff:c0a8:104]/myagentdojo/example-plugin.git",
     "https://example.com/myagentdojo/example-plugin.git",
     "https://subdomain.example.com/myagentdojo/example-plugin.git",
     "https://private.private/myagentdojo/example-plugin.git",
@@ -150,9 +150,23 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
       },
     })).toBeUndefined()
   }
+  for (const origin of [
+    "https://github.com/home/agent-plugin-kit.git",
+    "https://github.com/workspaces/agent-plugin-kit.git",
+  ]) {
+    expect(parseEvidenceCell({
+      ...cell,
+      candidate: {
+        ...cell.candidate,
+        source: { ...cell.candidate.source, repository: { origin } },
+      },
+    })).toBeDefined()
+  }
   expect(parseVerificationProfile(invalidValues[10])).toBeUndefined()
   expect(parseVerificationProfile(invalidValues[11])).toBeUndefined()
-  expect(JSON.stringify(parseEvidenceCell(invalidValues[7])) ?? "").not.toContain("private")
+  expect(() => serializeEvidenceCell(invalidValues[7] as EvidenceCell)).toThrow(
+    /^qualification-evidence: invalid serialized value$/,
+  )
 })
 
 test("profiles retain exact order and lineage while Proof Layer satisfaction is reflexive and incomparable at the top", () => {

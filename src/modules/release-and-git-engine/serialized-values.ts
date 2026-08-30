@@ -9,7 +9,7 @@ import type {
   WorkflowIdentity,
 } from "./interface"
 
-const commitSchema = z.string().regex(/^[0-9a-f]{40}$/)
+export const commitSchema = z.string().regex(/^[0-9a-f]{40}$/)
 
 const privateHostnameSuffixes = [
   ".localhost",
@@ -42,7 +42,7 @@ const reservedHostnames = new Set([
 ])
 const privateIpv4Pattern = /^(?:(?:0|10|127)\.|100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|169\.254\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|192\.0\.0\.|192\.0\.2\.|192\.168\.|198\.(?:18|19|51)\.|203\.0\.113\.|(?:22[4-9]|23[0-9]|24[0-9]|25[0-5])\.)/
 const privateIpv6Pattern = /^(?:::|f[cd]|fe[89a-f]|ff|100::|2001:(?:2|10|20|db8):|3fff:)/
-const privateCheckoutPathPattern = /(?:^|\/)(?:users?|home|private|tmp|var|volumes?|mnt|workspaces?)(?:\/|$)|(?:^|\/)\p{L}:\//iu
+const privateCheckoutPathPattern = /^\/+(?:users?|home|private|tmp|var|volumes?|mnt|workspaces?)\/[^/]+\/[^/]+(?:\/|$)|^\/+\p{L}:\//iu
 const originComponentsPattern = /^(https?):\/\/([^\/?#]*)(\/[^?#]*)?$/i
 const maxPathDecodeDepth = 8
 
