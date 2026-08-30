@@ -2,6 +2,14 @@ import { createHash } from "node:crypto"
 import { z } from "zod"
 import { VerificationProfile as verificationProfiles } from "./interface"
 import type { CandidateIdentity } from "../release-and-git-engine/interface"
+import {
+  candidateIdentitySchema,
+  packageIdentitySchema,
+  releaseIdentitySchema,
+  repositoryIdentitySchema,
+  sourceIdentitySchema,
+  workflowIdentitySchema,
+} from "../release-and-git-engine/serialized-values"
 import type {
   EvidenceCell,
   QualificationOutcome,
@@ -67,49 +75,6 @@ const cellIdSchema = z.custom<`cell:${string}`>(
 const emptyCellIdsSchema = z.custom<readonly []>((value) => Array.isArray(value) && value.length === 0)
 const observationCodeSchema = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/)
 const commitSchema = z.string().regex(/^[0-9a-f]{40}$/)
-
-function isPublicRepositoryOrigin(value: string): boolean {
-  try {
-    const url = new URL(value)
-    return (
-      (url.protocol === "https:" || url.protocol === "http:") &&
-      url.username === "" &&
-      url.password === "" &&
-      url.search === "" &&
-      url.hash === "" &&
-      url.hostname.length > 0
-    )
-  } catch {
-    return false
-  }
-}
-
-const repositoryIdentitySchema = z.strictObject({
-  origin: z.string().refine(isPublicRepositoryOrigin),
-})
-const sourceIdentitySchema = z.strictObject({
-  repository: repositoryIdentitySchema,
-  commit: commitSchema,
-})
-const releaseIdentitySchema = z.strictObject({
-  reference: z.string().min(1).refine((value) => !/[\\\s]/.test(value)),
-  commit: commitSchema,
-})
-const packageIdentitySchema = z.strictObject({
-  repository: repositoryIdentitySchema,
-  commit: commitSchema,
-})
-const workflowIdentitySchema = z.strictObject({
-  repository: repositoryIdentitySchema,
-  path: z.string().min(1).refine((value) => !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes("..")),
-  commit: commitSchema,
-})
-const candidateIdentitySchema = z.strictObject({
-  source: sourceIdentitySchema,
-  release: releaseIdentitySchema,
-  package: packageIdentitySchema,
-  workflow: workflowIdentitySchema,
-})
 
 const hostedRunSchema = z.strictObject({
   provider: z.literal("github-actions"),
@@ -295,10 +260,6 @@ const qualificationOutcomeSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("refused"), refusal: qualificationRefusalSchema }),
 ])
 
-function sameJson(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
-}
-
 function containsUndefined(value: unknown, seen = new Set<object>()): boolean {
   if (value === undefined) return true
   if (typeof value !== "object" || value === null) return false
@@ -322,7 +283,20 @@ function serializeValue<T>(schema: z.ZodType<T>, value: T): string {
 }
 
 function isExactProfile(profile: VerificationProfile): boolean {
-  return sameJson(profile, verificationProfiles[profile.id])
+  const accepted = verificationProfiles[profile.id]
+  return profile.schemaVersion === accepted.schemaVersion &&
+    profile.id === accepted.id &&
+    profile.requirements.length === accepted.requirements.length &&
+    profile.requirements.every((requirement, index) => {
+      const acceptedRequirement = accepted.requirements[index]
+      return acceptedRequirement !== undefined &&
+        requirement.claim === acceptedRequirement.claim &&
+        requirement.requiredProofLayer === acceptedRequirement.requiredProofLayer &&
+        requirement.requiredLineage.length === acceptedRequirement.requiredLineage.length &&
+        requirement.requiredLineage.every((member, memberIndex) =>
+          member === acceptedRequirement.requiredLineage[memberIndex]
+        )
+    })
 }
 
 export function parseEvidenceCell(value: unknown): EvidenceCell | undefined {

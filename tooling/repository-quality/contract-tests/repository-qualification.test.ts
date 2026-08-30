@@ -2898,7 +2898,7 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
           contract.owner_manifests.qualification_evidence.dependencies = { zod: "4.4.2" }
         })
       },
-      expectedOwner: 'package_contract.dependencies["zod"]',
+      expectedOwner: 'owner_manifests.qualification_evidence.dependencies["zod"]',
     },
     {
       label: "root-mirrored production dependency is missing from root",

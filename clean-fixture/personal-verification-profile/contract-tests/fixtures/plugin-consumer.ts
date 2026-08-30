@@ -82,6 +82,7 @@ export const expectedInstalledFiles = [
   "src/modules/plugin-payload-production/interface.ts",
   "src/modules/runtime-custody/interface.ts",
   "src/modules/release-and-git-engine/interface.ts",
+  "src/modules/release-and-git-engine/serialized-values.ts",
   "src/modules/maintenance-command-contract/interface.ts",
   "src/modules/harness-journeys/interface.ts",
   "src/modules/canary-qualification/interface.ts",

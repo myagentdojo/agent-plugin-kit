@@ -44,6 +44,9 @@
     },
     "src/modules/release-and-git-engine": {
       "name": "@agent-plugin-kit/release-and-git-engine",
+      "dependencies": {
+        "zod": "4.4.3",
+      },
     },
     "src/modules/runtime-custody": {
       "name": "@agent-plugin-kit/runtime-custody",

@@ -75,6 +75,16 @@ test("ingress accepts all seven Evidence Cell forms and both exact profiles", ()
   for (const variant of variants) {
     expect(parseEvidenceCell(JSON.parse(serializeEvidenceCell(variant)))).toEqual(variant)
   }
+  const reorderedCandidateCell = {
+    ...observedCell(),
+    candidate: {
+      workflow: candidate.workflow,
+      package: candidate.package,
+      release: candidate.release,
+      source: candidate.source,
+    },
+  }
+  expect(parseEvidenceCell(reorderedCandidateCell)).toEqual(reorderedCandidateCell)
   expect(parseVerificationProfile(JSON.parse(serializeVerificationProfile(personalProfile)))).toEqual(personalProfile)
   expect(parseVerificationProfile(JSON.parse(serializeVerificationProfile(publicProfile)))).toEqual(publicProfile)
 })
@@ -91,6 +101,13 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
     { ...cell, receipt: undefined },
     { ...cell, raw: { secret: "private" } },
     { ...skipCell("kit.identity.admitted"), observable: { kind: "observed", code: "BAD_SKIP" } },
+    {
+      ...cell,
+      candidate: {
+        ...cell.candidate,
+        release: { ...cell.candidate.release, commit: "2222222222222222222222222222222222222222" },
+      },
+    },
     { ...personalProfile, schemaVersion: 2 },
     { ...personalProfile, requirements: [...personalProfile.requirements].reverse() },
   ]
@@ -98,8 +115,8 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
   for (const value of invalidValues) {
     expect(parseEvidenceCell(value)).toBeUndefined()
   }
-  expect(parseVerificationProfile(invalidValues[9])).toBeUndefined()
   expect(parseVerificationProfile(invalidValues[10])).toBeUndefined()
+  expect(parseVerificationProfile(invalidValues[11])).toBeUndefined()
   expect(JSON.stringify(parseEvidenceCell(invalidValues[7])) ?? "").not.toContain("private")
 })
 
@@ -116,7 +133,19 @@ test("profiles retain exact order and lineage while Proof Layer satisfaction is 
     "harness.claude.fresh-native",
     "harness.codex.fresh-native",
   ])
-  expect(publicProfile.requirements).toHaveLength(11)
+  expect(publicProfile.requirements.map(({ claim }) => claim)).toEqual([
+    "kit.identity.admitted",
+    "kit.command.invoked",
+    "kit.package.full-commit-pin",
+    "kit.workflow.full-commit-pin",
+    "plugin-payload.installed",
+    "runtime.supported-platform",
+    "release.identity.published",
+    "workflow.called-revision",
+    "canary.hosted-qualified",
+    "harness.claude.fresh-native",
+    "harness.codex.fresh-native",
+  ])
   expect(personalProfile.requirements[0]?.requiredLineage).toEqual(["source", "release", "package", "workflow"])
   expect(personalProfile.requirements[5]?.requiredProofLayer).toBe("public-process")
   expect(publicProfile.requirements[4]?.requiredProofLayer).toBe("hosted")
@@ -176,6 +205,21 @@ test("reduced and refused outcomes preserve counts, skip distinction, and never 
       unknownKind: "observation",
       observationKind: "unavailable",
     })
+  }
+  const stateVariants = [
+    [failureCell("runtime.supported-platform", "cell:runtime-failure"), { status: "not-proved", observationKind: "failure" }],
+    [provedAbsenceCell("runtime.supported-platform", "cell:runtime-absence"), { status: "not-proved", observationKind: "proved-absence" }],
+    [unavailableCell("runtime.supported-platform", "cell:runtime-unavailable-state"), { status: "unknown", unknownKind: "observation", observationKind: "unavailable" }],
+    [unknownObservationCell("runtime.supported-platform", "cell:runtime-unknown-state"), { status: "unknown", unknownKind: "observation", observationKind: "unknown" }],
+  ] as const
+  for (const [replacement, expected] of stateVariants) {
+    const cells = personalEvidenceCells().map((cell) =>
+      cell.claim === "runtime.supported-platform" ? replacement : cell,
+    )
+    const outcome = qualificationEvidence.reduce({ candidate, profile: personalProfile, cells })
+    expect(outcome.status).toBe("reduced")
+    if (outcome.status !== "reduced") continue
+    expect(outcome.result.claims.find(({ claim }) => claim === "runtime.supported-platform")).toMatchObject(expected)
   }
   expect(reduced.claims.find(({ claim }) => claim === "harness.claude.fresh-native")).toMatchObject({
     status: "unknown",

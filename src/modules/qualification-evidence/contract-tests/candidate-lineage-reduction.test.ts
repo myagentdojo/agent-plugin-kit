@@ -4,6 +4,7 @@ import type {
   QualificationOutcome,
   VerificationProfile,
 } from "../interface"
+import type { CandidateIdentity } from "../../release-and-git-engine/interface"
 import { qualificationEvidence } from "../implementation/qualification-evidence"
 import {
   candidate,
@@ -11,6 +12,8 @@ import {
   observedCell,
   personalEvidenceCells,
   personalProfile,
+  publicEvidenceCells,
+  publicProfile,
   skipCell,
 } from "./fixtures/evidence-cells"
 
@@ -35,7 +38,16 @@ test("canonical Candidate Lineage reduction preserves profile order and evidence
   if (outcome.status !== "reduced") return
 
   expect(outcome.result.claims.map(({ claim }) => claim)).toEqual(
-    personalProfile.requirements.map(({ claim }) => claim),
+    [
+      "kit.identity.admitted",
+      "kit.command.invoked",
+      "kit.package.full-commit-pin",
+      "kit.workflow.full-commit-pin",
+      "plugin-payload.installed",
+      "runtime.supported-platform",
+      "harness.claude.fresh-native",
+      "harness.codex.fresh-native",
+    ],
   )
   expect(outcome.result.counts).toEqual({ selected: 8, covered: 6, skipped: 2, proved: 6, notProved: 0, unknown: 0 })
   expect(outcome.result.claims.map(({ evidenceCellIds }) => evidenceCellIds)).toEqual([
@@ -56,6 +68,28 @@ test("canonical Candidate Lineage reduction preserves profile order and evidence
   expect(outcome.result.receiptDigests).toEqual([
     "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   ])
+
+  const reorderedCandidate: CandidateIdentity = {
+    workflow: {
+      commit: candidate.workflow.commit,
+      path: candidate.workflow.path,
+      repository: { origin: candidate.workflow.repository.origin },
+    },
+    package: {
+      commit: candidate.package.commit,
+      repository: { origin: candidate.package.repository.origin },
+    },
+    release: {
+      commit: candidate.release.commit,
+      reference: candidate.release.reference,
+    },
+    source: {
+      commit: candidate.source.commit,
+      repository: { origin: candidate.source.repository.origin },
+    },
+  }
+  const semanticallyEqual = personalEvidenceCells().map((cell) => ({ ...cell, candidate: reorderedCandidate }))
+  expect(reduceAttempt(personalProfile, semanticallyEqual).status).toBe("reduced")
 })
 
 test("zero-cell selected claim is refused", () => {
@@ -113,7 +147,94 @@ test("Candidate Lineage, installed payload, and receipt disagreement are refused
   for (const cells of [digestMismatch, memberMismatch, payloadMismatch, receiptMismatch]) {
     expectRefusal(reduceAttempt(personalProfile, cells), "lineage-disagreement")
   }
+
+  const inconsistentCandidate: CandidateIdentity = {
+    ...candidate,
+    release: { ...candidate.release, commit: "2222222222222222222222222222222222222222" },
+  }
+  const inconsistentDigest =
+    "sha256:20c432f7c9b7182dbc3f900fefe7c1ac6b022ac3db1811fc6fa78c8fda519a58" as const
+  const internallyInconsistent: EvidenceCell[] = personalEvidenceCells().map((cell) => {
+    const lineage = {
+      ...cell.lineage,
+      candidateIdentitySha256: inconsistentDigest,
+      source: inconsistentCandidate.source,
+      release: inconsistentCandidate.release,
+      package: inconsistentCandidate.package,
+      workflow: inconsistentCandidate.workflow,
+    }
+    if (cell.assertedStatus === "unknown" && cell.unknownKind === "skip") {
+      return { ...cell, candidate: inconsistentCandidate, lineage, receipt: null }
+    }
+    return {
+      ...cell,
+      candidate: inconsistentCandidate,
+      lineage,
+      receipt: cell.receipt === null
+        ? null
+        : { ...cell.receipt, candidateIdentitySha256: inconsistentDigest },
+    }
+  })
+  expectRefusal(
+    qualificationEvidence.reduce({
+      candidate: inconsistentCandidate,
+      profile: personalProfile,
+      cells: internallyInconsistent,
+    }),
+    "lineage-disagreement",
+  )
   expect(candidateDigest).toMatch(/^sha256:[0-9a-f]{64}$/)
+
+  const hostedCell = observedCell({
+    id: "cell:public-payload-hosted",
+    claim: "plugin-payload.installed",
+    actualProofLayer: "hosted",
+    lineage: {
+      ...observedCell().lineage,
+      hostedRun: {
+        provider: "github-actions",
+        repository: candidate.source.repository,
+        runId: "123456",
+        attempt: 1,
+        headCommit: candidate.source.commit,
+      },
+    },
+  })
+  const correct = publicEvidenceCells().map((cell) =>
+    cell.claim === "plugin-payload.installed" ? hostedCell : cell,
+  )
+  expect(reduceAttempt(publicProfile, correct).status).toBe("reduced")
+
+  const wrongRepository = correct.map((cell) =>
+    cell.id === hostedCell.id
+      ? {
+          ...hostedCell,
+          lineage: {
+            ...hostedCell.lineage,
+            hostedRun: {
+              ...hostedCell.lineage.hostedRun!,
+              repository: { origin: "https://github.com/myagentdojo/not-the-candidate.git" },
+            },
+          },
+        }
+      : cell,
+  )
+  const wrongCommit = correct.map((cell) =>
+    cell.id === hostedCell.id
+      ? {
+          ...hostedCell,
+          lineage: {
+            ...hostedCell.lineage,
+            hostedRun: {
+              ...hostedCell.lineage.hostedRun!,
+              headCommit: "2222222222222222222222222222222222222222",
+            },
+          },
+        }
+      : cell,
+  )
+  expectRefusal(reduceAttempt(publicProfile, wrongRepository), "lineage-disagreement")
+  expectRefusal(reduceAttempt(publicProfile, wrongCommit), "lineage-disagreement")
 })
 
 test("malformed and duplicate cell identifiers are refused", () => {

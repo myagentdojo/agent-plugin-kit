@@ -46,6 +46,7 @@
       "src/modules/runtime-custody/interface.ts",
       "src/modules/runtime-custody/package.json",
       "src/modules/release-and-git-engine/interface.ts",
+      "src/modules/release-and-git-engine/serialized-values.ts",
       "src/modules/release-and-git-engine/package.json",
       "src/modules/maintenance-command-contract/interface.ts",
       "src/modules/maintenance-command-contract/package.json",
@@ -733,7 +734,7 @@
       "private": true,
       "type": "module",
       "exports": {".": "./interface.ts"},
-      "dependencies": {},
+      "dependencies": {"zod": "4.4.3"},
       "empty_dependency_fields": ["devDependencies", "optionalDependencies", "peerDependencies"]
     },
     "runtime_custody": {

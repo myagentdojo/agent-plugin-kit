@@ -1,4 +1,4 @@
-import type { CandidateIdentity, PackageIdentity, ReleaseIdentity, RepositoryIdentity, SourceIdentity, WorkflowIdentity } from "../../release-and-git-engine/interface"
+import type { CandidateIdentity } from "../../release-and-git-engine/interface"
 import type {
   EvidenceCell,
   QualificationEvidence,
@@ -7,7 +7,7 @@ import type {
   QualificationResult,
   VerificationProfile,
 } from "../interface"
-import { canonicalCandidateIdentityDigest, parseVerificationProfile } from "../serialized-values"
+import { canonicalCandidateIdentityDigest } from "../serialized-values"
 
 type ProofLayer = Exclude<EvidenceCell["actualProofLayer"], null>
 type VerificationClaim = EvidenceCell["claim"]
@@ -25,20 +25,34 @@ const proofLayerSatisfaction: Record<ProofLayer, readonly ProofLayer[]> = {
   "fresh-native": ["in-process", "public-process", "clean-fixture", "fresh-native"],
 }
 
-function sameJson(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
+function assertNever(value: never): never {
+  throw new Error(`qualification-evidence: unhandled variant ${String(value)}`)
 }
 
 function sameCandidate(left: CandidateIdentity, right: CandidateIdentity): boolean {
-  return sameJson(left, right)
+  return canonicalCandidateIdentityDigest(left) === canonicalCandidateIdentityDigest(right)
 }
 
-function sameOptional(expected: unknown, actual: unknown): boolean {
-  return actual === undefined || sameJson(expected, actual)
+function candidatePinsAgree(candidate: CandidateIdentity): boolean {
+  return candidate.release.commit === candidate.source.commit &&
+    candidate.package.commit === candidate.source.commit &&
+    candidate.workflow.commit === candidate.source.commit
+}
+
+function sameOptional<T>(expected: T, actual: T | undefined, same: (left: T, right: T) => boolean): boolean {
+  return actual === undefined || same(expected, actual)
 }
 
 function sameReceiptDigest(candidateDigest: `sha256:${string}`, receipt: NonSkipEvidenceCell["receipt"]): boolean {
   return receipt === null || receipt.candidateIdentitySha256 === candidateDigest
+}
+
+function hostedRunMatches(candidate: CandidateIdentity, cell: EvidenceCell): boolean {
+  const hostedRun = cell.lineage.hostedRun
+  return hostedRun === undefined || (
+    hostedRun.repository.origin === candidate.source.repository.origin &&
+    hostedRun.headCommit === candidate.source.commit
+  )
 }
 
 function lineageMatchesCandidate(
@@ -47,12 +61,32 @@ function lineageMatchesCandidate(
   candidateDigest: `sha256:${string}`,
 ): boolean {
   return [
+    candidatePinsAgree(candidate),
     sameCandidate(cell.candidate, candidate),
     cell.lineage.candidateIdentitySha256 === candidateDigest,
-    sameOptional(candidate.source, cell.lineage.source),
-    sameOptional(candidate.release, cell.lineage.release),
-    sameOptional(candidate.package, cell.lineage.package),
-    sameOptional(candidate.workflow, cell.lineage.workflow),
+    sameOptional(
+      candidate.source,
+      cell.lineage.source,
+      (expected, actual) => expected.repository.origin === actual.repository.origin && expected.commit === actual.commit,
+    ),
+    sameOptional(
+      candidate.release,
+      cell.lineage.release,
+      (expected, actual) => expected.reference === actual.reference && expected.commit === actual.commit,
+    ),
+    sameOptional(
+      candidate.package,
+      cell.lineage.package,
+      (expected, actual) => expected.repository.origin === actual.repository.origin && expected.commit === actual.commit,
+    ),
+    sameOptional(
+      candidate.workflow,
+      cell.lineage.workflow,
+      (expected, actual) => expected.repository.origin === actual.repository.origin &&
+        expected.path === actual.path &&
+        expected.commit === actual.commit,
+    ),
+    hostedRunMatches(candidate, cell),
     sameReceiptDigest(candidateDigest, cell.receipt),
   ].every(Boolean)
 }
@@ -102,9 +136,16 @@ function cellIsQualified(cell: NonSkipEvidenceCell, requirement: VerificationReq
 }
 
 function cellStatus(cell: NonSkipEvidenceCell, requirement: VerificationRequirement): "proved" | "not-proved" | "unknown" {
-  if (cell.assertedStatus === "not-proved") return "not-proved"
-  if (cell.assertedStatus === "unknown") return "unknown"
-  return cellIsQualified(cell, requirement) ? "proved" : "not-proved"
+  switch (cell.assertedStatus) {
+    case "proved":
+      return cellIsQualified(cell, requirement) ? "proved" : "not-proved"
+    case "not-proved":
+      return "not-proved"
+    case "unknown":
+      return "unknown"
+    default:
+      return assertNever(cell)
+  }
 }
 
 function hasInvalidIds(cells: readonly EvidenceCell[]): `cell:${string}` | null {
@@ -216,6 +257,30 @@ function firstDecisive(statuses: readonly Decisive[]): Decisive | undefined {
     statuses.find(({ status }) => status === "proved")
 }
 
+function unknownObservationKind(cell: NonSkipEvidenceCell): "unavailable" | "unknown" {
+  switch (cell.assertedStatus) {
+    case "unknown":
+      return cell.observable.kind
+    case "proved":
+    case "not-proved":
+      return "unknown"
+    default:
+      return assertNever(cell)
+  }
+}
+
+function notProvedObservationKind(cell: NonSkipEvidenceCell): "observed" | "failure" | "proved-absence" {
+  switch (cell.assertedStatus) {
+    case "proved":
+    case "unknown":
+      return "observed"
+    case "not-proved":
+      return cell.observable.kind
+    default:
+      return assertNever(cell)
+  }
+}
+
 function decisiveClaim(
   requirement: VerificationRequirement,
   metadata: Pick<ReducedClaim, "evidenceCellIds" | "nonClaims" | "receiptDigests">,
@@ -232,37 +297,39 @@ function decisiveClaim(
       skipRationale: null,
     }
   }
-  if (decisive.status === "proved") {
-    return {
-      claim: requirement.claim,
-      ...metadata,
-      status: "proved",
-      actualProofLayer: decisive.cell.actualProofLayer,
-      observationKind: "observed",
-      skipRationale: null,
+  switch (decisive.status) {
+    case "proved":
+      return {
+        claim: requirement.claim,
+        ...metadata,
+        status: "proved",
+        actualProofLayer: decisive.cell.actualProofLayer,
+        observationKind: "observed",
+        skipRationale: null,
+      }
+    case "unknown": {
+      return {
+        claim: requirement.claim,
+        ...metadata,
+        status: "unknown",
+        unknownKind: "observation",
+        actualProofLayer: decisive.cell.actualProofLayer,
+        observationKind: unknownObservationKind(decisive.cell),
+        skipRationale: null,
+      }
     }
-  }
-  if (decisive.status === "unknown") {
-    const observationKind = decisive.cell.assertedStatus === "unknown" && decisive.cell.unknownKind === "observation"
-      ? decisive.cell.observable.kind
-      : "unknown"
-    return {
-      claim: requirement.claim,
-      ...metadata,
-      status: "unknown",
-      unknownKind: "observation",
-      actualProofLayer: decisive.cell.actualProofLayer,
-      observationKind,
-      skipRationale: null,
+    case "not-proved": {
+      return {
+        claim: requirement.claim,
+        ...metadata,
+        status: "not-proved",
+        actualProofLayer: decisive.cell.actualProofLayer,
+        observationKind: notProvedObservationKind(decisive.cell),
+        skipRationale: null,
+      }
     }
-  }
-  return {
-    claim: requirement.claim,
-    ...metadata,
-    status: "not-proved",
-    actualProofLayer: decisive.cell.actualProofLayer,
-    observationKind: decisive.cell.assertedStatus === "not-proved" ? decisive.cell.observable.kind : "observed",
-    skipRationale: null,
+    default:
+      return assertNever(decisive.status)
   }
 }
 
@@ -283,11 +350,13 @@ function reducedClaim(
   return decisiveClaim(requirement, metadata, firstDecisive(statuses))
 }
 
+type RefusedOutcome = Extract<QualificationOutcome, { status: "refused" }>
+
 function refusal(
   code: QualificationRefusalCode,
   claim: VerificationClaim | null = null,
   evidenceCellId: `cell:${string}` | null = null,
-): QualificationOutcome {
+): RefusedOutcome {
   return { status: "refused", refusal: { schemaVersion: 1, code, claim, evidenceCellId } }
 }
 
@@ -295,16 +364,14 @@ function validateReductionInput(input: {
   candidate: CandidateIdentity
   profile: VerificationProfile
   cells: readonly EvidenceCell[]
-}): { profile: VerificationProfile } | QualificationOutcome {
-  const profile = parseVerificationProfile(input.profile)
-  if (profile === undefined) return refusal("out-of-profile")
+}): QualificationOutcome | null {
   const checks: readonly (() => QualificationOutcome | null)[] = [
     () => {
       const invalidId = hasInvalidIds(input.cells)
       return invalidId === null ? null : refusal("invalid-cell-id", null, invalidId)
     },
     () => {
-      const outOfProfile = hasOutOfProfileCell(input.cells, profile)
+      const outOfProfile = hasOutOfProfileCell(input.cells, input.profile)
       return outOfProfile === null ? null : refusal("out-of-profile", outOfProfile.claim, outOfProfile.id)
     },
     () => {
@@ -316,7 +383,7 @@ function validateReductionInput(input: {
       return lineageDisagreement === null ? null : refusal("lineage-disagreement", lineageDisagreement.claim, lineageDisagreement.id)
     },
     () => {
-      const unqualifiedResolution = hasUnqualifiedResolution(input.cells, profile)
+      const unqualifiedResolution = hasUnqualifiedResolution(input.cells, input.profile)
       return unqualifiedResolution === null ? null : refusal("unqualified-resolution", unqualifiedResolution.claim, unqualifiedResolution.id)
     },
   ]
@@ -324,10 +391,10 @@ function validateReductionInput(input: {
     const failure = check()
     if (failure !== null) return failure
   }
-  return { profile }
+  return null
 }
 
-type ClaimReduction = { kind: "claim"; value: ReducedClaim } | { kind: "refusal"; value: QualificationOutcome }
+type ClaimReduction = { kind: "claim"; value: ReducedClaim } | { kind: "refusal"; value: RefusedOutcome }
 
 function reduceRequirement(
   requirement: VerificationRequirement,
@@ -358,14 +425,40 @@ function reduceClaims(input: {
   let unknown = 0
   for (const requirement of input.profile.requirements) {
     const reduction = reduceRequirement(requirement, input.cells, resolvedIds)
-    if (reduction.kind === "refusal") return reduction.value
-    claims.push(reduction.value)
-    appendUnique(nonClaims, reduction.value.nonClaims)
-    appendUnique(receiptDigests, reduction.value.receiptDigests)
-    if (reduction.value.status === "unknown" && reduction.value.unknownKind === "skip") skipped += 1
-    else if (reduction.value.status === "proved") proved += 1
-    else if (reduction.value.status === "not-proved") notProved += 1
-    else unknown += 1
+    switch (reduction.kind) {
+      case "refusal":
+        return reduction.value
+      case "claim":
+        break
+      default:
+        return assertNever(reduction)
+    }
+    const claim = reduction.value
+    claims.push(claim)
+    appendUnique(nonClaims, claim.nonClaims)
+    appendUnique(receiptDigests, claim.receiptDigests)
+    switch (claim.status) {
+      case "proved":
+        proved += 1
+        break
+      case "not-proved":
+        notProved += 1
+        break
+      case "unknown":
+        switch (claim.unknownKind) {
+          case "skip":
+            skipped += 1
+            break
+          case "observation":
+            unknown += 1
+            break
+          default:
+            assertNever(claim)
+        }
+        break
+      default:
+        assertNever(claim)
+    }
   }
   return {
     status: "reduced",
@@ -394,8 +487,8 @@ function reduceEvidence(input: {
   cells: readonly EvidenceCell[]
 }): QualificationOutcome {
   const validation = validateReductionInput(input)
-  if ("status" in validation) return validation
-  return reduceClaims({ ...input, profile: validation.profile })
+  if (validation !== null) return validation
+  return reduceClaims(input)
 }
 
 export const qualificationEvidence: QualificationEvidence = {
