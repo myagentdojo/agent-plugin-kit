@@ -83,7 +83,9 @@ async function facadeHarness(options: { eventAcceptance?: "accepted" | "refused"
     return undefined
   }
   const commands = createMaintenanceCommandsRecordingAdapter()
-  const diagnostics = createDiagnosticRecordingAdapter({ throwOnDispose: options.throwOnDispose })
+  const diagnostics = createDiagnosticRecordingAdapter(
+    options.throwOnDispose === undefined ? {} : { throwOnDispose: options.throwOnDispose },
+  )
   const events = createEventRecordingAdapter({ status: options.eventAcceptance ?? "accepted" })
   const facade = createMaintenanceCommandFacade({
     commands: commands.commands,

@@ -489,7 +489,7 @@ function policyError(
       baseRef,
       fallowVersion,
       nativeExit: null,
-      nativeStderr,
+      ...(nativeStderr === undefined ? {} : { nativeStderr }),
     }),
     exitCode: 2,
   }
