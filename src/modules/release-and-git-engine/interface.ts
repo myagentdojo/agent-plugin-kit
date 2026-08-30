@@ -3,9 +3,9 @@
  * declarations. It accepts only 40-character lowercase hexadecimal commits;
  * canonical public HTTP(S) repository origins without credentials, queries,
  * fragments, ports, private or reserved hosts, private checkout paths, or
- * noncanonical spelling; nonblank whitespace-free Release references; and
- * repository-relative Workflow paths without a leading slash, backslash, or
- * `..` segment. A Candidate Identity requires every component to share one
+ * noncanonical spelling; bounded Git-safe Release references; and bounded,
+ * repository-relative Workflow paths made from safe path segments. A
+ * Candidate Identity requires every component to share one
  * commit. Its digest is the named v1 Candidate Identity projection using NFC
  * normalization, UTF-8 byte lengths, and length-framed fields.
  */

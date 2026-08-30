@@ -45,6 +45,11 @@ const privateIpv6Pattern = /^(?:::|f[cd]|fe[89a-f]|ff|100::|2001:(?:2|10|20|db8)
 const privateCheckoutPathPattern = /^\/+(?:users?|home|private|tmp|var|volumes?|mnt|workspaces?)\/[^/]+\/[^/]+(?:\/|$)|^\/+\p{L}:\//iu
 const originComponentsPattern = /^(https?):\/\/([^\/?#]*)(\/[^?#]*)?$/i
 const maxPathDecodeDepth = 8
+const maxRepositoryOriginLength = 2048
+const maxReleaseReferenceLength = 512
+const maxWorkflowPathLength = 512
+const releaseReferencePattern = /^[\p{L}\p{M}\p{N}._/-]+$/u
+const workflowPathSegmentPattern = /^[A-Za-z0-9._-]+$/
 
 function normalizedHostname(hostname: string): string {
   return hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "")
@@ -117,7 +122,7 @@ function hasPrivateCheckoutPath(pathname: string): boolean {
 }
 
 function isPublicRepositoryOrigin(value: string): boolean {
-  if (value.length === 0 || value !== value.trim() || /[\\\s]/.test(value)) return false
+  if (value.length === 0 || value.length > maxRepositoryOriginLength || value !== value.trim() || /[\\\s]/.test(value)) return false
   try {
     const url = new URL(value)
     return [
@@ -133,6 +138,25 @@ function isPublicRepositoryOrigin(value: string): boolean {
   }
 }
 
+function isSafeReleaseReference(value: string): boolean {
+  return value.length > 0 &&
+    value.length <= maxReleaseReferenceLength &&
+    releaseReferencePattern.test(value) &&
+    !value.startsWith("/") &&
+    !value.endsWith("/") &&
+    !value.includes("//") &&
+    !value.includes("..")
+}
+
+function isSafeWorkflowPath(value: string): boolean {
+  const segments = value.split("/")
+  return value.length > 0 &&
+    value.length <= maxWorkflowPathLength &&
+    !value.startsWith("/") &&
+    !value.endsWith("/") &&
+    segments.every((segment) => segment.length > 0 && segment !== "." && segment !== ".." && workflowPathSegmentPattern.test(segment))
+}
+
 export const repositoryIdentitySchema = z.strictObject({
   origin: z.string().refine(isPublicRepositoryOrigin),
 })
@@ -141,7 +165,7 @@ export const sourceIdentitySchema = z.strictObject({
   commit: commitSchema,
 })
 export const releaseIdentitySchema = z.strictObject({
-  reference: z.string().min(1).refine((value) => !/[\\\s]/.test(value)),
+  reference: z.string().refine(isSafeReleaseReference),
   commit: commitSchema,
 })
 export const packageIdentitySchema = z.strictObject({
@@ -150,9 +174,7 @@ export const packageIdentitySchema = z.strictObject({
 })
 export const workflowIdentitySchema = z.strictObject({
   repository: repositoryIdentitySchema,
-  path: z.string().min(1).refine((value) =>
-    !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes("..")
-  ),
+  path: z.string().refine(isSafeWorkflowPath),
   commit: commitSchema,
 })
 

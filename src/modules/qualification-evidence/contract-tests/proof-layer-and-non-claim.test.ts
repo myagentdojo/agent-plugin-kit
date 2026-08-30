@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import { VerificationProfile as verificationProfiles } from "../interface"
+import type { CandidateIdentity } from "../../release-and-git-engine/interface"
 import type {
   EvidenceCell,
   QualificationOutcome,
@@ -90,6 +91,34 @@ function expectProfilesDeeplyFrozen(): void {
   expect(publicHostedRequirement?.requiredProofLayer).toBe("hosted")
 }
 
+function unsafeCandidateIdentities(): readonly CandidateIdentity[] {
+  return [
+    {
+      ...candidate,
+      source: {
+        ...candidate.source,
+        repository: { origin: `https://github.com/${"a".repeat(2049)}` },
+      },
+    },
+    {
+      ...candidate,
+      release: { ...candidate.release, reference: "https://user:secret@example.com/release" },
+    },
+    {
+      ...candidate,
+      release: { ...candidate.release, reference: "/Users/nathan/private/release" },
+    },
+    {
+      ...candidate,
+      release: { ...candidate.release, reference: "r".repeat(513) },
+    },
+    {
+      ...candidate,
+      workflow: { ...candidate.workflow, path: `workflows/${"a".repeat(513)}.yml` },
+    },
+  ]
+}
+
 test("declared and inferred values make exact JSON round trips", () => {
   const cell = observedCell()
   const profile = personalProfile
@@ -162,6 +191,17 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
 
   for (const value of invalidValues) {
     expect(parseEvidenceCell(value)).toBeUndefined()
+  }
+  for (const unsafeCandidate of unsafeCandidateIdentities()) {
+    expect(parseEvidenceCell({ ...cell, candidate: unsafeCandidate })).toBeUndefined()
+    expect(qualificationEvidence.reduce({
+      candidate: unsafeCandidate,
+      profile: personalProfile,
+      cells: personalEvidenceCells(),
+    })).toEqual({
+      status: "refused",
+      refusal: { schemaVersion: 1, code: "lineage-disagreement", claim: null, evidenceCellId: null },
+    })
   }
   const invalidOrigins = [
     "http://localhost/Users/nathan/private-repo",
@@ -421,6 +461,9 @@ test("serialized egress is allowlisted, preserves bounded evidence, and fails cl
       },
     },
   } as QualificationResult)).toThrow("qualification-evidence: invalid serialized value")
+  for (const unsafeCandidate of unsafeCandidateIdentities()) {
+    expectInvalidQualificationResult({ ...result, candidate: unsafeCandidate })
+  }
 
   const insufficientProvedLayer = replaceReducedClaim(result, {
     ...admittedClaim,
