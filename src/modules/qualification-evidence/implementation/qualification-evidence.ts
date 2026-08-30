@@ -150,7 +150,9 @@ function isAllowedSkip(profile: VerificationProfile, cell: Extract<EvidenceCell,
 }
 
 function findInvalidSkip(cells: readonly EvidenceCell[], profile: VerificationProfile): EvidenceCell | null {
-  return cells.find((cell) => isSkip(cell) && !isAllowedSkip(profile, cell)) ?? null
+  return cells.find((cell) =>
+    isSkip(cell) && (!isAllowedSkip(profile, cell) || !cell.nonClaims.includes(cell.claim))
+  ) ?? null
 }
 
 type IndexedCell = { cell: EvidenceCell; index: number }

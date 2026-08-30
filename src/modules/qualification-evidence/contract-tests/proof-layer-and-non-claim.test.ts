@@ -387,6 +387,23 @@ test("profiles retain exact order and lineage while Proof Layer satisfaction is 
     .toEqual(missingRequiredLineage)
 })
 
+test("a skipped claim must remain an explicit non-claim", () => {
+  const cells = personalEvidenceCells().map((cell) =>
+    cell.claim === "harness.claude.fresh-native" ? { ...cell, nonClaims: [] } : cell,
+  )
+  const outcome = qualificationEvidence.reduce({ candidate, profile: personalProfile, cells })
+
+  expect(outcome).toEqual({
+    status: "refused",
+    refusal: {
+      schemaVersion: 1,
+      code: "out-of-profile",
+      claim: "harness.claude.fresh-native",
+      evidenceCellId: "cell:personal-claude-skip",
+    },
+  })
+})
+
 test("reduced and refused outcomes preserve counts, skip distinction, and never promote a weak observation", () => {
   const reduced = reducedFixture()
   const reducedOutcome: QualificationOutcome = { status: "reduced", result: reduced }
