@@ -139,13 +139,20 @@ function isPublicRepositoryOrigin(value: string): boolean {
 }
 
 function isSafeReleaseReference(value: string): boolean {
+  const components = value.split("/")
   return value.length > 0 &&
     value.length <= maxReleaseReferenceLength &&
     releaseReferencePattern.test(value) &&
     !value.startsWith("/") &&
     !value.endsWith("/") &&
     !value.includes("//") &&
-    !value.includes("..")
+    !value.includes("..") &&
+    components.every((component) =>
+      component.length > 0 &&
+      !component.startsWith(".") &&
+      !component.endsWith(".") &&
+      !component.endsWith(".lock")
+    )
 }
 
 function isSafeWorkflowPath(value: string): boolean {

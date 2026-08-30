@@ -112,6 +112,10 @@ function unsafeCandidateIdentities(): readonly CandidateIdentity[] {
       ...candidate,
       release: { ...candidate.release, reference: "r".repeat(513) },
     },
+    ...[".hidden", "refs/tags/.hidden", "refs/tags/release.lock", "refs/tags/v1."].map((reference) => ({
+      ...candidate,
+      release: { ...candidate.release, reference },
+    })),
     {
       ...candidate,
       workflow: { ...candidate.workflow, path: `workflows/${"a".repeat(513)}.yml` },
