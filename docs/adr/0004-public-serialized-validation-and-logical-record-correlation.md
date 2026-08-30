@@ -35,6 +35,13 @@ requires a respecified Repository Qualification Contract under
 `docs/adr/0003-repository-quality-and-verification-transition.md` before any
 manifest, schema, or test change is admitted.
 
+> **Current repository-quality amendment:** ADR 0005 supersedes ADR 0003's
+> lifecycle and count-based transition mechanics. References below to a
+> Repository Qualification respecification are historical gates from this
+> decision's acceptance. Current work uses ordinary owner Contract Tests and
+> lifecycle-neutral Repository Verification; adding valid source or tests does
+> not require a mirrored transition contract.
+
 ## Decision
 
 Nathan accepted this decision on 28 August 2026. Fresh Sol High and Fable 5
@@ -59,12 +66,10 @@ value, or public Implementation path.
   `exactOptionalPropertyTypes` and `noImplicitReturns` before public contract
   Implementation begins. Any unrelated diagnostic stops that bounded
   transition rather than authorizing broad repair. The first read-only
-  TypeScript 7.0.2 probe found exactly two transition diagnostics and admits
-  only those two repairs: the intentional RED observability fixture assembly
-  in `src/adapters/maintenance-command-facade/contract-tests/observability.test.ts`
-  and the ADR 0003 Repository Quality Tooling call in
-  `tooling/repository-quality/fallow-policy.ts`. Any additional diagnostic
-  stops the transition.
+  TypeScript 7.0.2 probe found exactly two transition diagnostics. Their
+  current owners are the affected observability Contract Test and Repository
+  Quality Tooling under ADR 0005. Any additional diagnostic stops the
+  transition.
 - Enabling `exactOptionalPropertyTypes` changes the meaning of every existing
   optional key, so that transition is a contract change and not a compiler
   setting. The Optional keys and JSON round trip rule below states the
@@ -594,20 +599,14 @@ This proposal claims none of the following, at any Proof Layer:
   caller-supplied field can create `AdmittedIdentity` or
   `ProtectedCanaryAuthority`.
 
-## Implementation admission prerequisites
+## Historical implementation admission prerequisites
 
-Two prerequisites must be satisfied before any manifest, schema, Interface, or
-test change is made. Neither is optional and neither is a formality.
+When this decision was accepted, two prerequisites applied before its first
+manifest, schema, Interface, or test change. They are retained as acceptance
+history, not as current admission gates. Current work follows ADR 0005 and the
+owning Contract Tests.
 
-1. A reviewed Repository Qualification declaration under
-   `docs/adr/0003-repository-quality-and-verification-transition.md`. The
-   canonical contract at
-   `tooling/repository-quality/repository-qualification-contract.json` owns
-   this repository transition boundary and its independent RED or GREEN
-   receipt. Adding Zod to the facade Owner Manifest, adding schema Contract
-   Tests, or adding an exact-version agreement check each require that
-   contract to be re-scoped in the same reviewed checkpoint, which is what its
-   own first-GREEN transition rule already demands. That checkpoint inventories
+1. The implementation checkpoint inventoried
    every Interface and contract amendment named here: Maintenance-owned
    Failure Class vocabulary; Maintenance-owned Qualification Refusal Code to
    Result Code and Exit Family mapping; the `EvidenceCell` and Reduced Claim
@@ -619,15 +618,13 @@ test change is made. Neither is optional and neither is a formality.
    Canary Authority Source Seam and protected-file reference; nullable
    `NextAction.commandId`; private owner-local validator siblings and their
    installed inventory; the stderr `error` object version carriers; and the two
-   named TypeScript strictness repairs. No unnamed count or source-closure
-   change is admitted.
+   named TypeScript strictness repairs.
 2. A matching respecification of the accepted P3 Full Test Design's
    Qualification Evidence brief. That brief pins the reducer as the place
    where a cell is validated without trusting `assertedStatus`, and pins the
    exact two-file, fourteen-test split. This decision keeps the truth table
-   and moves its enforcement point to the owner's serialized parse, so the
-   brief must be respecified before the first test change rather than
-   silently diverged from.
+   and moves its enforcement point to the owner's serialized parse. The brief
+   was respecified before the first test change.
 
 ## Implementation admission proof gate
 
@@ -811,9 +808,9 @@ Named and deliberately unresolved:
   accepted subpath type-export catalog changes with it.
 - ADR 0002 is amended, not merely applied. Root and every importing owner
   declare Zod at one exact version.
-- ADR 0003's Repository Qualification Contract must be respecified before the
-  first manifest, schema, or test change, and the accepted P3 Qualification
-  Evidence brief must be respecified with it.
+- ADR 0005's lifecycle-neutral Repository Verification remains the manifest
+  and filesystem owner. Schema work changes it only when a new cross-owner
+  dependency relationship changes one of its four accepted responsibilities.
 - Qualification Refusal Code to Result Code and Exit Family mapping stays with
   Maintenance Command Contract, so the Maintenance Command Facade Adapter gains
   no result policy and keeps projecting only what an owner already decided.

@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { dirname, relative, resolve } from "node:path"
 import packageMetadata from "../package.json"
-import { staticModuleSpecifiers } from "../tooling/repository-quality/static-module-specifiers"
 import { branchStationCatalog, deferredOwnerProofs } from "../src/modules/maintenance-command-contract/branch-stations"
 import { commandContractSchemaVersion, commandVocabulary } from "../src/modules/maintenance-command-contract/command-vocabulary"
 import { errorSchemaVersion, exitFamilies, failureNextActionProjection, hintVersion, maintenanceCommandContractId, resultSchemaVersion } from "../src/modules/maintenance-command-contract/result-vocabulary"
@@ -93,8 +92,13 @@ const resolveRelativeModule = (importer: string, specifier: string) => {
   const candidate = resolve(dirname(importer), specifier)
   return [candidate, `${candidate}.ts`, resolve(candidate, "interface.ts"), resolve(candidate, "index.ts")].find((path) => existsSync(path))
 }
+const runtimeModuleSpecifiers = (file: string) => {
+  const loader = file.endsWith(".tsx") ? "tsx" : "ts"
+  const source = readFileSync(file, "utf8").replace(/^#![^\n]*\n/, "")
+  return new Bun.Transpiler({ loader }).scan(source).imports.map(({ path }) => path)
+}
 const relativeImports = (file: string) => {
-  return staticModuleSpecifiers(file, readFileSync(file, "utf8")).flatMap((specifier) => {
+  return runtimeModuleSpecifiers(file).flatMap((specifier) => {
     if (specifier === facadeManifest.name) return [facadeInterface]
     if (specifier.startsWith(`${facadeManifest.name}/`)) throw new Error(`${file} imports a forbidden facade owner subpath: ${specifier}`)
     if (!specifier.startsWith(".")) return []

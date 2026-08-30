@@ -1,8 +1,13 @@
 ---
-status: accepted
+status: superseded
+superseded_by: 0005-simple-repository-quality-ownership.md
 ---
 
 # Keep Repository Governance With Repository Quality Tooling
+
+This decision is historical. ADR 0005 removes lifecycle and ticket-transition
+authority from the repository and replaces Repository Qualification with
+lifecycle-neutral Repository Verification.
 
 Repository Quality Tooling owns repository-wide quality and transition policy
 outside the Source Tree. Its Repository Qualification declaration records the

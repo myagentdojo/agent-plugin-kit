@@ -16,7 +16,10 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"recommended": true
+			"recommended": true,
+			"correctness": {
+				"noUndeclaredDependencies": "error"
+			}
 		}
 	},
 	"javascript": {
@@ -24,6 +27,59 @@
 			"quoteStyle": "double"
 		}
 	},
+	"overrides": [
+		{
+			"includes": ["src/admission-bootstrap/**/*.ts", "!src/admission-bootstrap/contract-tests/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noCommonJs": "error",
+						"noRestrictedGlobals": {
+							"level": "error",
+							"options": {
+								"deniedGlobals": {
+									"global": "Admission must not depend on the ambient Node global.",
+									"globalThis": "Admission must not depend on ambient global state.",
+									"require": "Admission uses ESM and may not load CommonJS modules."
+								}
+							}
+						},
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"paths": {
+									"node:module": "Admission must remain independent of the Node module loader."
+								},
+								"patterns": [
+									{
+										"group": ["*", "*/*", "@*/*", "@*/**", "!./**", "!../**", "!node:*", "!node:*/**", "node:module"]
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/**/interface.ts"],
+			"linter": {
+				"rules": {
+					"performance": {
+						"noReExportAll": "error"
+					},
+					"style": {
+						"noDefaultExport": "error",
+						"noEnum": "error",
+						"noNamespace": "error"
+					},
+					"suspicious": {
+						"noConstEnum": "error"
+					}
+				}
+			}
+		}
+	],
 	"assist": {
 		"enabled": false,
 		"actions": {
