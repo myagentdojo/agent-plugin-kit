@@ -201,7 +201,7 @@ const admissionSourceClosure = [
 ] as const
 const knownFailureClasses = new Set(["contract-absent"])
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
-const exactSemanticVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
+const exactSemanticVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 let activeMode: "complete" | "structure-only" = "complete"
 
 function writeRefusal(refusal: QualificationRefusal): void {

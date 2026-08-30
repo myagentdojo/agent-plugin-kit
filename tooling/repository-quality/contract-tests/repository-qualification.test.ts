@@ -3186,6 +3186,35 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
   )
   expect(JSON.parse(ownerOnlyLogTapeObservation.stdout)).toEqual(positiveStructureExpected)
 
+  const digitLeadingPrereleaseRoot = await copyRepositoryFixture()
+  await mutateJsonFile(
+    digitLeadingPrereleaseRoot,
+    "src/modules/runtime-custody/package.json",
+    (packageJson) => {
+      packageJson.dependencies = { "valid-prerelease-dependency": "1.2.3-1alpha" }
+    },
+  )
+  await mutateContract(digitLeadingPrereleaseRoot, (contract) => {
+    contract.owner_manifests.runtime_custody.dependencies = {
+      "valid-prerelease-dependency": "1.2.3-1alpha",
+    }
+  })
+  const digitLeadingPrereleaseObservation = await observeVerifier(
+    digitLeadingPrereleaseRoot,
+    ["--structure-only"],
+  )
+  expect(
+    digitLeadingPrereleaseObservation.exitCode,
+    digitLeadingPrereleaseObservation.stderr,
+  ).toBe(0)
+  expect(digitLeadingPrereleaseObservation.stderr).toBe("")
+  expect(digitLeadingPrereleaseObservation.stdout).toBe(
+    `${JSON.stringify(positiveStructureExpected)}\n`,
+  )
+  expect(JSON.parse(digitLeadingPrereleaseObservation.stdout)).toEqual(
+    positiveStructureExpected,
+  )
+
   const lexicalRoot = await copyRepositoryFixture()
   await mutateTextFile(
     lexicalRoot,
@@ -3430,6 +3459,13 @@ test("unknown orchestration or Git-shaped declaration keys are refused", async (
       owner: 'package_contract.dependencies["zod"]',
       mutate: (contract: Record<string, any>) => {
         contract.package_contract.dependencies = { zod: "" }
+      },
+    },
+    {
+      label: "numeric prerelease identifier with a leading zero is refused",
+      owner: 'package_contract.dependencies["zod"]',
+      mutate: (contract: Record<string, any>) => {
+        contract.package_contract.dependencies = { zod: "1.2.3-01" }
       },
     },
     {
