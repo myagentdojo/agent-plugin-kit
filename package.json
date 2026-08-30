@@ -33,6 +33,9 @@
   "bin": {
     "agent-plugin-kit": "./src/adapters/maintenance-command-facade/maintenance.ts"
   },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
     "@types/bun": "1.4.0",
@@ -40,7 +43,7 @@
     "typescript": "7.0.2"
   },
   "scripts": {
-    "check": "git diff --check && bun run biome:check && bun run typecheck && bun run test:quality:repository && bun run --silent quality:fallow --changed-since HEAD && bun run verify:repository",
+    "check": "git diff --check && bun run biome:check && bun run typecheck && bun run test:quality:repository && bun run --silent quality:fallow && bun run verify:repository",
     "biome:check": "biome check --diagnostic-level=error .",
     "biome:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",

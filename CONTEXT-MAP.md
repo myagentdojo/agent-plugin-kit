@@ -18,7 +18,7 @@ Consumer rules: [`docs/agents/domain.md`](docs/agents/domain.md).
 The current Interface, Admission Bootstrap, Maintenance Command Contract,
 Qualification Evidence, Repository Quality Tooling Implementation, and Clean
 Fixture Contract Test paths are current. Other Source Tree Contract Test paths,
-every Source Tree Implementation path, and hosted workflows are future and
+every unadmitted Source Tree Implementation path, and hosted workflows are future and
 remain absent until their owning artifact has real accepted content.
 
 | Question | Governing language | Decision or proposal | Current or future Interface or Adapter | Current or future Contract Tests or independent proof | Current repository tooling or future Source Tree Implementation |

@@ -1,7 +1,10 @@
 # Native Fallow Quality Gate
 
-Fallow 3.19.0 directly owns changed-code quality. The repository has no Fallow
-wrapper or JSON interpretation layer.
+Goal: audit the current code-changing delta through Fallow's native JSON and
+exit contract. `bun run check` is the complete done condition; its base-free
+Fallow step honors `FALLOW_AUDIT_BASE` and otherwise uses native upstream or
+remote-default merge-base detection. The repository has no Fallow wrapper or
+JSON interpretation layer.
 
 ## Start
 
@@ -29,6 +32,10 @@ The complete repository gate is:
 bun run check
 ```
 
+It invokes Fallow without a comparison-base argument. Pin
+`FALLOW_AUDIT_BASE` to the exact comparison commit for clean-tip review proof;
+otherwise Fallow selects the branch upstream or remote-default merge-base.
+
 ## Native decisions
 
 The command emits native Fallow JSON on stdout. Preserve it as tool evidence;
@@ -48,12 +55,15 @@ exit two.
 
 ## Comparison bases
 
+- Complete gate: leave the CLI base unset so `FALLOW_AUDIT_BASE` or native
+  merge-base detection owns selection. Treat a zero-file result as an
+  empty-delta smoke, not changed-code review evidence.
 - Dirty turn: use `HEAD` so tracked and untracked work remains in scope.
 - Review and handoff: use the immutable task-start Full Commit Pin.
 - Remote integration: use a freshly resolved remote ref only after that remote
   action is authorized.
-- Never substitute an implicit base, disable type-aware analysis, or save a
-  count baseline to make a gate pass.
+- Never disable type-aware analysis or save a count baseline to make a gate
+  pass.
 
 ## Editor resolution
 

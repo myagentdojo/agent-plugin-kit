@@ -1,7 +1,4 @@
-import type {
-  EvidenceCell,
-} from "../../interface"
-import { VerificationProfile } from "../../interface"
+import type { EvidenceCell, VerificationProfile } from "../../interface"
 import type { CandidateIdentity } from "../../../release-and-git-engine/interface"
 
 export const candidate: CandidateIdentity = {
@@ -27,8 +24,42 @@ export const candidate: CandidateIdentity = {
 export const candidateDigest =
   "sha256:2af031b2b3bc51ced417b607dd3e1d937b01534e37d831c392bf85022e903566" as const
 
-export const personalProfile = VerificationProfile.personal
-export const publicProfile = VerificationProfile.public
+// This independent oracle must not import or derive from the production profile.
+export const personalProfile = {
+  schemaVersion: 1,
+  id: "personal",
+  // fallow-ignore-next-line code-duplication
+  requirements: [
+    { claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "release", "package", "workflow"] },
+    { claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
+    { claim: "kit.package.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
+    { claim: "kit.workflow.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "workflow"] },
+    { claim: "plugin-payload.installed", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package", "installed-payload"] },
+    { claim: "runtime.supported-platform", requiredProofLayer: "public-process", requiredLineage: ["source", "package", "platform", "receipt"] },
+    { claim: "harness.claude.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: ["source", "package", "installed-payload", "receipt"] },
+    { claim: "harness.codex.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: ["source", "package", "installed-payload", "receipt"] },
+  ],
+} as const satisfies VerificationProfile
+
+// This independent oracle must not import or derive from the production profile.
+export const publicProfile = {
+  schemaVersion: 1,
+  id: "public",
+  // fallow-ignore-next-line code-duplication
+  requirements: [
+    { claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "release", "package", "workflow"] },
+    { claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
+    { claim: "kit.package.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
+    { claim: "kit.workflow.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "workflow"] },
+    { claim: "plugin-payload.installed", requiredProofLayer: "hosted", requiredLineage: ["source", "package", "installed-payload", "hosted-run", "receipt"] },
+    { claim: "runtime.supported-platform", requiredProofLayer: "hosted", requiredLineage: ["source", "package", "platform", "hosted-run", "receipt"] },
+    { claim: "release.identity.published", requiredProofLayer: "hosted", requiredLineage: ["source", "release", "hosted-run", "receipt"] },
+    { claim: "workflow.called-revision", requiredProofLayer: "hosted", requiredLineage: ["source", "workflow", "hosted-run", "receipt"] },
+    { claim: "canary.hosted-qualified", requiredProofLayer: "hosted", requiredLineage: ["source", "package", "workflow", "installed-payload", "hosted-run", "receipt"] },
+    { claim: "harness.claude.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: ["source", "package", "installed-payload", "receipt"] },
+    { claim: "harness.codex.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: ["source", "package", "installed-payload", "receipt"] },
+  ],
+} as const satisfies VerificationProfile
 
 export function observedCell(
   overrides: Partial<Extract<EvidenceCell, { assertedStatus: "proved" }>> = {},
@@ -135,5 +166,55 @@ export function skipCell(
     nonClaims: [claim],
     receipt: null,
     resolves: [],
+  }
+}
+
+export function failureCell(
+  claim: EvidenceCell["claim"],
+  id: `cell:${string}` = "cell:failure",
+): Extract<EvidenceCell, { assertedStatus: "not-proved" }> {
+  const base = observedCell({ id, claim })
+  return {
+    ...base,
+    assertedStatus: "not-proved",
+    observable: { kind: "failure", code: "QUALIFICATION_FAILED" },
+  }
+}
+
+export function provedAbsenceCell(
+  claim: EvidenceCell["claim"],
+  id: `cell:${string}` = "cell:proved-absence",
+): Extract<EvidenceCell, { assertedStatus: "not-proved" }> {
+  const base = observedCell({ id, claim })
+  return {
+    ...base,
+    assertedStatus: "not-proved",
+    observable: { kind: "proved-absence", code: "QUALIFICATION_ABSENT" },
+  }
+}
+
+export function unavailableCell(
+  claim: EvidenceCell["claim"],
+  id: `cell:${string}` = "cell:unavailable",
+): Extract<EvidenceCell, { assertedStatus: "unknown"; unknownKind: "observation" }> {
+  const base = observedCell({ id, claim })
+  return {
+    ...base,
+    assertedStatus: "unknown",
+    unknownKind: "observation",
+    observable: { kind: "unavailable", code: "QUALIFICATION_UNAVAILABLE" },
+  }
+}
+
+export function unknownObservationCell(
+  claim: EvidenceCell["claim"],
+  id: `cell:${string}` = "cell:unknown",
+): Extract<EvidenceCell, { assertedStatus: "unknown"; unknownKind: "observation" }> {
+  const base = observedCell({ id, claim })
+  return {
+    ...base,
+    assertedStatus: "unknown",
+    unknownKind: "observation",
+    observable: { kind: "unknown", code: "QUALIFICATION_UNKNOWN" },
   }
 }

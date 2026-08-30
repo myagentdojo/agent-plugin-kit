@@ -108,28 +108,18 @@ export type EvidenceCell = {
     }
 )
 
+/**
+ * Reduction accepts only the exact ordered requirement table of the selected
+ * `VerificationProfile` sentinel. Missing, duplicate, extra, reordered, or
+ * weakened requirements are refused. The selected profile order is the result
+ * claim order; caller input order cannot replace it.
+ */
 export type VerificationProfile = {
   schemaVersion: 1
   id: "personal" | "public"
   requirements: readonly {
-    claim:
-      | "kit.identity.admitted"
-      | "kit.command.invoked"
-      | "kit.package.full-commit-pin"
-      | "kit.workflow.full-commit-pin"
-      | "plugin-payload.installed"
-      | "runtime.supported-platform"
-      | "release.identity.published"
-      | "workflow.called-revision"
-      | "canary.hosted-qualified"
-      | "harness.claude.fresh-native"
-      | "harness.codex.fresh-native"
-    requiredProofLayer:
-      | "in-process"
-      | "public-process"
-      | "clean-fixture"
-      | "hosted"
-      | "fresh-native"
+    claim: EvidenceCell["claim"]
+    requiredProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
     requiredLineage: readonly (
       | "source"
       | "release"
@@ -143,106 +133,88 @@ export type VerificationProfile = {
   }[]
 }
 
-export const VerificationProfile = {
-  personal: {
+export const VerificationProfile = Object.freeze({
+  personal: Object.freeze({
     schemaVersion: 1,
     id: "personal",
-    requirements: [
-      { claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "release", "package", "workflow"] },
-      { claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
-      { claim: "kit.package.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
-      { claim: "kit.workflow.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "workflow"] },
-      { claim: "plugin-payload.installed", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package", "installed-payload"] },
-      { claim: "runtime.supported-platform", requiredProofLayer: "public-process", requiredLineage: ["source", "package", "platform", "receipt"] },
-      { claim: "harness.claude.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: ["source", "package", "installed-payload", "receipt"] },
-      { claim: "harness.codex.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: ["source", "package", "installed-payload", "receipt"] },
-    ],
-  },
-  public: {
+    requirements: Object.freeze<VerificationProfile["requirements"]>([
+      Object.freeze({ claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "release", "package", "workflow"]) }),
+      Object.freeze({ claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package"]) }),
+      Object.freeze({ claim: "kit.package.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package"]) }),
+      Object.freeze({ claim: "kit.workflow.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "workflow"]) }),
+      Object.freeze({ claim: "plugin-payload.installed", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "installed-payload"]) }),
+      Object.freeze({ claim: "runtime.supported-platform", requiredProofLayer: "public-process", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "platform", "receipt"]) }),
+      Object.freeze({ claim: "harness.claude.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "installed-payload", "receipt"]) }),
+      Object.freeze({ claim: "harness.codex.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "installed-payload", "receipt"]) }),
+    ]),
+  }),
+  public: Object.freeze({
     schemaVersion: 1,
     id: "public",
-    requirements: [
-      { claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "release", "package", "workflow"] },
-      { claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
-      { claim: "kit.package.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
-      { claim: "kit.workflow.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "workflow"] },
-      { claim: "plugin-payload.installed", requiredProofLayer: "hosted", requiredLineage: ["source", "package", "installed-payload", "hosted-run", "receipt"] },
-      { claim: "runtime.supported-platform", requiredProofLayer: "hosted", requiredLineage: ["source", "package", "platform", "hosted-run", "receipt"] },
-      { claim: "release.identity.published", requiredProofLayer: "hosted", requiredLineage: ["source", "release", "hosted-run", "receipt"] },
-      { claim: "workflow.called-revision", requiredProofLayer: "hosted", requiredLineage: ["source", "workflow", "hosted-run", "receipt"] },
-      { claim: "canary.hosted-qualified", requiredProofLayer: "hosted", requiredLineage: ["source", "package", "workflow", "installed-payload", "hosted-run", "receipt"] },
-      { claim: "harness.claude.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: ["source", "package", "installed-payload", "receipt"] },
-      { claim: "harness.codex.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: ["source", "package", "installed-payload", "receipt"] },
-    ],
-  },
-} as const satisfies Readonly<Record<"personal" | "public", VerificationProfile>>
+    requirements: Object.freeze<VerificationProfile["requirements"]>([
+      Object.freeze({ claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "release", "package", "workflow"]) }),
+      Object.freeze({ claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package"]) }),
+      Object.freeze({ claim: "kit.package.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package"]) }),
+      Object.freeze({ claim: "kit.workflow.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "workflow"]) }),
+      Object.freeze({ claim: "plugin-payload.installed", requiredProofLayer: "hosted", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "installed-payload", "hosted-run", "receipt"]) }),
+      Object.freeze({ claim: "runtime.supported-platform", requiredProofLayer: "hosted", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "platform", "hosted-run", "receipt"]) }),
+      Object.freeze({ claim: "release.identity.published", requiredProofLayer: "hosted", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "release", "hosted-run", "receipt"]) }),
+      Object.freeze({ claim: "workflow.called-revision", requiredProofLayer: "hosted", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "workflow", "hosted-run", "receipt"]) }),
+      Object.freeze({ claim: "canary.hosted-qualified", requiredProofLayer: "hosted", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "workflow", "installed-payload", "hosted-run", "receipt"]) }),
+      Object.freeze({ claim: "harness.claude.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "installed-payload", "receipt"]) }),
+      Object.freeze({ claim: "harness.codex.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "installed-payload", "receipt"]) }),
+    ]),
+  }),
+}) satisfies Readonly<Record<"personal" | "public", VerificationProfile>>
 
+/**
+ * A reduced result is deterministic: claims follow the exact selected
+ * profile order. Every claim retains at least one contributing Evidence Cell
+ * ID, and those IDs are globally unique across the result. A claim's status
+ * precedence is `not-proved > unknown > proved`; when cells tie, the first
+ * input cell wins. Claim metadata and the top-level Non-Claims and receipt
+ * digest arrays preserve first occurrence order.
+ */
 export type QualificationResult = {
   schemaVersion: 1
   candidate: CandidateIdentity
-  profileId: "personal" | "public"
-  claims: readonly ({
-    claim:
-      | "kit.identity.admitted"
-      | "kit.command.invoked"
-      | "kit.package.full-commit-pin"
-      | "kit.workflow.full-commit-pin"
-      | "plugin-payload.installed"
-      | "runtime.supported-platform"
-      | "release.identity.published"
-      | "workflow.called-revision"
-      | "canary.hosted-qualified"
-      | "harness.claude.fresh-native"
-      | "harness.codex.fresh-native"
-    nonClaims: readonly (
-      | "kit.identity.admitted"
-      | "kit.command.invoked"
-      | "kit.package.full-commit-pin"
-      | "kit.workflow.full-commit-pin"
-      | "plugin-payload.installed"
-      | "runtime.supported-platform"
-      | "release.identity.published"
-      | "workflow.called-revision"
-      | "canary.hosted-qualified"
-      | "harness.claude.fresh-native"
-      | "harness.codex.fresh-native"
-    )[]
-    receiptDigests: readonly `sha256:${string}`[]
-    evidenceCellIds: readonly `cell:${string}`[]
-  } & (
-    | {
-        status: "proved"
-        actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
-        observationKind: "observed"
-        skipRationale: null
-      }
-    | {
-        status: "not-proved"
-        actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
-        observationKind: "observed" | "failure" | "proved-absence"
-        skipRationale: null
-      }
-    | {
-        status: "unknown"
-        unknownKind: "observation"
-        actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
-        observationKind: "unavailable" | "unknown"
-        skipRationale: null
-      }
-    | {
-        status: "unknown"
-        unknownKind: "skip"
-        actualProofLayer: null
-        observationKind: null
-        skipRationale:
-          | "hosted-proof-not-run"
-          | "fresh-native-proof-not-run"
-          | "protected-authority-unavailable"
-          | "platform-not-selected"
-          | "host-unavailable"
-          | "not-applicable"
-      }
-  ))[]
+  profileId: VerificationProfile["id"]
+  claims: readonly (
+    & {
+      claim: EvidenceCell["claim"]
+      nonClaims: readonly EvidenceCell["claim"][]
+      receiptDigests: readonly NonNullable<EvidenceCell["receipt"]>["digest"][]
+      evidenceCellIds: readonly EvidenceCell["id"][]
+    }
+    & (
+      | {
+          status: "proved"
+          actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+          observationKind: "observed"
+          skipRationale: null
+        }
+      | {
+          status: "not-proved"
+          actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+          observationKind: "observed" | "failure" | "proved-absence"
+          skipRationale: null
+        }
+      | {
+          status: "unknown"
+          unknownKind: "observation"
+          actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+          observationKind: "unavailable" | "unknown"
+          skipRationale: null
+        }
+      | {
+          status: "unknown"
+          unknownKind: "skip"
+          actualProofLayer: null
+          observationKind: null
+          skipRationale: Extract<EvidenceCell, { unknownKind: "skip" }>["skipRationale"]
+        }
+    )
+  )[]
   counts: {
     selected: number
     covered: number
@@ -251,20 +223,8 @@ export type QualificationResult = {
     notProved: number
     unknown: number
   }
-  nonClaims: readonly (
-    | "kit.identity.admitted"
-    | "kit.command.invoked"
-    | "kit.package.full-commit-pin"
-    | "kit.workflow.full-commit-pin"
-    | "plugin-payload.installed"
-    | "runtime.supported-platform"
-    | "release.identity.published"
-    | "workflow.called-revision"
-    | "canary.hosted-qualified"
-    | "harness.claude.fresh-native"
-    | "harness.codex.fresh-native"
-  )[]
-  receiptDigests: readonly `sha256:${string}`[]
+  nonClaims: readonly EvidenceCell["claim"][]
+  receiptDigests: readonly NonNullable<EvidenceCell["receipt"]>["digest"][]
 }
 
 export type QualificationRefusalCode =
@@ -279,22 +239,8 @@ export type QualificationRefusalCode =
 export type QualificationRefusal = {
   schemaVersion: 1
   code: QualificationRefusalCode
-  claim:
-    | (
-        | "kit.identity.admitted"
-        | "kit.command.invoked"
-        | "kit.package.full-commit-pin"
-        | "kit.workflow.full-commit-pin"
-        | "plugin-payload.installed"
-        | "runtime.supported-platform"
-        | "release.identity.published"
-        | "workflow.called-revision"
-        | "canary.hosted-qualified"
-        | "harness.claude.fresh-native"
-        | "harness.codex.fresh-native"
-      )
-    | null
-  evidenceCellId: `cell:${string}` | null
+  claim: EvidenceCell["claim"] | null
+  evidenceCellId: EvidenceCell["id"] | null
 }
 
 export type QualificationOutcome =
@@ -302,6 +248,28 @@ export type QualificationOutcome =
   | { status: "refused"; refusal: QualificationRefusal }
 
 export interface QualificationEvidence {
+  /**
+   * Refuses malformed IDs, profile drift, invalid resolution references,
+   * Candidate Lineage disagreement, and unqualified resolution in this order:
+   * invalid-cell-id, out-of-profile, invalid-resolution,
+   * lineage-disagreement, unqualified-resolution, zero-cell, and
+   * mixed-unresolved. A reduced result retains the canonical profile claim
+   * order, `selected = covered + skipped`, `covered = proved + notProved +
+   * unknown`, at least one globally unique contributing Evidence Cell ID per
+   * claim, and first-occurrence claim and aggregate metadata.
+   *
+   * A Personal profile may skip only either Fresh-Native harness claim, using
+   * `fresh-native-proof-not-run`. In a Public profile,
+   * `plugin-payload.installed`, `release.identity.published`, and
+   * `workflow.called-revision` accept `hosted-proof-not-run`,
+   * `host-unavailable`, or `not-applicable`; `runtime.supported-platform`
+   * additionally accepts `platform-not-selected`; `canary.hosted-qualified`
+   * instead additionally accepts `protected-authority-unavailable`; and each
+   * Fresh-Native harness claim accepts `fresh-native-proof-not-run`,
+   * `host-unavailable`, or `not-applicable`.
+   * `out-of-profile` covers a noncanonical profile table, a cell whose claim
+   * is outside that profile, or a skip not admitted by these rules.
+   */
   reduce(input: {
     candidate: CandidateIdentity
     profile: VerificationProfile
