@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { VerificationProfile as verificationProfiles } from "../interface"
 import type {
   EvidenceCell,
   QualificationOutcome,
@@ -69,6 +70,24 @@ function replaceReducedClaim(
 function expectInvalidQualificationResult(value: QualificationResult): void {
   expect(parseQualificationResult(value)).toBeUndefined()
   expect(() => serializeQualificationResult(value)).toThrow("qualification-evidence: invalid serialized value")
+}
+
+function expectProfilesDeeplyFrozen(): void {
+  for (const profile of Object.values(verificationProfiles)) {
+    expect(Object.isFrozen(profile)).toBeTrue()
+    expect(Object.isFrozen(profile.requirements)).toBeTrue()
+    for (const requirement of profile.requirements) {
+      expect(Object.isFrozen(requirement)).toBeTrue()
+      expect(Object.isFrozen(requirement.requiredLineage)).toBeTrue()
+    }
+  }
+  const personalFreshRequirement = verificationProfiles.personal.requirements[6]
+  const publicHostedRequirement = verificationProfiles.public.requirements[4]
+  expect(Object.isFrozen(verificationProfiles)).toBeTrue()
+  expect(Reflect.set(personalFreshRequirement!, "requiredProofLayer", "in-process")).toBeFalse()
+  expect(Reflect.set(publicHostedRequirement!, "requiredProofLayer", "in-process")).toBeFalse()
+  expect(personalFreshRequirement?.requiredProofLayer).toBe("fresh-native")
+  expect(publicHostedRequirement?.requiredProofLayer).toBe("hosted")
 }
 
 test("declared and inferred values make exact JSON round trips", () => {
@@ -199,6 +218,8 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
 })
 
 test("profiles retain exact order and lineage while Proof Layer satisfaction is reflexive and incomparable at the top", () => {
+  expectProfilesDeeplyFrozen()
+
   expect(personalProfile.schemaVersion).toBe(1)
   expect(publicProfile.schemaVersion).toBe(1)
   expect(personalProfile.requirements.map(({ claim }) => claim)).toEqual([

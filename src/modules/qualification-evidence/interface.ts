@@ -133,39 +133,39 @@ export type VerificationProfile = {
   }[]
 }
 
-export const VerificationProfile = {
-  personal: {
+export const VerificationProfile = Object.freeze({
+  personal: Object.freeze({
     schemaVersion: 1,
     id: "personal",
-    requirements: [
-      { claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "release", "package", "workflow"] },
-      { claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
-      { claim: "kit.package.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
-      { claim: "kit.workflow.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "workflow"] },
-      { claim: "plugin-payload.installed", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package", "installed-payload"] },
-      { claim: "runtime.supported-platform", requiredProofLayer: "public-process", requiredLineage: ["source", "package", "platform", "receipt"] },
-      { claim: "harness.claude.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: ["source", "package", "installed-payload", "receipt"] },
-      { claim: "harness.codex.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: ["source", "package", "installed-payload", "receipt"] },
-    ],
-  },
-  public: {
+    requirements: Object.freeze<VerificationProfile["requirements"]>([
+      Object.freeze({ claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "release", "package", "workflow"]) }),
+      Object.freeze({ claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package"]) }),
+      Object.freeze({ claim: "kit.package.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package"]) }),
+      Object.freeze({ claim: "kit.workflow.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "workflow"]) }),
+      Object.freeze({ claim: "plugin-payload.installed", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "installed-payload"]) }),
+      Object.freeze({ claim: "runtime.supported-platform", requiredProofLayer: "public-process", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "platform", "receipt"]) }),
+      Object.freeze({ claim: "harness.claude.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "installed-payload", "receipt"]) }),
+      Object.freeze({ claim: "harness.codex.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "installed-payload", "receipt"]) }),
+    ]),
+  }),
+  public: Object.freeze({
     schemaVersion: 1,
     id: "public",
-    requirements: [
-      { claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "release", "package", "workflow"] },
-      { claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
-      { claim: "kit.package.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
-      { claim: "kit.workflow.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "workflow"] },
-      { claim: "plugin-payload.installed", requiredProofLayer: "hosted", requiredLineage: ["source", "package", "installed-payload", "hosted-run", "receipt"] },
-      { claim: "runtime.supported-platform", requiredProofLayer: "hosted", requiredLineage: ["source", "package", "platform", "hosted-run", "receipt"] },
-      { claim: "release.identity.published", requiredProofLayer: "hosted", requiredLineage: ["source", "release", "hosted-run", "receipt"] },
-      { claim: "workflow.called-revision", requiredProofLayer: "hosted", requiredLineage: ["source", "workflow", "hosted-run", "receipt"] },
-      { claim: "canary.hosted-qualified", requiredProofLayer: "hosted", requiredLineage: ["source", "package", "workflow", "installed-payload", "hosted-run", "receipt"] },
-      { claim: "harness.claude.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: ["source", "package", "installed-payload", "receipt"] },
-      { claim: "harness.codex.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: ["source", "package", "installed-payload", "receipt"] },
-    ],
-  },
-} as const satisfies Readonly<Record<"personal" | "public", VerificationProfile>>
+    requirements: Object.freeze<VerificationProfile["requirements"]>([
+      Object.freeze({ claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "release", "package", "workflow"]) }),
+      Object.freeze({ claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package"]) }),
+      Object.freeze({ claim: "kit.package.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package"]) }),
+      Object.freeze({ claim: "kit.workflow.full-commit-pin", requiredProofLayer: "clean-fixture", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "workflow"]) }),
+      Object.freeze({ claim: "plugin-payload.installed", requiredProofLayer: "hosted", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "installed-payload", "hosted-run", "receipt"]) }),
+      Object.freeze({ claim: "runtime.supported-platform", requiredProofLayer: "hosted", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "platform", "hosted-run", "receipt"]) }),
+      Object.freeze({ claim: "release.identity.published", requiredProofLayer: "hosted", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "release", "hosted-run", "receipt"]) }),
+      Object.freeze({ claim: "workflow.called-revision", requiredProofLayer: "hosted", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "workflow", "hosted-run", "receipt"]) }),
+      Object.freeze({ claim: "canary.hosted-qualified", requiredProofLayer: "hosted", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "workflow", "installed-payload", "hosted-run", "receipt"]) }),
+      Object.freeze({ claim: "harness.claude.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "installed-payload", "receipt"]) }),
+      Object.freeze({ claim: "harness.codex.fresh-native", requiredProofLayer: "fresh-native", requiredLineage: Object.freeze<VerificationProfile["requirements"][number]["requiredLineage"]>(["source", "package", "installed-payload", "receipt"]) }),
+    ]),
+  }),
+}) satisfies Readonly<Record<"personal" | "public", VerificationProfile>>
 
 /**
  * A reduced result is deterministic: claims follow the exact selected
