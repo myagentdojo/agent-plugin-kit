@@ -12,53 +12,24 @@ import type {
   QualificationResult,
   VerificationProfile,
 } from "../interface"
-import { isEvidenceCellId, parseVerificationProfile } from "../serialized-values"
+import {
+  isAllowedSkipRationale,
+  isEvidenceCellId,
+  parseVerificationProfile,
+  proofLayerSatisfies,
+} from "../serialized-values"
 
 type CandidateIdentityDigest = EvidenceCell["lineage"]["candidateIdentitySha256"]
 type EvidenceCellId = EvidenceCell["id"]
 type LineageMember = VerificationProfile["requirements"][number]["requiredLineage"][number]
-type ProofLayer = VerificationProfile["requirements"][number]["requiredProofLayer"]
-type ProofLayerSatisfaction = Readonly<Record<ProofLayer, readonly ProofLayer[]>>
 type QualificationClaim = QualificationResult["claims"][number]
 type QualificationRefusalCode = Extract<QualificationOutcome, { status: "refused" }>["refusal"]["code"]
 type Sha256Digest = EvidenceCell["lineage"]["candidateIdentitySha256"]
-type SkipRationale = Extract<EvidenceCell, { unknownKind: "skip" }>["skipRationale"]
 type VerificationClaim = EvidenceCell["claim"]
 type VerificationRequirement = VerificationProfile["requirements"][number]
 
 type NonSkipEvidenceCell = Exclude<EvidenceCell, { unknownKind: "skip" }>
 type ReducedClaim = QualificationClaim
-
-const personalSkipClaims = new Set<VerificationClaim>([
-  "harness.claude.fresh-native",
-  "harness.codex.fresh-native",
-])
-const publicSkipRationalesByClaim: Partial<Record<VerificationClaim, readonly SkipRationale[]>> = {
-  "plugin-payload.installed": ["hosted-proof-not-run", "host-unavailable", "not-applicable"],
-  "runtime.supported-platform": [
-    "hosted-proof-not-run",
-    "platform-not-selected",
-    "host-unavailable",
-    "not-applicable",
-  ],
-  "release.identity.published": ["hosted-proof-not-run", "host-unavailable", "not-applicable"],
-  "workflow.called-revision": ["hosted-proof-not-run", "host-unavailable", "not-applicable"],
-  "canary.hosted-qualified": [
-    "hosted-proof-not-run",
-    "protected-authority-unavailable",
-    "host-unavailable",
-    "not-applicable",
-  ],
-  "harness.claude.fresh-native": ["fresh-native-proof-not-run", "host-unavailable", "not-applicable"],
-  "harness.codex.fresh-native": ["fresh-native-proof-not-run", "host-unavailable", "not-applicable"],
-}
-const proofLayerSatisfaction: ProofLayerSatisfaction = {
-  "in-process": ["in-process"],
-  "public-process": ["in-process", "public-process"],
-  "clean-fixture": ["in-process", "public-process", "clean-fixture"],
-  hosted: ["in-process", "public-process", "clean-fixture", "hosted"],
-  "fresh-native": ["in-process", "public-process", "clean-fixture", "fresh-native"],
-}
 
 function assertNever(value: never): never {
   throw new Error(`qualification-evidence: unhandled variant ${String(value)}`)
@@ -118,10 +89,6 @@ function payloadDigestDisagrees(
   return previous !== undefined && current !== undefined && previous !== current
 }
 
-function proofLayerSatisfies(actual: ProofLayer, required: ProofLayer): boolean {
-  return proofLayerSatisfaction[actual].some((layer) => layer === required)
-}
-
 const lineagePresence: Record<LineageMember, (cell: NonSkipEvidenceCell) => boolean> = {
   source: () => true,
   release: (cell) => cell.lineage.release !== undefined,
@@ -179,16 +146,7 @@ function findOutOfProfileCell(cells: readonly EvidenceCell[], profile: Verificat
 }
 
 function isAllowedSkip(profile: VerificationProfile, cell: Extract<EvidenceCell, { unknownKind: "skip" }>): boolean {
-  const requirement = profile.requirements.find(({ claim }) => claim === cell.claim)
-  if (requirement === undefined) return false
-
-  if (profile.id === "personal") {
-    return personalSkipClaims.has(cell.claim) && cell.skipRationale === "fresh-native-proof-not-run"
-  }
-
-  const allowedRationales = publicSkipRationalesByClaim[cell.claim]
-  return (requirement.requiredProofLayer === "hosted" || requirement.requiredProofLayer === "fresh-native") &&
-    allowedRationales?.includes(cell.skipRationale) === true
+  return isAllowedSkipRationale(profile, cell.claim, cell.skipRationale)
 }
 
 function findInvalidSkip(cells: readonly EvidenceCell[], profile: VerificationProfile): EvidenceCell | null {

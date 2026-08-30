@@ -45,6 +45,21 @@ function refusedFixture(): QualificationRefusal {
   return outcome.refusal
 }
 
+function replaceReducedClaim(
+  result: QualificationResult,
+  replacement: QualificationResult["claims"][number],
+): QualificationResult {
+  return {
+    ...result,
+    claims: result.claims.map((claim) => claim.claim === replacement.claim ? replacement : claim),
+  }
+}
+
+function expectInvalidQualificationResult(value: QualificationResult): void {
+  expect(parseQualificationResult(value)).toBeUndefined()
+  expect(() => serializeQualificationResult(value)).toThrow("qualification-evidence: invalid serialized value")
+}
+
 test("declared and inferred values make exact JSON round trips", () => {
   const cell = observedCell()
   const profile = personalProfile
@@ -324,6 +339,12 @@ test("reduced and refused outcomes preserve counts, skip distinction, and never 
 
 test("serialized egress is allowlisted, preserves bounded evidence, and fails closed", () => {
   const result = reducedFixture()
+  const admittedClaim = result.claims[0]
+  const claudeClaim = result.claims.find(({ claim }) => claim === "harness.claude.fresh-native")
+  if (admittedClaim?.status !== "proved") throw new Error("expected admitted proved claim")
+  if (claudeClaim?.status !== "unknown" || claudeClaim.unknownKind !== "skip") {
+    throw new Error("expected Claude skip claim")
+  }
   const refusal = refusedFixture()
   const reducedSerialized = serializeQualificationResult(result)
   const refusalSerialized = serializeQualificationRefusal(refusal)
@@ -359,6 +380,49 @@ test("serialized egress is allowlisted, preserves bounded evidence, and fails cl
       },
     },
   } as QualificationResult)).toThrow("qualification-evidence: invalid serialized value")
+
+  const insufficientProvedLayer = replaceReducedClaim(result, {
+    ...admittedClaim,
+    actualProofLayer: "in-process",
+  })
+  expectInvalidQualificationResult(insufficientProvedLayer)
+
+  const incomparableProvedLayer = replaceReducedClaim(result, {
+    claim: claudeClaim.claim,
+    nonClaims: claudeClaim.nonClaims,
+    receiptDigests: claudeClaim.receiptDigests,
+    evidenceCellIds: claudeClaim.evidenceCellIds,
+    status: "proved",
+    actualProofLayer: "hosted",
+    observationKind: "observed",
+    skipRationale: null,
+  })
+  expectInvalidQualificationResult({
+    ...incomparableProvedLayer,
+    counts: { selected: 8, covered: 7, skipped: 1, proved: 7, notProved: 0, unknown: 0 },
+  })
+
+  const nonSkippableClaim = replaceReducedClaim(result, {
+    claim: admittedClaim.claim,
+    nonClaims: admittedClaim.nonClaims,
+    receiptDigests: admittedClaim.receiptDigests,
+    evidenceCellIds: admittedClaim.evidenceCellIds,
+    status: "unknown",
+    unknownKind: "skip",
+    actualProofLayer: null,
+    observationKind: null,
+    skipRationale: "fresh-native-proof-not-run",
+  })
+  expectInvalidQualificationResult({
+    ...nonSkippableClaim,
+    counts: { selected: 8, covered: 5, skipped: 3, proved: 5, notProved: 0, unknown: 0 },
+  })
+
+  const inapplicableSkipRationale = replaceReducedClaim(result, {
+    ...claudeClaim,
+    skipRationale: "hosted-proof-not-run",
+  })
+  expectInvalidQualificationResult(inapplicableSkipRationale)
 
   const duplicateEvidenceCellId = {
     ...result,

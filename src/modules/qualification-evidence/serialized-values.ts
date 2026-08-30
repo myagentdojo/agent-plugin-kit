@@ -18,8 +18,13 @@ import type {
 } from "./interface"
 
 type EvidenceCellId = EvidenceCell["id"]
+type ProofLayer = VerificationProfile["requirements"][number]["requiredProofLayer"]
+type ProofLayerSatisfaction = Readonly<Record<ProofLayer, readonly ProofLayer[]>>
+type ReducedClaim = QualificationResult["claims"][number]
 type Sha256Digest = EvidenceCell["lineage"]["candidateIdentitySha256"]
+type SkipRationale = Extract<EvidenceCell, { unknownKind: "skip" }>["skipRationale"]
 type VerificationClaim = EvidenceCell["claim"]
+type VerificationRequirement = VerificationProfile["requirements"][number]
 
 const claims = [
   "kit.identity.admitted",
@@ -44,6 +49,36 @@ const skipRationales = [
   "host-unavailable",
   "not-applicable",
 ] as const
+const personalSkipClaims = new Set<VerificationClaim>([
+  "harness.claude.fresh-native",
+  "harness.codex.fresh-native",
+])
+const publicSkipRationalesByClaim: Partial<Record<VerificationClaim, readonly SkipRationale[]>> = {
+  "plugin-payload.installed": ["hosted-proof-not-run", "host-unavailable", "not-applicable"],
+  "runtime.supported-platform": [
+    "hosted-proof-not-run",
+    "platform-not-selected",
+    "host-unavailable",
+    "not-applicable",
+  ],
+  "release.identity.published": ["hosted-proof-not-run", "host-unavailable", "not-applicable"],
+  "workflow.called-revision": ["hosted-proof-not-run", "host-unavailable", "not-applicable"],
+  "canary.hosted-qualified": [
+    "hosted-proof-not-run",
+    "protected-authority-unavailable",
+    "host-unavailable",
+    "not-applicable",
+  ],
+  "harness.claude.fresh-native": ["fresh-native-proof-not-run", "host-unavailable", "not-applicable"],
+  "harness.codex.fresh-native": ["fresh-native-proof-not-run", "host-unavailable", "not-applicable"],
+}
+const proofLayerSatisfaction: ProofLayerSatisfaction = {
+  "in-process": ["in-process"],
+  "public-process": ["in-process", "public-process"],
+  "clean-fixture": ["in-process", "public-process", "clean-fixture"],
+  hosted: ["in-process", "public-process", "clean-fixture", "hosted"],
+  "fresh-native": ["in-process", "public-process", "clean-fixture", "fresh-native"],
+}
 const lineageMembers = [
   "source",
   "release",
@@ -308,6 +343,28 @@ function assertNever(value: never): never {
   throw new Error(`qualification-evidence: unhandled serialized variant ${String(value)}`)
 }
 
+export function proofLayerSatisfies(
+  actual: VerificationProfile["requirements"][number]["requiredProofLayer"],
+  required: VerificationProfile["requirements"][number]["requiredProofLayer"],
+): boolean {
+  return proofLayerSatisfaction[actual].some((layer) => layer === required)
+}
+
+export function isAllowedSkipRationale(
+  profile: VerificationProfile,
+  claim: EvidenceCell["claim"],
+  rationale: Extract<EvidenceCell, { unknownKind: "skip" }>["skipRationale"],
+): boolean {
+  const requirement = profile.requirements.find((candidate) => candidate.claim === claim)
+  if (requirement === undefined) return false
+  if (profile.id === "personal") {
+    return personalSkipClaims.has(claim) && rationale === "fresh-native-proof-not-run"
+  }
+  const allowedRationales = publicSkipRationalesByClaim[claim]
+  return (requirement.requiredProofLayer === "hosted" || requirement.requiredProofLayer === "fresh-native") &&
+    allowedRationales?.includes(rationale) === true
+}
+
 function appendFirstOccurrence<T>(target: T[], values: readonly T[]): void {
   for (const value of values) if (!target.includes(value)) target.push(value)
 }
@@ -351,6 +408,48 @@ function hasCanonicalResultClaims(result: QualificationResult): boolean {
   return result.claims.length === profile.requirements.length && result.claims.every((claim, index) =>
     claim.claim === profile.requirements[index]?.claim
   )
+}
+
+function isSemanticallyValidReducedClaim(
+  profile: VerificationProfile,
+  requirement: VerificationRequirement,
+  claim: ReducedClaim,
+): boolean {
+  switch (claim.status) {
+    case "proved":
+      return proofLayerSatisfies(claim.actualProofLayer, requirement.requiredProofLayer)
+    case "not-proved": {
+      const observationKind = claim.observationKind
+      switch (observationKind) {
+        case "observed":
+          return !proofLayerSatisfies(claim.actualProofLayer, requirement.requiredProofLayer)
+        case "failure":
+        case "proved-absence":
+          return true
+        default:
+          return assertNever(observationKind)
+      }
+    }
+    case "unknown":
+      switch (claim.unknownKind) {
+        case "observation":
+          return true
+        case "skip":
+          return isAllowedSkipRationale(profile, claim.claim, claim.skipRationale)
+        default:
+          return assertNever(claim)
+      }
+    default:
+      return assertNever(claim)
+  }
+}
+
+function hasSemanticallyValidResultClaims(result: QualificationResult): boolean {
+  const profile = verificationProfiles[result.profileId]
+  return result.claims.every((claim, index) => {
+    const requirement = profile.requirements[index]
+    return requirement !== undefined && isSemanticallyValidReducedClaim(profile, requirement, claim)
+  })
 }
 
 function hasConsistentResultCounts(result: QualificationResult): boolean {
@@ -404,6 +503,7 @@ function hasCanonicalResultAggregates(result: QualificationResult): boolean {
 
 function isSemanticallyValidQualificationResult(result: QualificationResult): boolean {
   return hasCanonicalResultClaims(result) &&
+    hasSemanticallyValidResultClaims(result) &&
     hasConsistentResultCounts(result) &&
     hasCanonicalClaimMetadata(result) &&
     hasCanonicalResultAggregates(result)
