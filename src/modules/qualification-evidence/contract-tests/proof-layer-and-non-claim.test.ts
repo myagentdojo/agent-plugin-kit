@@ -112,7 +112,16 @@ function unsafeCandidateIdentities(): readonly CandidateIdentity[] {
       ...candidate,
       release: { ...candidate.release, reference: "r".repeat(513) },
     },
-    ...[".hidden", "refs/tags/.hidden", "refs/tags/release.lock", "refs/tags/v1."].map((reference) => ({
+    ...[
+      ".hidden",
+      "refs/tags/.hidden",
+      "refs/tags/release.lock",
+      "refs/tags/v1.",
+      "-",
+      "--help",
+      "--upload-pack",
+      "-/release",
+    ].map((reference) => ({
       ...candidate,
       release: { ...candidate.release, reference },
     })),
@@ -219,6 +228,7 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
     "https://203.0.113.10/myagentdojo/example-plugin.git",
     "https://[::1]/myagentdojo/example-plugin.git",
     "https://[::ffff:c0a8:104]/myagentdojo/example-plugin.git",
+    "https://[64:ff9b:1::a00:1]/repo.git",
     "https://example.com/myagentdojo/example-plugin.git",
     "https://subdomain.example.com/myagentdojo/example-plugin.git",
     "https://private.private/myagentdojo/example-plugin.git",
