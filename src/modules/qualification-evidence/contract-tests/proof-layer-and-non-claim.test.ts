@@ -91,6 +91,8 @@ test("ingress accepts all seven Evidence Cell forms and both exact profiles", ()
 
 test("strict ingress rejects mismatches, unknown fields, versions, coercion, defaults, undefined, and raw detail", () => {
   const cell = observedCell()
+  const invalidProfileVersion = { ...personalProfile, schemaVersion: 2 }
+  const invalidProfileOrder = { ...personalProfile, requirements: [...personalProfile.requirements].reverse() }
   const invalidValues: readonly unknown[] = [
     { ...cell, assertedStatus: "proved", observable: { kind: "failure", code: "BAD_STATUS" } },
     { ...cell, assertedStatus: "proved", actualProofLayer: null },
@@ -101,6 +103,7 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
     { ...cell, receipt: undefined },
     { ...cell, raw: { secret: "private" } },
     { ...skipCell("kit.identity.admitted"), observable: { kind: "observed", code: "BAD_SKIP" } },
+    { ...skipCell("harness.claude.fresh-native"), skipRationale: "unsupported-rationale" },
     {
       ...cell,
       candidate: {
@@ -108,8 +111,8 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
         release: { ...cell.candidate.release, commit: "2222222222222222222222222222222222222222" },
       },
     },
-    { ...personalProfile, schemaVersion: 2 },
-    { ...personalProfile, requirements: [...personalProfile.requirements].reverse() },
+    invalidProfileVersion,
+    invalidProfileOrder,
   ]
 
   for (const value of invalidValues) {
@@ -162,8 +165,8 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
       },
     })).toBeDefined()
   }
-  expect(parseVerificationProfile(invalidValues[10])).toBeUndefined()
-  expect(parseVerificationProfile(invalidValues[11])).toBeUndefined()
+  expect(parseVerificationProfile(invalidProfileVersion)).toBeUndefined()
+  expect(parseVerificationProfile(invalidProfileOrder)).toBeUndefined()
   expect(() => serializeEvidenceCell(invalidValues[7] as EvidenceCell)).toThrow(
     /^qualification-evidence: invalid serialized value$/,
   )
@@ -228,6 +231,48 @@ test("profiles retain exact order and lineage while Proof Layer satisfaction is 
     expect(freshAsHostedOutcome.result.claims.find(({ claim }) => claim === "plugin-payload.installed")).toMatchObject({
       status: "not-proved",
       actualProofLayer: "fresh-native",
+    })
+  }
+
+  const lowerCannotPromote = personalEvidenceCells().map((cell) =>
+    cell.claim === "kit.identity.admitted"
+      ? observedCell({ id: "cell:public-process-as-clean-fixture", actualProofLayer: "public-process" })
+      : cell,
+  )
+  const lowerCannotPromoteOutcome = qualificationEvidence.reduce({
+    candidate,
+    profile: personalProfile,
+    cells: lowerCannotPromote,
+  })
+  expect(lowerCannotPromoteOutcome.status).toBe("reduced")
+  if (lowerCannotPromoteOutcome.status === "reduced") {
+    expect(lowerCannotPromoteOutcome.result.claims[0]).toMatchObject({
+      status: "not-proved",
+      actualProofLayer: "public-process",
+    })
+  }
+
+  const higherSatisfiesLower = personalEvidenceCells().map((cell) =>
+    cell.claim === "runtime.supported-platform"
+      ? observedCell({
+          id: "cell:clean-fixture-as-public-process",
+          claim: cell.claim,
+          actualProofLayer: "clean-fixture",
+        })
+      : cell,
+  )
+  const higherSatisfiesLowerOutcome = qualificationEvidence.reduce({
+    candidate,
+    profile: personalProfile,
+    cells: higherSatisfiesLower,
+  })
+  expect(higherSatisfiesLowerOutcome.status).toBe("reduced")
+  if (higherSatisfiesLowerOutcome.status === "reduced") {
+    expect(higherSatisfiesLowerOutcome.result.claims.find(({ claim }) =>
+      claim === "runtime.supported-platform"
+    )).toMatchObject({
+      status: "proved",
+      actualProofLayer: "clean-fixture",
     })
   }
 })

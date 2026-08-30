@@ -410,7 +410,14 @@ function isSemanticallyValidQualificationResult(result: QualificationResult): bo
 }
 
 function isSemanticallyValidQualificationOutcome(outcome: QualificationOutcome): boolean {
-  return outcome.status !== "reduced" || isSemanticallyValidQualificationResult(outcome.result)
+  switch (outcome.status) {
+    case "reduced":
+      return isSemanticallyValidQualificationResult(outcome.result)
+    case "refused":
+      return true
+    default:
+      return assertNever(outcome)
+  }
 }
 
 export function parseEvidenceCell(value: unknown): EvidenceCell | undefined {

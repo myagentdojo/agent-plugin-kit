@@ -118,12 +118,8 @@ function payloadDigestDisagrees(
   return previous !== undefined && current !== undefined && previous !== current
 }
 
-function sameProofLayer(actual: ProofLayer, required: ProofLayer): boolean {
+function proofLayerSatisfies(actual: ProofLayer, required: ProofLayer): boolean {
   return proofLayerSatisfaction[actual].some((layer) => layer === required)
-}
-
-function layerCanResolve(resolver: ProofLayer, earlier: ProofLayer): boolean {
-  return sameProofLayer(resolver, earlier)
 }
 
 const lineagePresence: Record<LineageMember, (cell: NonSkipEvidenceCell) => boolean> = {
@@ -151,7 +147,7 @@ function isNonSkip(cell: EvidenceCell): cell is NonSkipEvidenceCell {
 
 function cellIsQualified(cell: NonSkipEvidenceCell, requirement: VerificationRequirement): boolean {
   return cell.assertedStatus === "proved" &&
-    sameProofLayer(cell.actualProofLayer, requirement.requiredProofLayer) &&
+    proofLayerSatisfies(cell.actualProofLayer, requirement.requiredProofLayer) &&
     hasRequiredLineage(cell, requirement)
 }
 
@@ -250,7 +246,7 @@ function resolverIsUnqualified(
   if (requirement === undefined || !isNonSkip(cell) || !cellIsQualified(cell, requirement)) return true
   return cell.resolves.some((targetId) => {
     const target = byId.get(targetId)
-    return target !== undefined && isNonSkip(target) && !layerCanResolve(cell.actualProofLayer, target.actualProofLayer)
+    return target !== undefined && isNonSkip(target) && !proofLayerSatisfies(cell.actualProofLayer, target.actualProofLayer)
   })
 }
 

@@ -225,8 +225,11 @@ test("Candidate Lineage, installed payload, and receipt disagreement are refused
     ...candidate,
     release: { ...candidate.release, reference: "refs/tags/cafe\u0301" },
   }
+  const normalizedDigestOracle =
+    "sha256:080eeb9cbba64ece1e0b2123e626a5ae98b4320fe265bdd928b431426a90f54f" as const
   const composedDigest = canonicalCandidateIdentityDigest(composedCandidate)
-  expect(composedDigest).toBe(canonicalCandidateIdentityDigest(decomposedCandidate))
+  expect(composedDigest).toBe(normalizedDigestOracle)
+  expect(canonicalCandidateIdentityDigest(decomposedCandidate)).toBe(normalizedDigestOracle)
   expectRefusal(
     qualificationEvidence.reduce({
       candidate: composedCandidate,
