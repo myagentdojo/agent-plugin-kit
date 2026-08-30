@@ -7,7 +7,260 @@
   "audit": {
     "gate": "new-only"
   },
+  "boundaries": {
+    "zones": [
+      {
+        "name": "source-tree-interface",
+        "patterns": ["src/interface.ts"]
+      },
+      {
+        "name": "admission-bootstrap",
+        "patterns": ["src/admission-bootstrap/interface.ts"]
+      },
+      {
+        "name": "admission-bootstrap-implementation",
+        "patterns": ["src/admission-bootstrap/implementation/**/*.ts"]
+      },
+      {
+        "name": "admission-bootstrap-contract-tests",
+        "patterns": ["src/admission-bootstrap/contract-tests/**/*.ts"]
+      },
+      {
+        "name": "deep-module-contract-tests/maintenance-command-contract",
+        "patterns": ["src/modules/maintenance-command-contract/contract-tests/**/*.ts"]
+      },
+      {
+        "name": "deep-module-contract-tests/qualification-evidence",
+        "patterns": ["src/modules/qualification-evidence/contract-tests/**/*.ts"]
+      },
+      {
+        "name": "maintenance-command-facade-contract-tests",
+        "patterns": ["src/adapters/maintenance-command-facade/contract-tests/**/*.ts"]
+      },
+      {
+        "name": "deep-modules/canary-qualification",
+        "patterns": ["src/modules/canary-qualification/interface.ts"]
+      },
+      {
+        "name": "deep-modules/harness-journeys",
+        "patterns": ["src/modules/harness-journeys/interface.ts"]
+      },
+      {
+        "name": "deep-modules/maintenance-command-contract",
+        "patterns": ["src/modules/maintenance-command-contract/interface.ts"]
+      },
+      {
+        "name": "deep-modules/plugin-payload-production",
+        "patterns": ["src/modules/plugin-payload-production/interface.ts"]
+      },
+      {
+        "name": "deep-modules/qualification-evidence",
+        "patterns": ["src/modules/qualification-evidence/interface.ts"]
+      },
+      {
+        "name": "deep-modules/release-and-git-engine",
+        "patterns": ["src/modules/release-and-git-engine/interface.ts"]
+      },
+      {
+        "name": "deep-modules/runtime-custody",
+        "patterns": ["src/modules/runtime-custody/interface.ts"]
+      },
+      {
+        "name": "deep-module-private/maintenance-command-contract",
+        "patterns": ["src/modules/maintenance-command-contract/**/*.ts"]
+      },
+      {
+        "name": "deep-module-private/qualification-evidence",
+        "patterns": ["src/modules/qualification-evidence/**/*.ts"]
+      },
+      {
+        "name": "deep-module-private/release-and-git-engine",
+        "patterns": ["src/modules/release-and-git-engine/**/*.ts"]
+      },
+      {
+        "name": "source-tree-adapters/maintenance-command-facade",
+        "patterns": [
+          "src/adapters/maintenance-command-facade/interface.ts",
+          "src/adapters/maintenance-command-facade/maintenance.ts"
+        ]
+      },
+      {
+        "name": "source-tree-adapters/reusable-workflow-adapter",
+        "patterns": ["src/adapters/reusable-workflow-adapter/interface.ts"]
+      },
+      {
+        "name": "clean-fixture",
+        "patterns": ["clean-fixture/**/*.ts"]
+      },
+      {
+        "name": "repository-quality-tooling",
+        "patterns": ["tooling/repository-quality/**/*.ts"]
+      }
+    ],
+    "rules": [
+      {
+        "from": "source-tree-interface",
+        "allowTypeOnly": [
+          "admission-bootstrap",
+          "deep-modules/maintenance-command-contract",
+          "deep-modules/qualification-evidence",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "admission-bootstrap",
+        "allowTypeOnly": ["deep-modules/release-and-git-engine"]
+      },
+      {
+        "from": "admission-bootstrap-implementation",
+        "allowTypeOnly": [
+          "admission-bootstrap",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "admission-bootstrap-contract-tests",
+        "allow": [
+          "admission-bootstrap",
+          "admission-bootstrap-implementation",
+          "clean-fixture"
+        ],
+        "allowTypeOnly": ["deep-modules/release-and-git-engine"]
+      },
+      {
+        "from": "deep-module-contract-tests/maintenance-command-contract",
+        "allow": ["deep-module-private/maintenance-command-contract"],
+        "allowTypeOnly": [
+          "deep-modules/maintenance-command-contract",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "deep-module-contract-tests/qualification-evidence",
+        "allow": [
+          "deep-modules/qualification-evidence",
+          "deep-module-private/qualification-evidence",
+          "deep-module-private/release-and-git-engine"
+        ],
+        "allowTypeOnly": [
+          "deep-modules/qualification-evidence",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "maintenance-command-facade-contract-tests",
+        "allow": [
+          "deep-module-contract-tests/maintenance-command-contract",
+          "deep-module-private/maintenance-command-contract",
+          "source-tree-adapters/maintenance-command-facade"
+        ],
+        "allowTypeOnly": [
+          "deep-modules/maintenance-command-contract",
+          "source-tree-adapters/maintenance-command-facade"
+        ]
+      },
+      {
+        "from": "deep-modules/canary-qualification",
+        "allowTypeOnly": ["deep-modules/release-and-git-engine"]
+      },
+      {
+        "from": "deep-modules/harness-journeys",
+        "allowTypeOnly": [
+          "deep-modules/plugin-payload-production",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "deep-modules/maintenance-command-contract",
+        "allowTypeOnly": [
+          "deep-modules/canary-qualification",
+          "deep-modules/harness-journeys",
+          "deep-modules/plugin-payload-production",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "deep-modules/plugin-payload-production",
+        "allowTypeOnly": ["deep-modules/release-and-git-engine"]
+      },
+      {
+        "from": "deep-modules/qualification-evidence",
+        "allowTypeOnly": ["deep-modules/release-and-git-engine"]
+      },
+      {
+        "from": "deep-modules/release-and-git-engine"
+      },
+      {
+        "from": "deep-modules/runtime-custody"
+      },
+      {
+        "from": "deep-module-private/maintenance-command-contract",
+        "allowTypeOnly": [
+          "deep-modules/maintenance-command-contract",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "deep-module-private/qualification-evidence",
+        "allow": [
+          "deep-modules/qualification-evidence",
+          "deep-module-private/release-and-git-engine"
+        ],
+        "allowTypeOnly": [
+          "deep-modules/qualification-evidence",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "deep-module-private/release-and-git-engine",
+        "allowTypeOnly": ["deep-modules/release-and-git-engine"]
+      },
+      {
+        "from": "source-tree-adapters/maintenance-command-facade",
+        "allowTypeOnly": ["deep-modules/maintenance-command-contract"]
+      },
+      {
+        "from": "source-tree-adapters/reusable-workflow-adapter",
+        "allowTypeOnly": [
+          "deep-modules/maintenance-command-contract",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "clean-fixture",
+        "allow": [
+          "source-tree-interface",
+          "admission-bootstrap",
+          "admission-bootstrap-implementation",
+          "admission-bootstrap-contract-tests",
+          "deep-module-contract-tests/maintenance-command-contract",
+          "deep-module-contract-tests/qualification-evidence",
+          "maintenance-command-facade-contract-tests",
+          "deep-modules/canary-qualification",
+          "deep-modules/harness-journeys",
+          "deep-modules/maintenance-command-contract",
+          "deep-modules/plugin-payload-production",
+          "deep-modules/qualification-evidence",
+          "deep-modules/release-and-git-engine",
+          "deep-modules/runtime-custody",
+          "deep-module-private/maintenance-command-contract",
+          "deep-module-private/qualification-evidence",
+          "deep-module-private/release-and-git-engine",
+          "source-tree-adapters/maintenance-command-facade",
+          "source-tree-adapters/reusable-workflow-adapter"
+        ]
+      },
+      {
+        "from": "repository-quality-tooling"
+      }
+    ],
+    "coverage": {
+      "requireAllFiles": true,
+      "allowUnmatched": []
+    }
+  },
   "rules": {
+    "boundary-violation": "error",
     "css-broken-reference": "error",
     "css-dead-surface": "error",
     "css-duplicate-block": "error",
@@ -21,6 +274,7 @@
     "policy-violation": "error",
     "private-type-leaks": "error",
     "re-export-cycle": "error",
+    "require-suppression-reason": "error",
     "stale-suppressions": "error",
     "test-only-dependencies": "error",
     "type-only-dependencies": "error",

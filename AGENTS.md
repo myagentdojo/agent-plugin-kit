@@ -70,6 +70,11 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   `bun run --silent quality:fallow --changed-since HEAD` after a dirty
   code-changing turn. For comparison-base policy, JSON interpretation, editor
   resolution, or repair, read `docs/agents/fallow.md`.
+- Architecture edges: run `node_modules/.bin/fallow guard <FILE> --format json
+  --quiet` before adding or widening a TypeScript import. Read
+  `docs/agents/fallow.md` for zone and suppression policy.
+- Local static policy: read `docs/agents/biome.md` before changing
+  `biome.jsonc`, its pinned canary, or a Biome refusal.
 - Focused quality Contract Tests: run `bun run test:quality:repository`.
 - Repository Verification: run `bun run verify:repository` for the current
   cross-owner and filesystem decision.
@@ -116,8 +121,9 @@ questions and lazy future context promotion. See `docs/agents/domain.md`.
 
 ### Repository quality
 
-Repository Quality Tooling configures native changed-code Fallow, comparison
-bases, and repair guidance. See `docs/agents/fallow.md`.
+Repository Quality Tooling configures native Biome and Fallow policy. See
+`docs/agents/biome.md` for local rules and `docs/agents/fallow.md` for
+architecture edges, changed-code comparison, and repair.
 
 ### Repository Verification
 

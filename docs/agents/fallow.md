@@ -53,6 +53,41 @@ makes the native exit the gate without a wrapper. Focused pinned-version tests
 prove a promoted finding, unavailable type-aware evidence, and invalid-base
 exit two.
 
+## Architecture policy
+
+Before changing a TypeScript import edge, inspect the rule that applies:
+
+```sh
+node_modules/.bin/fallow guard <FILE> --format json --quiet
+```
+
+Inspect the resolved first-match zone order with:
+
+```sh
+node_modules/.bin/fallow list --boundaries --format json --quiet
+```
+
+`.fallowrc.json` owns the zone graph, type-only edges, complete reachable-source
+coverage, and suppression hygiene. Keep an approved value dependency explicit.
+Use a type-only import when runtime access is not required, and target the
+other Module's Interface rather than its private files. The one accepted
+Qualification Evidence value edge reaches Release and Git Engine's private
+serialized-value surface through narrow private zones. Module Interfaces,
+private production, Module Contract Tests, Adapter production, and Adapter
+Contract Tests are explicit first-match lanes, so test access cannot authorize
+production and a future private file cannot inherit a public Interface zone.
+Admission's Interface, Implementation, and Contract Tests are separated for
+the same reason; only its Contract Tests may reach Clean Fixture. Do not add
+directory-wide auto-discovery. A new owner or source shape must remain unzoned
+until its policy is deliberately accepted. Every inline suppression carries
+`-- <reason>`; a missing reason or stale suppression is a native refusal.
+
+Run the focused architecture canary after changing imports or Fallow policy:
+
+```sh
+bun run test:quality:fallow-policy
+```
+
 ## Comparison bases
 
 - Complete gate: leave the CLI base unset so `FALLOW_AUDIT_BASE` or native
@@ -85,4 +120,5 @@ excludes these caches from source discovery before inspecting metadata.
 Repair only the reported finding. Do not weaken a Contract Test, add a broad
 ignore, or turn the repository into a suppression baseline. TypeScript remains
 authoritative for compilation; Fallow type-aware completeness is quality
-evidence only.
+evidence only. An unzoned reachable source file, unapproved cross-zone edge,
+missing suppression reason, or stale suppression fails the complete gate.

@@ -28,7 +28,7 @@ export const candidateDigest =
 export const personalProfile = {
   schemaVersion: 1,
   id: "personal",
-  // fallow-ignore-next-line code-duplication
+// fallow-ignore-next-line code-duplication -- independent oracle must remain literal
   requirements: [
     { claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "release", "package", "workflow"] },
     { claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
@@ -45,7 +45,7 @@ export const personalProfile = {
 export const publicProfile = {
   schemaVersion: 1,
   id: "public",
-  // fallow-ignore-next-line code-duplication
+// fallow-ignore-next-line code-duplication -- independent oracle must remain literal
   requirements: [
     { claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "release", "package", "workflow"] },
     { claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
