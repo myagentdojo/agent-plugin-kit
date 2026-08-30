@@ -43,8 +43,7 @@ const reservedHostnames = new Set([
 const privateIpv4Pattern = /^(?:(?:0|10|127)\.|100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|169\.254\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|192\.0\.0\.|192\.0\.2\.|192\.168\.|198\.(?:18|19|51)\.|203\.0\.113\.|(?:22[4-9]|23[0-9]|24[0-9]|25[0-5])\.)/
 const privateIpv6Pattern = /^(?:::|f[cd]|fe[89a-f]|ff|100::|2001:(?:2|10|20|db8):|3fff:)/
 const privateCheckoutPathPattern = /(?:^|\/)(?:users?|home|private|tmp|var|volumes?|mnt|workspaces?)(?:\/|$)|(?:^|\/)\p{L}:\//iu
-const originAuthorityPattern = /^https?:\/\/([^\/?#]*)/i
-const originHostnamePattern = /^https?:\/\/(\[[^\]]+\]|[^\/:?#]+)(?::[0-9]+)?(?:[\/?#]|$)/i
+const originComponentsPattern = /^(https?):\/\/([^\/?#]*)(\/[^?#]*)?$/i
 const maxPathDecodeDepth = 8
 
 function normalizedHostname(hostname: string): string {
@@ -85,15 +84,22 @@ function isBareRepositoryOrigin(url: URL): boolean {
   return url.username === "" && url.password === "" && url.port === "" && url.search === "" && url.hash === ""
 }
 
-function hasCanonicalHostname(value: string): boolean {
-  const hostname = originHostnamePattern.exec(value)?.[1]
-  return hostname !== undefined && hostname === hostname.toLowerCase() && !hostname.endsWith(".")
+function canonicalPathSpelling(pathname: string): string {
+  return pathname.replace(/%([0-9a-f]{2})/gi, (match, encoded: string) => {
+    const character = String.fromCharCode(Number.parseInt(encoded, 16))
+    return /^[A-Za-z0-9._~-]$/.test(character) ? character : match.toUpperCase()
+  })
 }
 
-function hasExplicitPort(value: string): boolean {
-  const authority = originAuthorityPattern.exec(value)?.[1]
-  const hostname = originHostnamePattern.exec(value)?.[1]
-  return authority !== undefined && hostname !== undefined && authority.slice(hostname.length).startsWith(":")
+function hasCanonicalOriginSpelling(value: string, url: URL): boolean {
+  const components = originComponentsPattern.exec(value)
+  if (components === null) return false
+  const rawPath = components[3] ?? ""
+  const canonicalPath = canonicalPathSpelling(url.pathname)
+  return components[1] === url.protocol.slice(0, -1) &&
+    components[2] === url.host &&
+    !url.hostname.endsWith(".") &&
+    (rawPath === "" ? canonicalPath === "/" : rawPath === canonicalPath)
 }
 
 function hasPrivateCheckoutPath(pathname: string): boolean {
@@ -117,8 +123,7 @@ function isPublicRepositoryOrigin(value: string): boolean {
     return [
       isHttpUrl(url),
       isBareRepositoryOrigin(url),
-      hasCanonicalHostname(value),
-      !hasExplicitPort(value),
+      hasCanonicalOriginSpelling(value, url),
       url.hostname.length > 0,
       !isPrivateRepositoryHost(url.hostname),
       !hasPrivateCheckoutPath(url.pathname),

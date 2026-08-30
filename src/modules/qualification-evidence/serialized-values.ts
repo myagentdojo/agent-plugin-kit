@@ -9,15 +9,16 @@ import {
   workflowIdentitySchema,
 } from "../release-and-git-engine/serialized-values"
 import type {
-  EvidenceCellId,
   EvidenceCell,
   QualificationOutcome,
   QualificationRefusal,
   QualificationResult,
-  Sha256Digest,
-  VerificationClaim,
   VerificationProfile,
 } from "./interface"
+
+type EvidenceCellId = EvidenceCell["id"]
+type Sha256Digest = EvidenceCell["lineage"]["candidateIdentitySha256"]
+type VerificationClaim = EvidenceCell["claim"]
 
 const claims = [
   "kit.identity.admitted",
@@ -71,7 +72,7 @@ const digestSchema = z.custom<Sha256Digest>(
   (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value),
 )
 const cellIdPattern = /^cell:[a-z][a-z0-9-]{0,63}$/
-export function isEvidenceCellId(value: unknown): value is EvidenceCellId {
+export function isEvidenceCellId(value: unknown): value is EvidenceCell["id"] {
   return typeof value === "string" && cellIdPattern.test(value)
 }
 const cellIdSchema = z.custom<EvidenceCellId>(isEvidenceCellId)
@@ -304,6 +305,10 @@ function isExactProfile(profile: VerificationProfile): boolean {
 
 type ResultStatusCounts = Pick<QualificationResult["counts"], "skipped" | "proved" | "notProved" | "unknown">
 
+function assertNever(value: never): never {
+  throw new Error(`qualification-evidence: unhandled serialized variant ${String(value)}`)
+}
+
 function appendFirstOccurrence<T>(target: T[], values: readonly T[]): void {
   for (const value of values) if (!target.includes(value)) target.push(value)
 }
@@ -321,12 +326,22 @@ function resultStatusCounts(result: QualificationResult): ResultStatusCounts {
       case "not-proved":
         notProved += 1
         break
-      case "unknown":
-        if (claim.unknownKind === "skip") skipped += 1
-        else unknown += 1
+      case "unknown": {
+        const unknownKind = claim.unknownKind
+        switch (unknownKind) {
+          case "skip":
+            skipped += 1
+            break
+          case "observation":
+            unknown += 1
+            break
+          default:
+            return assertNever(unknownKind)
+        }
         break
+      }
       default:
-        break
+        return assertNever(claim)
     }
   }
   return { skipped, proved, notProved, unknown }
@@ -353,13 +368,24 @@ function hasConsistentResultCounts(result: QualificationResult): boolean {
     counts.unknown === actual.unknown
 }
 
-function hasUniqueEvidenceCellIds(result: QualificationResult): boolean {
-  const seen = new Set<string>()
+function hasCanonicalClaimMetadata(result: QualificationResult): boolean {
+  const seen = new Set<EvidenceCellId>()
   for (const claim of result.claims) {
+    if (claim.evidenceCellIds.length === 0) return false
     for (const evidenceCellId of claim.evidenceCellIds) {
       if (seen.has(evidenceCellId)) return false
       seen.add(evidenceCellId)
     }
+
+    const nonClaims: VerificationClaim[] = []
+    appendFirstOccurrence(nonClaims, claim.nonClaims)
+    if (nonClaims.length !== claim.nonClaims.length ||
+      nonClaims.some((value, index) => value !== claim.nonClaims[index])) return false
+
+    const receiptDigests: Sha256Digest[] = []
+    appendFirstOccurrence(receiptDigests, claim.receiptDigests)
+    if (receiptDigests.length !== claim.receiptDigests.length ||
+      receiptDigests.some((value, index) => value !== claim.receiptDigests[index])) return false
   }
   return true
 }
@@ -380,7 +406,7 @@ function hasCanonicalResultAggregates(result: QualificationResult): boolean {
 function isSemanticallyValidQualificationResult(result: QualificationResult): boolean {
   return hasCanonicalResultClaims(result) &&
     hasConsistentResultCounts(result) &&
-    hasUniqueEvidenceCellIds(result) &&
+    hasCanonicalClaimMetadata(result) &&
     hasCanonicalResultAggregates(result)
 }
 

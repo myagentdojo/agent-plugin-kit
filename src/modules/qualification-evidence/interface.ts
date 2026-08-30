@@ -7,105 +7,29 @@ import type {
   WorkflowIdentity,
 } from "../release-and-git-engine/interface"
 
-/** Evidence Cell identifiers match `^cell:[a-z][a-z0-9-]{0,63}$`. */
-export type EvidenceCellId = `cell:${string}`
-export type Sha256Digest = `sha256:${string}`
-export type CandidateIdentityDigest = Sha256Digest
-
-export type VerificationClaim =
-  | "kit.identity.admitted"
-  | "kit.command.invoked"
-  | "kit.package.full-commit-pin"
-  | "kit.workflow.full-commit-pin"
-  | "plugin-payload.installed"
-  | "runtime.supported-platform"
-  | "release.identity.published"
-  | "workflow.called-revision"
-  | "canary.hosted-qualified"
-  | "harness.claude.fresh-native"
-  | "harness.codex.fresh-native"
-
-export type ProofLayer = "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
-
-export type LineageMember =
-  | "source"
-  | "release"
-  | "package"
-  | "workflow"
-  | "installed-payload"
-  | "hosted-run"
-  | "platform"
-  | "receipt"
-
-export type SkipRationale =
-  | "hosted-proof-not-run"
-  | "fresh-native-proof-not-run"
-  | "protected-authority-unavailable"
-  | "platform-not-selected"
-  | "host-unavailable"
-  | "not-applicable"
-
-/** The fixed partial order used for proof promotion and resolution. */
-export type ProofLayerSatisfaction = {
-  readonly "in-process": readonly ["in-process"]
-  readonly "public-process": readonly ["in-process", "public-process"]
-  readonly "clean-fixture": readonly ["in-process", "public-process", "clean-fixture"]
-  readonly hosted: readonly ["in-process", "public-process", "clean-fixture", "hosted"]
-  readonly "fresh-native": readonly ["in-process", "public-process", "clean-fixture", "fresh-native"]
-}
-
-export type VerificationProfileId = "personal" | "public"
-
-export type VerificationRequirement = {
-  claim: VerificationClaim
-  requiredProofLayer: ProofLayer
-  requiredLineage: readonly LineageMember[]
-}
-
-/**
- * A Personal skip is limited to the two Fresh-Native claims and its one
- * rationale. A Public skip is limited to hosted or Fresh-Native claims and
- * the rationale associated with that claim's unavailable proof.
- */
-export type AllowedQualificationSkip =
-  | {
-      profileId: "personal"
-      claim: "harness.claude.fresh-native" | "harness.codex.fresh-native"
-      skipRationale: "fresh-native-proof-not-run"
-    }
-  | {
-      profileId: "public"
-      claim: "plugin-payload.installed" | "release.identity.published" | "workflow.called-revision"
-      skipRationale: "hosted-proof-not-run" | "host-unavailable" | "not-applicable"
-    }
-  | {
-      profileId: "public"
-      claim: "runtime.supported-platform"
-      skipRationale: "hosted-proof-not-run" | "platform-not-selected" | "host-unavailable" | "not-applicable"
-    }
-  | {
-      profileId: "public"
-      claim: "canary.hosted-qualified"
-      skipRationale: "hosted-proof-not-run" | "protected-authority-unavailable" | "host-unavailable" | "not-applicable"
-    }
-  | {
-      profileId: "public"
-      claim: "harness.claude.fresh-native" | "harness.codex.fresh-native"
-      skipRationale: "fresh-native-proof-not-run" | "host-unavailable" | "not-applicable"
-    }
-
 export type EvidenceCell = {
   schemaVersion: 1
-  id: EvidenceCellId
+  id: `cell:${string}`
   candidate: CandidateIdentity
-  claim: VerificationClaim
+  claim:
+    | "kit.identity.admitted"
+    | "kit.command.invoked"
+    | "kit.package.full-commit-pin"
+    | "kit.workflow.full-commit-pin"
+    | "plugin-payload.installed"
+    | "runtime.supported-platform"
+    | "release.identity.published"
+    | "workflow.called-revision"
+    | "canary.hosted-qualified"
+    | "harness.claude.fresh-native"
+    | "harness.codex.fresh-native"
   lineage: {
-    candidateIdentitySha256: CandidateIdentityDigest
+    candidateIdentitySha256: `sha256:${string}`
     source: SourceIdentity
     release?: ReleaseIdentity
     package?: PackageIdentity
     workflow?: WorkflowIdentity
-    installedPayloadSha256?: Sha256Digest
+    installedPayloadSha256?: `sha256:${string}`
     hostedRun?: {
       provider: "github-actions"
       repository: RepositoryIdentity
@@ -119,7 +43,19 @@ export type EvidenceCell = {
       libc?: "glibc"
     }
   }
-  nonClaims: readonly VerificationClaim[]
+  nonClaims: readonly (
+    | "kit.identity.admitted"
+    | "kit.command.invoked"
+    | "kit.package.full-commit-pin"
+    | "kit.workflow.full-commit-pin"
+    | "plugin-payload.installed"
+    | "runtime.supported-platform"
+    | "release.identity.published"
+    | "workflow.called-revision"
+    | "canary.hosted-qualified"
+    | "harness.claude.fresh-native"
+    | "harness.codex.fresh-native"
+  )[]
   receipt: {
     schemaVersion: 1
     owner:
@@ -131,28 +67,28 @@ export type EvidenceCell = {
       | "reusable-workflow-adapter"
       | "clean-fixture"
     receiptSchemaVersion: number
-    candidateIdentitySha256: CandidateIdentityDigest
-    digest: Sha256Digest
+    candidateIdentitySha256: `sha256:${string}`
+    digest: `sha256:${string}`
   } | null
-  resolves: readonly EvidenceCellId[]
+  resolves: readonly `cell:${string}`[]
 } & (
   | {
       assertedStatus: "proved"
-      actualProofLayer: ProofLayer
-      observable: { kind: "observed"; code: string; digest?: Sha256Digest }
+      actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+      observable: { kind: "observed"; code: string; digest?: `sha256:${string}` }
       skipRationale: null
     }
   | {
       assertedStatus: "not-proved"
-      actualProofLayer: ProofLayer
-      observable: { kind: "failure" | "proved-absence"; code: string; digest?: Sha256Digest }
+      actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+      observable: { kind: "failure" | "proved-absence"; code: string; digest?: `sha256:${string}` }
       skipRationale: null
     }
   | {
       assertedStatus: "unknown"
       unknownKind: "observation"
-      actualProofLayer: ProofLayer
-      observable: { kind: "unavailable" | "unknown"; code: string; digest?: Sha256Digest }
+      actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+      observable: { kind: "unavailable" | "unknown"; code: string; digest?: `sha256:${string}` }
       skipRationale: null
     }
   | {
@@ -160,7 +96,13 @@ export type EvidenceCell = {
       unknownKind: "skip"
       actualProofLayer: null
       observable: null
-      skipRationale: SkipRationale
+      skipRationale:
+        | "hosted-proof-not-run"
+        | "fresh-native-proof-not-run"
+        | "protected-authority-unavailable"
+        | "platform-not-selected"
+        | "host-unavailable"
+        | "not-applicable"
       receipt: null
       resolves: readonly []
     }
@@ -174,8 +116,21 @@ export type EvidenceCell = {
  */
 export type VerificationProfile = {
   schemaVersion: 1
-  id: VerificationProfileId
-  requirements: readonly VerificationRequirement[]
+  id: "personal" | "public"
+  requirements: readonly {
+    claim: EvidenceCell["claim"]
+    requiredProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+    requiredLineage: readonly (
+      | "source"
+      | "release"
+      | "package"
+      | "workflow"
+      | "installed-payload"
+      | "hosted-run"
+      | "platform"
+      | "receipt"
+    )[]
+  }[]
 }
 
 export const VerificationProfile = {
@@ -212,78 +167,64 @@ export const VerificationProfile = {
   },
 } as const satisfies Readonly<Record<"personal" | "public", VerificationProfile>>
 
-export type QualificationClaim = {
-  claim: VerificationClaim
-  nonClaims: readonly VerificationClaim[]
-  receiptDigests: readonly Sha256Digest[]
-  evidenceCellIds: readonly EvidenceCellId[]
-} & (
-  | {
-      status: "proved"
-      actualProofLayer: ProofLayer
-      observationKind: "observed"
-      skipRationale: null
-    }
-  | {
-      status: "not-proved"
-      actualProofLayer: ProofLayer
-      observationKind: "observed" | "failure" | "proved-absence"
-      skipRationale: null
-    }
-  | {
-      status: "unknown"
-      unknownKind: "observation"
-      actualProofLayer: ProofLayer
-      observationKind: "unavailable" | "unknown"
-      skipRationale: null
-    }
-  | {
-      status: "unknown"
-      unknownKind: "skip"
-      actualProofLayer: null
-      observationKind: null
-      skipRationale: SkipRationale
-    }
-)
-
 /**
- * `selected` equals the exact profile requirement count and `claims.length`.
- * `selected = covered + skipped`; `covered = proved + notProved + unknown`.
- * The three status counts are counts of the corresponding claim variants;
- * skipped claims are `unknown` claims with `unknownKind: "skip"`, not part of
- * the `unknown` observation count.
+ * A reduced result is deterministic: claims follow the exact selected
+ * profile order. Every claim retains at least one contributing Evidence Cell
+ * ID, and those IDs are globally unique across the result. A claim's status
+ * precedence is `not-proved > unknown > proved`; when cells tie, the first
+ * input cell wins. Claim metadata and the top-level Non-Claims and receipt
+ * digest arrays preserve first occurrence order.
  */
-export type QualificationResultCounts = {
-  selected: number
-  covered: number
-  skipped: number
-  proved: number
-  notProved: number
-  unknown: number
-}
-
-/**
- * Whole-input checks run in this order. If they pass, selected claims are
- * reduced in profile order, with `zero-cell` before `mixed-unresolved`.
- */
-export type QualificationReductionPrecedence = readonly [
-  "invalid-cell-id",
-  "out-of-profile",
-  "invalid-resolution",
-  "lineage-disagreement",
-  "unqualified-resolution",
-  "zero-cell",
-  "mixed-unresolved",
-]
-
 export type QualificationResult = {
   schemaVersion: 1
   candidate: CandidateIdentity
-  profileId: VerificationProfileId
-  claims: readonly QualificationClaim[]
-  counts: QualificationResultCounts
-  nonClaims: readonly VerificationClaim[]
-  receiptDigests: readonly Sha256Digest[]
+  profileId: VerificationProfile["id"]
+  claims: readonly (
+    & {
+      claim: EvidenceCell["claim"]
+      nonClaims: readonly EvidenceCell["claim"][]
+      receiptDigests: readonly EvidenceCell["lineage"]["candidateIdentitySha256"][]
+      evidenceCellIds: readonly EvidenceCell["id"][]
+    }
+    & (
+      | {
+          status: "proved"
+          actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+          observationKind: "observed"
+          skipRationale: null
+        }
+      | {
+          status: "not-proved"
+          actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+          observationKind: "observed" | "failure" | "proved-absence"
+          skipRationale: null
+        }
+      | {
+          status: "unknown"
+          unknownKind: "observation"
+          actualProofLayer: "in-process" | "public-process" | "clean-fixture" | "hosted" | "fresh-native"
+          observationKind: "unavailable" | "unknown"
+          skipRationale: null
+        }
+      | {
+          status: "unknown"
+          unknownKind: "skip"
+          actualProofLayer: null
+          observationKind: null
+          skipRationale: Extract<EvidenceCell, { unknownKind: "skip" }>["skipRationale"]
+        }
+    )
+  )[]
+  counts: {
+    selected: number
+    covered: number
+    skipped: number
+    proved: number
+    notProved: number
+    unknown: number
+  }
+  nonClaims: readonly EvidenceCell["claim"][]
+  receiptDigests: readonly EvidenceCell["lineage"]["candidateIdentitySha256"][]
 }
 
 export type QualificationRefusalCode =
@@ -298,8 +239,8 @@ export type QualificationRefusalCode =
 export type QualificationRefusal = {
   schemaVersion: 1
   code: QualificationRefusalCode
-  claim: VerificationClaim | null
-  evidenceCellId: EvidenceCellId | null
+  claim: EvidenceCell["claim"] | null
+  evidenceCellId: EvidenceCell["id"] | null
 }
 
 export type QualificationOutcome =
@@ -309,9 +250,13 @@ export type QualificationOutcome =
 export interface QualificationEvidence {
   /**
    * Refuses malformed IDs, profile drift, invalid resolution references,
-   * Candidate Lineage disagreement, and unqualified resolution in the
-   * `QualificationReductionPrecedence` order. A reduced result retains the
-   * canonical profile claim order and the count equations above.
+   * Candidate Lineage disagreement, and unqualified resolution in this order:
+   * invalid-cell-id, out-of-profile, invalid-resolution,
+   * lineage-disagreement, unqualified-resolution, zero-cell, and
+   * mixed-unresolved. A reduced result retains the canonical profile claim
+   * order, `selected = covered + skipped`, `covered = proved + notProved +
+   * unknown`, at least one globally unique contributing Evidence Cell ID per
+   * claim, and first-occurrence claim and aggregate metadata.
    */
   reduce(input: {
     candidate: CandidateIdentity

@@ -136,6 +136,8 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
     "https://git.internal/myagentdojo/example-plugin.git",
     "https://github.com/Users/nathan/private-repo",
     "https://github.com/%2525252FUsers/nathan/private-repo",
+    "https://github.com/a/../example-plugin.git",
+    "https://github.com/%6dyagentdojo/example-plugin.git",
   ]
   for (const origin of invalidOrigins) {
     expect(parseEvidenceCell({
@@ -309,6 +311,39 @@ test("serialized egress is allowlisted, preserves bounded evidence, and fails cl
   }
   expect(parseQualificationResult(duplicateEvidenceCellId)).toBeUndefined()
   expect(() => serializeQualificationResult(duplicateEvidenceCellId as QualificationResult)).toThrow(
+    "qualification-evidence: invalid serialized value",
+  )
+
+  const emptyClaimEvidenceCellIds = {
+    ...result,
+    claims: result.claims.map((claim, index) =>
+      index === 0 ? { ...claim, evidenceCellIds: [] } : claim,
+    ),
+  }
+  expect(parseQualificationResult(emptyClaimEvidenceCellIds)).toBeUndefined()
+  expect(() => serializeQualificationResult(emptyClaimEvidenceCellIds as QualificationResult)).toThrow(
+    "qualification-evidence: invalid serialized value",
+  )
+
+  const duplicateClaimNonClaim = {
+    ...result,
+    claims: result.claims.map((claim, index) =>
+      index === 0 ? { ...claim, nonClaims: [...claim.nonClaims, claim.nonClaims[0]!] } : claim,
+    ),
+  }
+  expect(parseQualificationResult(duplicateClaimNonClaim)).toBeUndefined()
+  expect(() => serializeQualificationResult(duplicateClaimNonClaim as QualificationResult)).toThrow(
+    "qualification-evidence: invalid serialized value",
+  )
+
+  const duplicateClaimReceiptDigest = {
+    ...result,
+    claims: result.claims.map((claim, index) =>
+      index === 0 ? { ...claim, receiptDigests: [...claim.receiptDigests, claim.receiptDigests[0]!] } : claim,
+    ),
+  }
+  expect(parseQualificationResult(duplicateClaimReceiptDigest)).toBeUndefined()
+  expect(() => serializeQualificationResult(duplicateClaimReceiptDigest as QualificationResult)).toThrow(
     "qualification-evidence: invalid serialized value",
   )
 

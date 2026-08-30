@@ -6,24 +6,25 @@ import {
   canonicalCandidateIdentityDigest,
 } from "../../release-and-git-engine/serialized-values"
 import type {
-  CandidateIdentityDigest,
   EvidenceCell,
-  EvidenceCellId,
-  LineageMember,
-  ProofLayer,
-  ProofLayerSatisfaction,
   QualificationEvidence,
   QualificationOutcome,
-  QualificationClaim,
-  QualificationRefusalCode,
   QualificationResult,
-  Sha256Digest,
-  SkipRationale,
-  VerificationClaim,
   VerificationProfile,
-  VerificationRequirement,
 } from "../interface"
 import { isEvidenceCellId, parseVerificationProfile } from "../serialized-values"
+
+type CandidateIdentityDigest = EvidenceCell["lineage"]["candidateIdentitySha256"]
+type EvidenceCellId = EvidenceCell["id"]
+type LineageMember = VerificationProfile["requirements"][number]["requiredLineage"][number]
+type ProofLayer = VerificationProfile["requirements"][number]["requiredProofLayer"]
+type ProofLayerSatisfaction = Readonly<Record<ProofLayer, readonly ProofLayer[]>>
+type QualificationClaim = QualificationResult["claims"][number]
+type QualificationRefusalCode = Extract<QualificationOutcome, { status: "refused" }>["refusal"]["code"]
+type Sha256Digest = EvidenceCell["lineage"]["candidateIdentitySha256"]
+type SkipRationale = Extract<EvidenceCell, { unknownKind: "skip" }>["skipRationale"]
+type VerificationClaim = EvidenceCell["claim"]
+type VerificationRequirement = VerificationProfile["requirements"][number]
 
 type NonSkipEvidenceCell = Exclude<EvidenceCell, { unknownKind: "skip" }>
 type ReducedClaim = QualificationClaim
