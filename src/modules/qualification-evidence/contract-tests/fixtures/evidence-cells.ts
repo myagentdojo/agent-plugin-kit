@@ -25,10 +25,10 @@ export const candidateDigest =
   "sha256:2af031b2b3bc51ced417b607dd3e1d937b01534e37d831c392bf85022e903566" as const
 
 // This independent oracle must not import or derive from the production profile.
-// fallow-ignore-next-line code-duplication
 export const personalProfile = {
   schemaVersion: 1,
   id: "personal",
+  // fallow-ignore-next-line code-duplication
   requirements: [
     { claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "release", "package", "workflow"] },
     { claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
@@ -42,10 +42,10 @@ export const personalProfile = {
 } as const satisfies VerificationProfile
 
 // This independent oracle must not import or derive from the production profile.
-// fallow-ignore-next-line code-duplication
 export const publicProfile = {
   schemaVersion: 1,
   id: "public",
+  // fallow-ignore-next-line code-duplication
   requirements: [
     { claim: "kit.identity.admitted", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "release", "package", "workflow"] },
     { claim: "kit.command.invoked", requiredProofLayer: "clean-fixture", requiredLineage: ["source", "package"] },
