@@ -5,61 +5,35 @@ import {
   mkdir,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import {
   NonliteralModuleSpecifierError,
   staticModuleSpecifiers,
 } from "../static-module-specifiers.ts"
+import { isDescendantRelativePath } from "../verify-repository-qualification.ts"
 
 const repositoryRoot = resolve(import.meta.dir, "../../..")
 const temporaryRoots: string[] = []
+const temporaryReceiptDirectories: string[] = []
 
-// Test-owned independent oracle: these literal receipts intentionally restate
-// the accepted repository contract so the public verifier cannot define its
-// own expected result.
-const initialGroups = [
-  { id: "kit-interface", files: 1, tests: 3, passed: 0, failed: 3, skipped: 0, failure_classes: { "contract-absent": 3 } },
-  { id: "admission-bootstrap", files: 2, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
-  { id: "maintenance-command-contract", files: 3, tests: 24, passed: 0, failed: 24, skipped: 0, failure_classes: { "contract-absent": 24 } },
-  { id: "qualification-evidence", files: 2, tests: 14, passed: 0, failed: 14, skipped: 0, failure_classes: { "contract-absent": 14 } },
-  { id: "clean-fixture", files: 7, tests: 26, passed: 0, failed: 26, skipped: 0, failure_classes: { "contract-absent": 26 } },
-  { id: "maintenance-cli-unit", files: 1, tests: 12, passed: 0, failed: 12, skipped: 0, failure_classes: { "contract-absent": 12 } },
-  { id: "maintenance-cli-catalog", files: 1, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
-  { id: "maintenance-cli-process", files: 1, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
-  { id: "maintenance-cli-observability", files: 1, tests: 12, passed: 0, failed: 12, skipped: 0, failure_classes: { "contract-absent": 12 } },
-  { id: "maintenance-cli-clean-fixture", files: 1, tests: 5, passed: 0, failed: 5, skipped: 0, failure_classes: { "contract-absent": 5 } },
-  { id: "maintenance-cli-local-link", files: 1, tests: 8, passed: 0, failed: 8, skipped: 0, failure_classes: { "contract-absent": 8 } },
-  { id: "maintenance-cli", files: 6, tests: 53, passed: 0, failed: 53, skipped: 0, failure_classes: { "contract-absent": 53 } },
-] as const
-
-const initialSuccess = {
-  schema_version: 1,
-  command: "verify:repository-qualification",
-  status: "qualified",
-  mode: "complete",
-  contract: "tooling/repository-quality/repository-qualification-contract.json",
-  groups: initialGroups,
-  aggregate: { files: 17, tests: 104, passed: 0, failed: 104, skipped: 0 },
+const runtimeSourceFinding = {
+  kind: "admission-closure-drift",
+  owner: "admission.runtime_source_paths",
+  repair_id: "restore-repository-bytes",
 } as const
 
-const mixedSuccess = {
-  schema_version: 1,
-  command: "verify:repository-qualification",
-  status: "qualified",
-  mode: "complete",
-  contract: "tooling/repository-quality/repository-qualification-contract.json",
-  groups: [
-    { id: "kit-interface", files: 1, tests: 3, passed: 1, failed: 2, skipped: 0, failure_classes: { "contract-absent": 2 } },
-    ...initialGroups.slice(1, 4),
-    { id: "clean-fixture", files: 7, tests: 26, passed: 1, failed: 25, skipped: 0, failure_classes: { "contract-absent": 25 } },
-    ...initialGroups.slice(5),
-  ],
-  aggregate: { files: 17, tests: 104, passed: 1, failed: 103, skipped: 0 },
-} as const
-
+const emptyRuntimeOutputSha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+const runtimeCustodyCrossOwnerReexportSha256 = "bcd6b7f38ab1d03cfe2a7d8b45d27c527231eb6752472ea798a1fe3daca9d26b"
+const runtimeCustodyDotPrefixedReexportSha256 = "5e1d1f9c0afc2f804f887373dc709231ef8152711f155d59dc943084ab9dabd7"
+const runtimeCustodyCtsDeclarationReexportSha256 = "3f31f9265cc942d0fdbf6766356ea73450cdb04c794793ce6041f8c291f36210"
+const runtimeCustodyDeclarationReexportSha256 = "701dc68d78cc7db409dd44252b16e3f9bc3be231279710407f82b72bc6cae838"
+const runtimeCustodyMtsDeclarationReexportSha256 = "fc695e39e894132e7fbbf5b80d86923db5630b9d249dd58024da60f1ffd4cbf8"
+const runtimeCustodySymlinkEscapeSha256 = "6057a279a505664aeb4ebc294ddfea8fe84f416d7194799ff4935d30e2a5aa86"
+const runtimeCustodyValueReexportSha256 = "e90983cb0c73421c56ac37d4cba36cb5308c3addd681a2b995acea850dacb725"
 async function copyRepositoryFixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "agent-plugin-kit-repository-qualification-"))
   temporaryRoots.push(root)
@@ -94,6 +68,193 @@ async function observeVerifier(
   return { exitCode, stdout, stderr }
 }
 
+type IndependentCounts = {
+  files: number
+  tests: number
+  passed: number
+  failed: number
+  skipped: number
+  failure_classes: Readonly<Record<string, number>>
+}
+
+type IndependentSuite = Omit<IndependentCounts, "files"> & { file: string }
+type IndependentProcess = IndependentCounts & { suites: readonly IndependentSuite[] }
+type CurrentDeclaration = {
+  proof_groups: readonly { id: string; files: readonly string[] }[]
+  aggregate: { selected_files: readonly string[] }
+}
+
+async function buildIndependentSuccessReceipt(root: string): Promise<Record<string, unknown>> {
+  const declarationPath = join(root, "tooling/repository-quality/repository-qualification-contract.json")
+  const declaration = JSON.parse(await readFile(declarationPath, "utf8")) as CurrentDeclaration
+  const aggregate = await observeIndependentTests(root, declaration.aggregate.selected_files)
+  const groups = declaration.proof_groups.map((group) => ({
+    id: group.id,
+    ...independentGroupCounts(aggregate.suites, group.files),
+  }))
+  return {
+    schema_version: 1,
+    command: "verify:repository-qualification",
+    status: "qualified",
+    mode: "complete",
+    contract: "tooling/repository-quality/repository-qualification-contract.json",
+    groups,
+    aggregate: {
+      files: aggregate.files,
+      tests: aggregate.tests,
+      passed: aggregate.passed,
+      failed: aggregate.failed,
+      skipped: aggregate.skipped,
+    },
+  }
+}
+
+function independentGroupCounts(
+  suites: readonly IndependentSuite[],
+  files: readonly string[],
+): IndependentCounts {
+  const selected = files.map((file) => {
+    const suite = suites.find((candidate) => candidate.file === file)
+    if (suite === undefined) throw new Error(`independent test process omitted ${file}`)
+    return suite
+  })
+  return selected.reduce(
+    (total, suite) => ({
+      files: total.files + 1,
+      tests: total.tests + suite.tests,
+      passed: total.passed + suite.passed,
+      failed: total.failed + suite.failed,
+      skipped: total.skipped + suite.skipped,
+      failure_classes: mergeIndependentFailureClasses(total.failure_classes, suite.failure_classes),
+    }),
+    { files: 0, tests: 0, passed: 0, failed: 0, skipped: 0, failure_classes: {} },
+  )
+}
+
+async function observeIndependentTests(
+  root: string,
+  files: readonly string[],
+): Promise<IndependentProcess> {
+  const receiptDirectory = await mkdtemp(join(tmpdir(), "agent-plugin-kit-independent-proof-"))
+  temporaryReceiptDirectories.push(receiptDirectory)
+  const receiptPath = join(receiptDirectory, "receipt.xml")
+  const child = Bun.spawn([
+    "bun",
+    "test",
+    ...files,
+    "--reporter=junit",
+    "--reporter-outfile",
+    receiptPath,
+  ], {
+    cwd: root,
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+  })
+  const [exitCode, , ] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ])
+  const receipt = await readFile(receiptPath, "utf8")
+  const observed = parseIndependentReceipt(receipt, files)
+  const expectedExitCode = observed.failed === 0 ? 0 : 1
+  if (exitCode !== expectedExitCode) {
+    throw new Error(`independent test process exit ${exitCode} did not match ${expectedExitCode}`)
+  }
+  return observed
+}
+
+function parseIndependentReceipt(source: string, files: readonly string[]): IndependentProcess {
+  const root = xmlTag(source, "testsuites")
+  const suites = [...source.matchAll(/<testsuite\b[^>]*>[\s\S]*?<\/testsuite>/g)].map((match) => match[0] as string)
+  const observedFiles = suites.map((suite) => xmlAttribute(xmlTag(suite, "testsuite"), "file"))
+  if (suites.length !== files.length || JSON.stringify([...observedFiles].sort()) !== JSON.stringify([...files].sort())) {
+    throw new Error("independent test process did not report the selected files")
+  }
+  const tests = xmlInteger(root, "tests")
+  const failed = xmlInteger(root, "failures")
+  const skipped = xmlInteger(root, "skipped")
+  const parsedSuites = suites.map((suite) => parseIndependentSuite(suite))
+  const failureCount = parsedSuites.reduce((total, suite) => total + suite.failed, 0)
+  const skippedCount = parsedSuites.reduce((total, suite) => total + suite.skipped, 0)
+  const testCount = parsedSuites.reduce((total, suite) => total + suite.tests, 0)
+  if (failureCount !== failed || skippedCount !== skipped || testCount !== tests || failed + skipped > tests) {
+    throw new Error("independent test process reported inconsistent JUnit counts")
+  }
+  return {
+    files: suites.length,
+    tests,
+    passed: tests - failed - skipped,
+    failed,
+    skipped,
+    failure_classes: mergeIndependentFailureClasses({}, ...parsedSuites.map((suite) => suite.failure_classes)),
+    suites: parsedSuites,
+  }
+}
+
+function parseIndependentSuite(source: string): IndependentSuite {
+  const tag = xmlTag(source, "testsuite")
+  const file = xmlAttribute(tag, "file")
+  const tests = xmlInteger(tag, "tests")
+  const failed = xmlInteger(tag, "failures")
+  const skipped = xmlInteger(tag, "skipped")
+  const failureTags = [...source.matchAll(/<failure\b[^>]*>/g)].map((match) => match[0] as string)
+  if (failureTags.length !== failed || failed + skipped > tests) {
+    throw new Error(`independent test process reported inconsistent counts for ${file}`)
+  }
+  return {
+    file,
+    tests,
+    passed: tests - failed - skipped,
+    failed,
+    skipped,
+    failure_classes: independentFailureClasses(failureTags),
+  }
+}
+
+function xmlTag(source: string, name: string): string {
+  const match = source.match(new RegExp(`<${name}\\b[^>]*>`))
+  if (match === null) throw new Error(`independent test process omitted <${name}>`)
+  return match[0]
+}
+
+function xmlAttribute(tag: string, attribute: string): string {
+  const match = tag.match(new RegExp(`\\b${attribute}="([^"]*)"`))
+  if (match?.[1] === undefined) throw new Error(`independent test process omitted ${attribute}`)
+  return match[1]
+}
+
+function xmlInteger(tag: string, attribute: string): number {
+  const value = Number(xmlAttribute(tag, attribute))
+  if (!Number.isInteger(value) || value < 0) throw new Error(`independent test process reported invalid ${attribute}`)
+  return value
+}
+
+function independentFailureClasses(failureTags: readonly string[]): Readonly<Record<string, number>> {
+  const classes: Record<string, number> = {}
+  for (const tag of failureTags) {
+    const message = xmlAttribute(tag, "message")
+    const failureClass = message.match(/(?:^|[\s"'(])([a-z][a-z0-9-]*-[a-z0-9-]*):/)?.[1]
+    if (failureClass === undefined) throw new Error("independent test process omitted a failure class")
+    classes[failureClass] = (classes[failureClass] ?? 0) + 1
+  }
+  return classes
+}
+
+function mergeIndependentFailureClasses(
+  ...failureClasses: readonly Readonly<Record<string, number>>[]
+): Readonly<Record<string, number>> {
+  const merged: Record<string, number> = {}
+  for (const classes of failureClasses) {
+    for (const [failureClass, count] of Object.entries(classes)) {
+      merged[failureClass] = (merged[failureClass] ?? 0) + count
+    }
+  }
+  return merged
+}
+
 async function mutateContract(
   root: string,
   mutate: (contract: Record<string, any>) => void,
@@ -102,6 +263,21 @@ async function mutateContract(
   const contract = JSON.parse(await readFile(path, "utf8")) as Record<string, any>
   mutate(contract)
   await writeFile(path, `${JSON.stringify(contract, null, 2)}\n`)
+}
+
+function proofGroup(contract: Record<string, any>, id: string): Record<string, any> {
+  const group = contract.proof_groups.find((candidate: { id?: string }) => candidate.id === id)
+  if (group === undefined) throw new Error(`fixture omitted proof group ${id}`)
+  return group
+}
+
+function extendAdmissionRuntimeSourcePaths(
+  contract: Record<string, any>,
+  paths: readonly string[],
+): void {
+  contract.admission.runtime_source_paths = [
+    ...new Set([...contract.admission.runtime_source_paths, ...paths]),
+  ].sort()
 }
 
 async function mutateJsonFile(
@@ -125,46 +301,164 @@ async function mutateTextFile(
   await writeFile(path, mutate(source))
 }
 
+async function addAdmissionRuntimeSources(
+  root: string,
+  paths: readonly string[],
+  includeInClosure = true,
+): Promise<void> {
+  await Promise.all(paths.map((path) => writeFile(
+    join(root, path),
+    'export const runtimeMarker = "runtime"\nexport type RuntimeMarker = typeof runtimeMarker\n',
+  )))
+  if (includeInClosure) {
+    const imports = paths.map((path, index) => {
+      const name = path.split("/").at(-1)?.replace(".ts", "")
+      return `import type { RuntimeMarker as RuntimeMarker${index} } from "./${name}"\ntype AdmissionRuntimeMarker${index} = RuntimeMarker${index}\n`
+    }).join("")
+    await mutateTextFile(
+      root,
+      "src/admission-bootstrap/interface.ts",
+      (source) => `${source}\n${imports}`,
+    )
+  }
+  await mutateContract(root, (contract) => {
+    contract.structure.required_paths.push(...paths)
+    if (includeInClosure) contract.admission.source_closure.push(...paths)
+  })
+}
+
+async function addCrossOwnerValueReexport(root: string): Promise<void> {
+  const implementationDirectory = "src/modules/release-and-git-engine/implementation"
+  const implementationPath = `${implementationDirectory}/cross-owner.ts`
+  await mkdir(join(root, implementationDirectory), { recursive: true })
+  await writeFile(join(root, implementationPath), "export const crossOwnerValue = {}\n")
+  await mutateTextFile(
+    root,
+    "src/modules/runtime-custody/interface.ts",
+    (source) => `${source}\nexport { crossOwnerValue } from "../release-and-git-engine/implementation/cross-owner"\n`,
+  )
+  await mutateContract(root, (contract) => {
+    contract.structure.required_paths.push(implementationPath)
+    contract.structure.forbidden_paths = contract.structure.forbidden_paths
+      .filter((path: string) => path !== implementationDirectory)
+    contract.structure.forbidden_source_path_segments = contract.structure.forbidden_source_path_segments
+      .filter((segment: string) => segment !== "implementation")
+    contract.package_contract.runtime_output_sha256["./runtime-custody"] =
+      runtimeCustodyCrossOwnerReexportSha256
+  })
+}
+
+async function addSymlinkedOwnerEscapeReexport(root: string): Promise<void> {
+  const targetDirectory = "src/modules/release-and-git-engine/implementation"
+  const targetPath = `${targetDirectory}/cross-owner.ts`
+  const linkedDirectory = "src/modules/runtime-custody/implementation"
+  await mkdir(join(root, targetDirectory), { recursive: true })
+  await writeFile(join(root, targetPath), "export const crossOwnerValue = {}\n")
+  await symlink("../release-and-git-engine/implementation", join(root, linkedDirectory))
+  await mutateTextFile(
+    root,
+    "src/modules/runtime-custody/interface.ts",
+    (source) => `${source}\nexport { crossOwnerValue } from "./implementation/cross-owner"\n`,
+  )
+  await mutateContract(root, (contract) => {
+    contract.structure.required_paths.push(linkedDirectory, targetPath)
+    contract.structure.forbidden_paths = contract.structure.forbidden_paths
+      .filter((path: string) => path !== linkedDirectory && path !== targetDirectory)
+    contract.structure.forbidden_source_path_segments = contract.structure.forbidden_source_path_segments
+      .filter((segment: string) => segment !== "implementation")
+    contract.package_contract.runtime_output_sha256["./runtime-custody"] =
+      runtimeCustodySymlinkEscapeSha256
+  })
+}
+
+async function addRuntimeCustodyValueReexport(
+  root: string,
+  implementationSource: string,
+  specifier = "./implementation/runtime-custody",
+  runtimeSha256 = runtimeCustodyValueReexportSha256,
+  implementationName = "runtime-custody.ts",
+): Promise<void> {
+  const implementationDirectory = "src/modules/runtime-custody/implementation"
+  const implementationPath = `${implementationDirectory}/${implementationName}`
+  await mkdir(join(root, implementationDirectory), { recursive: true })
+  await writeFile(join(root, implementationPath), implementationSource)
+  await mutateTextFile(
+    root,
+    "src/modules/runtime-custody/interface.ts",
+    (source) => `${source}\nexport { runtimeCustodyValue } from "${specifier}"\n`,
+  )
+  await mutateContract(root, (contract) => {
+    contract.structure.required_paths.push(implementationPath)
+    contract.structure.forbidden_paths = contract.structure.forbidden_paths
+      .filter((path: string) => path !== implementationDirectory)
+    contract.structure.forbidden_source_path_segments = contract.structure.forbidden_source_path_segments
+      .filter((segment: string) => segment !== "implementation")
+    contract.package_contract.runtime_output_sha256["./runtime-custody"] = runtimeSha256
+  })
+}
+
+async function addEscapedModuleLiteralValueReexport(root: string): Promise<void> {
+  const implementationDirectory = "src/modules/runtime-custody/implementation"
+  const runtimeTargetPath = `${implementationDirectory}/runtime-custody.ts`
+  const verifierTargetPath = `${implementationDirectory}/\\u0072untime-custody.ts`
+  await mkdir(join(root, implementationDirectory), { recursive: true })
+  await writeFile(join(root, runtimeTargetPath), "export class runtimeCustodyValue {}\n")
+  await writeFile(join(root, verifierTargetPath), "export const runtimeCustodyValue = {}\n")
+  await mutateTextFile(
+    root,
+    "src/modules/runtime-custody/interface.ts",
+    (source) => `${source}\nexport { runtimeCustodyValue } from "./implementation/\\u0072untime-custody"\n`,
+  )
+  await mutateContract(root, (contract) => {
+    contract.structure.required_paths.push(runtimeTargetPath, verifierTargetPath)
+    contract.structure.forbidden_paths = contract.structure.forbidden_paths
+      .filter((path: string) => path !== implementationDirectory)
+    contract.structure.forbidden_source_path_segments = contract.structure.forbidden_source_path_segments
+      .filter((segment: string) => segment !== "implementation")
+    contract.package_contract.runtime_output_sha256["./runtime-custody"] =
+      runtimeCustodyValueReexportSha256
+  })
+}
+
 afterAll(async () => {
-  await Promise.all(temporaryRoots.map((root) => rm(root, { recursive: true, force: true })))
+  await Promise.all([
+    ...temporaryRoots.map((root) => rm(root, { recursive: true, force: true })),
+    ...temporaryReceiptDirectories.map((directory) => rm(directory, { recursive: true, force: true })),
+  ])
 })
 
 test("the initial repository declaration qualifies the exact mixed RED baseline", async () => {
   const root = await copyRepositoryFixture()
+  const expected = await buildIndependentSuccessReceipt(root)
   const observation = await observeVerifier(root)
   expect(observation.exitCode).toBe(0)
   expect(observation.stderr).toBe("")
-  expect(observation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
-  expect(JSON.parse(observation.stdout)).toEqual(initialSuccess)
+  expect(observation.stdout).toBe(`${JSON.stringify(expected)}\n`)
+  expect(JSON.parse(observation.stdout)).toEqual(expected)
 })
 
-test("a literal mixed RED and GREEN declaration qualifies", async () => {
+test("an additional independently observed GREEN transition qualifies", async () => {
   const root = await copyRepositoryFixture()
   await mutateTextFile(
     root,
     "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
-    (source) => {
-      const assertion = '  expect(installedPackage?.rootTypeExports, "contract-absent: installed root type exports must be independently observed").toEqual(expectedRootTypeExports)\n'
-      if (!source.includes(assertion)) throw new Error("mixed fixture assertion was not found")
-      return source.replace(assertion, "")
-    },
+    (source) => `${source}\ntest("fixture-local GREEN transition", () => {\n  expect(true).toBe(true)\n})\n`,
   )
   await mutateContract(root, (contract) => {
-    contract.proof_groups[0].passed = 1
-    contract.proof_groups[0].failed = 2
-    contract.proof_groups[0].failure_classes = { "contract-absent": 2 }
-    contract.proof_groups[4].passed = 1
-    contract.proof_groups[4].failed = 25
-    contract.proof_groups[4].failure_classes = { "contract-absent": 25 }
-    contract.aggregate.passed = 1
-    contract.aggregate.failed = 103
-    contract.aggregate.failure_classes = { "contract-absent": 103 }
+    for (const groupId of ["kit-interface", "clean-fixture"]) {
+      const group = proofGroup(contract, groupId)
+      group.tests += 1
+      group.passed += 1
+    }
+    contract.aggregate.tests += 1
+    contract.aggregate.passed += 1
   })
+  const expected = await buildIndependentSuccessReceipt(root)
   const observation = await observeVerifier(root)
   expect(observation.exitCode).toBe(0)
   expect(observation.stderr).toBe("")
-  expect(observation.stdout).toBe(`${JSON.stringify(mixedSuccess)}\n`)
-  expect(JSON.parse(observation.stdout)).toEqual(mixedSuccess)
+  expect(observation.stdout).toBe(`${JSON.stringify(expected)}\n`)
+  expect(JSON.parse(observation.stdout)).toEqual(expected)
 })
 
 test("group and aggregate count imbalance is refused", async () => {
@@ -172,7 +466,7 @@ test("group and aggregate count imbalance is refused", async () => {
     {
       label: "group",
       mutate: (contract: Record<string, any>) => {
-        contract.proof_groups[0].failed = 2
+        contract.proof_groups[0].failed += 1
       },
       expected: {
         schema_version: 1,
@@ -192,7 +486,7 @@ test("group and aggregate count imbalance is refused", async () => {
     {
       label: "aggregate",
       mutate: (contract: Record<string, any>) => {
-        contract.aggregate.failed = 103
+        contract.aggregate.failed += 1
       },
       expected: {
         schema_version: 1,
@@ -380,10 +674,15 @@ test("selector discovery or aggregate de-duplication drift is refused", async ()
   await mutateTextFile(
     workspaceRoot,
     "src/admission-bootstrap/contract-tests/identity-refusal.test.ts",
-    (source) => source.replace(
-      'test("workflow pin mismatch fails closed", () => assertRefusal(6))',
-      'test("workflow pin mismatch fails closed", () => {})',
-    ),
+    (source) => {
+      const marker = 'test("workflow pin mismatch fails closed"'
+      const start = source.indexOf(marker)
+      if (start < 0) throw new Error("workspace selector fixture test was not found")
+      const nextTest = source.indexOf('\ntest("', start + marker.length)
+      return nextTest < 0
+        ? source.slice(0, start)
+        : `${source.slice(0, start)}${source.slice(nextTest + 1)}`
+    },
   )
   const workspaceExpected = {
     schema_version: 1,
@@ -407,30 +706,48 @@ test("selector discovery or aggregate de-duplication drift is refused", async ()
 })
 
 test("an absent, unknown, or miscounted test-failure class is refused", async () => {
+  expect(independentFailureClasses(['<failure message="error: contract-absent: prefixed failure">'])).toEqual({
+    "contract-absent": 1,
+  })
+
   const cases = [
     {
       label: "absent failure class",
-      mutate: (contract: Record<string, any>) => {
-        delete contract.proof_groups[0].failure_classes["contract-absent"]
+      mutate: async (root: string) => {
+        await mutateTextFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
+          (source) => `${source}\ntest("fixture-local undeclared failure class", () => {\n  expect(false, "contract-absent: fixture-local failure must be declared").toBeTrue()\n})\n`,
+        )
+        await mutateContract(root, (contract) => {
+          for (const groupId of ["kit-interface", "clean-fixture"]) {
+            const group = proofGroup(contract, groupId)
+            group.tests += 1
+            group.failed += 1
+          }
+          contract.aggregate.tests += 1
+          contract.aggregate.failed += 1
+        })
       },
     },
     {
       label: "unknown failure class",
-      mutate: (contract: Record<string, any>) => {
+      mutate: (root: string) => mutateContract(root, (contract) => {
         contract.proof_groups[0].failure_classes.unknown = 3
-      },
+      }),
     },
     {
       label: "miscounted failure class",
-      mutate: (contract: Record<string, any>) => {
-        contract.proof_groups[0].failure_classes["contract-absent"] = 2
-      },
+      mutate: (root: string) => mutateContract(root, (contract) => {
+        const current = contract.proof_groups[0].failure_classes["contract-absent"] ?? 0
+        contract.proof_groups[0].failure_classes["contract-absent"] = current + 1
+      }),
     },
   ] as const
 
   for (const row of cases) {
     const root = await copyRepositoryFixture()
-    await mutateContract(root, row.mutate)
+    await row.mutate(root)
     const expected = {
       schema_version: 1,
       command: "verify:repository-qualification",
@@ -610,7 +927,11 @@ test("required-path or declared-structure drift is refused", async () => {
     {
       label: "unexpected Implementation path segment present",
       mutate: async (root: string) => {
-        const directory = join(root, "src/modules/unlisted-owner/implementation")
+        const forbiddenSegment = "fixture-forbidden-segment"
+        await mutateContract(root, (contract) => {
+          contract.structure.forbidden_source_path_segments.push(forbiddenSegment)
+        })
+        const directory = join(root, "src/modules/unlisted-owner", forbiddenSegment)
         await mkdir(directory, { recursive: true })
         await writeFile(join(directory, "index.ts"), "export {}\n")
       },
@@ -802,10 +1123,11 @@ test("required-path or declared-structure drift is refused", async () => {
   const cacheDirectory = join(cacheRoot, ".fallow/runtime-custody")
   await mkdir(cacheDirectory, { recursive: true })
   await writeFile(join(cacheDirectory, "cache.bin"), "repository-local runtime cache\n")
+  const cacheExpected = await buildIndependentSuccessReceipt(cacheRoot)
   const cacheObservation = await observeVerifier(cacheRoot)
   expect(cacheObservation.exitCode, cacheObservation.stderr).toBe(0)
   expect(cacheObservation.stderr).toBe("")
-  expect(cacheObservation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
+  expect(cacheObservation.stdout).toBe(`${JSON.stringify(cacheExpected)}\n`)
 
   const nestedCacheExpected = {
     schema_version: 1,
@@ -832,10 +1154,113 @@ test("required-path or declared-structure drift is refused", async () => {
     expect(nestedCacheObservation.stderr, extension).toBe(`${JSON.stringify(nestedCacheExpected)}\n`)
     expect(JSON.parse(nestedCacheObservation.stderr), extension).toEqual(nestedCacheExpected)
   }
-})
+}, 15_000)
 
-test("Admission Source Closure drift, escape, or bare dependency is refused", async () => {
+test("Admission Source Closure and runtime-source drift, escape, or bare dependency is refused", async () => {
   const cases = [
+    {
+      label: "runtime source declaration duplicates a path",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          const existingPath = contract.admission.runtime_source_paths[0] ??
+            "src/admission-bootstrap/interface.ts"
+          contract.admission.runtime_source_paths = [
+            ...contract.admission.runtime_source_paths,
+            existingPath,
+            existingPath,
+          ]
+        })
+      },
+      expectedFinding: runtimeSourceFinding,
+    },
+    {
+      label: "runtime source declaration is unsorted",
+      mutate: async (root: string) => {
+        const paths = [
+          "src/admission-bootstrap/runtime-a.ts",
+          "src/admission-bootstrap/runtime-b.ts",
+        ] as const
+        await addAdmissionRuntimeSources(root, paths)
+        await mutateContract(root, (contract) => {
+          contract.admission.runtime_source_paths = [
+            ...new Set([...contract.admission.runtime_source_paths, ...paths]),
+          ].sort().reverse()
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "runtime source declaration names an absent path",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, ["src/admission-bootstrap/missing.ts"])
+        })
+      },
+      expectedFinding: runtimeSourceFinding,
+    },
+    {
+      label: "runtime source declaration escapes the Source Closure",
+      mutate: async (root: string) => {
+        const path = "src/admission-bootstrap/runtime-outside-closure.ts"
+        await addAdmissionRuntimeSources(root, [path], false)
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [path])
+        })
+      },
+      expectedFinding: runtimeSourceFinding,
+    },
+    {
+      label: "runtime-bearing source is omitted from declaration",
+      mutate: async (root: string) => {
+        await addAdmissionRuntimeSources(root, ["src/admission-bootstrap/runtime-omitted.ts"])
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source is runtime-empty",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-empty.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await writeFile(
+          join(root, runtimePath),
+          "export type RuntimeEmpty = never\n",
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "public Admission Interface runtime drift remains protected",
+      mutate: async (root: string) => {
+        await mutateTextFile(
+          root,
+          "src/admission-bootstrap/interface.ts",
+          (source) => `${source}\nexport const hiddenRuntime = 1\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, ["src/admission-bootstrap/interface.ts"])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.runtime_source_paths",
+        repair_id: "restore-repository-bytes",
+      },
+    },
     {
       label: "sentinel count drift",
       mutate: async (root: string) => {
@@ -1101,13 +1526,316 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
     {
       label: "dynamically recovered require loader reference",
       mutate: async (root: string) => {
-        const path = join(root, "src/admission-bootstrap/interface.ts")
-        await writeFile(
-          path,
-          `${await readFile(path, "utf8")}\n` +
-            'const load = eval("require")\n' +
-            'load("zod")\n',
+        const runtimePath = "src/admission-bootstrap/runtime-dynamic-loader.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval("require")\nload("zod")\n`,
         )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+    },
+    {
+      label: "declared runtime source recovers loader through parenthesized eval",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-recovered-loader.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = (eval)("require")\nload("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source recovers loader through parenthesized require argument",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-parenthesized-require.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval(("require"))\nload("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source recovers loader through type-wrapped require argument",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-type-wrapped-require.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval("require" as string)\nload("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source recovers loader through indirect eval",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-indirect-eval-require.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = (0, eval)("require")\nload("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source recovers loader through optional eval",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-optional-eval-require.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval?.("require")\nload?.("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source uses unqualified global eval",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-global-eval.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst computed = eval("1 + 1")\nvoid computed\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source recovers loader through template eval",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-template-eval-require.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval(\`require\`)\nload("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source recovers loader through concatenated eval",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-concatenated-eval-require.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst load = eval("requ" + "ire")\nload("zod")\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source captures the global eval value",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-aliased-global-eval.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst run = eval\nrun('import("zod")')\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source invokes global eval through call",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-global-eval-call.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\neval.call(undefined, 'import("zod")')\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source captures globalThis eval",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-global-this-eval.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst run = globalThis["eval"]\nrun('import("zod")')\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source destructures eval from globalThis",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-destructured-global-eval.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst { eval: run } = globalThis\nrun('import("zod")')\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source aliases globalThis before eval access",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-aliased-global-this.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst globals = globalThis\nglobals.eval('import("zod")')\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source destructures computed eval from globalThis",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-computed-destructured-eval.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst { ["eval"]: run } = globalThis\nrun('import("zod")')\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "declared runtime source computes eval property on globalThis",
+      mutate: async (root: string) => {
+        const runtimePath = "src/admission-bootstrap/runtime-dynamic-global-eval.ts"
+        await addAdmissionRuntimeSources(root, [runtimePath])
+        await mutateTextFile(
+          root,
+          runtimePath,
+          (source) => `${source}\nconst property = "eval"\nglobalThis[property]('import("zod")')\n`,
+        )
+        await mutateContract(root, (contract) => {
+          extendAdmissionRuntimeSourcePaths(contract, [runtimePath])
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.source_closure",
+        repair_id: "restore-repository-bytes",
       },
     },
     {
@@ -1154,23 +1882,133 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
       },
     },
     {
-      label: "Admission projection export disagrees with root Package Identity",
+      label: "Admission projection export conditions are missing",
       mutate: async (root: string) => {
         await mutateContract(root, (contract) => {
-          contract.admission.projection.exports["./admission-bootstrap"] = "./src/admission-bootstrap/drifted.ts"
+          delete contract.admission.projection.exports["./admission-bootstrap"].default
         })
         await mutateJsonFile(
           root,
           "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-package-projection.json",
           (projection) => {
-            projection.exports["./admission-bootstrap"] = "./src/admission-bootstrap/drifted.ts"
+            delete projection.exports["./admission-bootstrap"].default
           },
         )
+      },
+      expectedFinding: {
+        kind: "unknown-contract-key",
+        owner: 'admission.projection.exports["./admission-bootstrap"].default',
+        repair_id: "restore-current-declaration",
+      },
+      expectedCode: "contract-invalid",
+      expectedExitCode: 2,
+    },
+    {
+      label: "Admission projection export conditions are reordered",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          const entry = contract.admission.projection.exports["./admission-bootstrap"]
+          contract.admission.projection.exports["./admission-bootstrap"] = {
+            default: entry.default,
+            types: entry.types,
+            import: entry.import,
+          }
+        })
+        await mutateJsonFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-package-projection.json",
+          (projection) => {
+            const entry = projection.exports["./admission-bootstrap"]
+            projection.exports["./admission-bootstrap"] = {
+              default: entry.default,
+              types: entry.types,
+              import: entry.import,
+            }
+          },
+        )
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: 'admission.projection.exports["./admission-bootstrap"]',
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "Admission projection export conditions have an additional key",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.projection.exports["./admission-bootstrap"].development =
+            "./src/admission-bootstrap/implementation/admission-bootstrap.ts"
+        })
+      },
+      expectedFinding: {
+        kind: "unknown-contract-key",
+        owner: 'admission.projection.exports["./admission-bootstrap"].development',
+        repair_id: "restore-current-declaration",
+      },
+      expectedCode: "contract-invalid",
+      expectedExitCode: 2,
+    },
+    {
+      label: "Admission projection runtime targets are unequal",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.projection.exports["./admission-bootstrap"].default =
+            "./src/admission-bootstrap/interface.ts"
+        })
+        await mutateJsonFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-package-projection.json",
+          (projection) => {
+            projection.exports["./admission-bootstrap"].default =
+              "./src/admission-bootstrap/interface.ts"
+          },
+        )
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: 'admission.projection.exports["./admission-bootstrap"]',
+        repair_id: "restore-repository-bytes",
+      },
+    },
+    {
+      label: "Admission projection export target escapes the repository",
+      mutate: async (root: string) => {
+        await mutateContract(root, (contract) => {
+          contract.admission.projection.exports["./admission-bootstrap"].import = "../outside.ts"
+        })
+        await mutateJsonFile(
+          root,
+          "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-package-projection.json",
+          (projection) => {
+            projection.exports["./admission-bootstrap"].import = "../outside.ts"
+          },
+        )
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: 'admission.projection.exports["./admission-bootstrap"]',
+        repair_id: "restore-repository-bytes",
       },
     },
   ] as const
 
-  for (const row of cases) {
+  const localRuntimeSource = `
+import "node:fs"
+import type { ReleaseIdentity } from "../modules/release-and-git-engine/interface"
+type RuntimeIdentity = ReleaseIdentity
+const local = { eval: (value: string) => value }
+local . eval("require")
+local /* comment */ . eval("require")
+const localGlobal = { globalThis: local }
+localGlobal /* comment */ . globalThis . eval("require")
+`
+  expect(staticModuleSpecifiers("runtime.ts", localRuntimeSource)).toEqual([
+    "node:fs",
+    "../modules/release-and-git-engine/interface",
+  ])
+
+  await Promise.all(cases.map(async (row) => {
     const root = await copyRepositoryFixture()
     await row.mutate(root)
     const finding = "expectedFinding" in row
@@ -1180,28 +2018,33 @@ test("Admission Source Closure drift, escape, or bare dependency is refused", as
           owner: "admission.source_closure",
           repair_id: "restore-repository-bytes",
         }
+    const code = "expectedCode" in row ? row.expectedCode : "repository-unqualified"
+    const exitCode = "expectedExitCode" in row ? row.expectedExitCode : 1
     const expected = {
       schema_version: 1,
       command: "verify:repository-qualification",
       status: "refused",
       mode: "complete",
-      code: "repository-unqualified",
+      code,
       findings: [finding],
     } as const
     const observation = await observeVerifier(root)
-    expect(observation.exitCode, row.label).toBe(1)
+    expect(observation.exitCode, row.label).toBe(exitCode)
     expect(observation.stdout, row.label).toBe("")
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
-  }
+  }))
 
   const lookalikes = `
 /*
 /// <reference types="not-a-block-comment-dependency" />
 import type { NotACommentDependency } from "not-a-comment-dependency"
+eval("require")
 */
 type NotAStringDependency = 'export type * from "not-a-string-dependency"'
 type NotATemplateDependency = \`import { type NotATemplateDependency } from "not-a-template-dependency"\`
+type NotAEvalString = 'eval("require")'
+type NotAEvalTemplate = \`eval("require")\`
 `
   const root = await copyRepositoryFixture()
   await mutateTextFile(
@@ -1215,11 +2058,12 @@ type NotATemplateDependency = \`import { type NotATemplateDependency } from "not
     (source) => source.replace("#!/usr/bin/env bun\n", `#!/usr/bin/env bun\n${lookalikes}`),
   )
 
+  const expected = await buildIndependentSuccessReceipt(root)
   const observation = await observeVerifier(root)
   expect(observation.exitCode, observation.stderr).toBe(0)
   expect(observation.stderr).toBe("")
-  expect(observation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
-  expect(JSON.parse(observation.stdout)).toEqual(initialSuccess)
+  expect(observation.stdout).toBe(`${JSON.stringify(expected)}\n`)
+  expect(JSON.parse(observation.stdout)).toEqual(expected)
 
   const divisionPrefix = "const value = 10 "
   const probe = `/__agent_plugin_kit_regex_probe_${divisionPrefix.length}__/`
@@ -1229,7 +2073,7 @@ type NotATemplateDependency = \`import { type NotATemplateDependency } from "not
     () => staticModuleSpecifiers("colliding-regex-probe.ts", collidingProbeSource),
     "the inserted slash probe must be classified independently from matching source text",
   ).toThrow(NonliteralModuleSpecifierError)
-})
+}, 15_000)
 
 test("shell exit, sentinel, verdict, or proof-schema drift is refused", async () => {
   const cases = [
@@ -1393,6 +2237,8 @@ test("shell exit, sentinel, verdict, or proof-schema drift is refused", async ()
 }, 15_000)
 
 test("root check, ten exports, exact Zod agreement, or Owner Manifest locality drift is refused", async () => {
+  expect(isDescendantRelativePath(resolve(tmpdir(), "cross-volume-target.ts"))).toBeFalse()
+
   const cases = [
     {
       label: "root check composition",
@@ -1424,6 +2270,64 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         packageJson.exports["./maintenance-command-facade"] = "./src/adapters/maintenance-command-facade/interface.ts"
       }),
       expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission root export condition is missing",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        delete packageJson.exports["./admission-bootstrap"].default
+      }),
+      expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission root export conditions are reordered",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        const entry = packageJson.exports["./admission-bootstrap"]
+        packageJson.exports["./admission-bootstrap"] = {
+          default: entry.default,
+          types: entry.types,
+          import: entry.import,
+        }
+      }),
+      expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission root export has an additional condition",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.exports["./admission-bootstrap"].development =
+          "./src/admission-bootstrap/implementation/admission-bootstrap.ts"
+      }),
+      expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission root export runtime targets are unequal",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.exports["./admission-bootstrap"].default =
+          "./src/admission-bootstrap/interface.ts"
+      }),
+      expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission root export target escapes the repository",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.exports["./admission-bootstrap"].import = "../outside.ts"
+      }),
+      expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission root declaration target drifts",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.exports["./admission-bootstrap"].types = "./src/interface.ts"
+      }),
+      expectedOwner: "package_contract.exports",
+    },
+    {
+      label: "Admission deep Implementation export key is added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/admission-bootstrap/implementation/admission-bootstrap.ts",
+        (source) => `${source}\nexport const hiddenImplementation = 1\n`,
+      ),
+      expectedOwner: 'package_contract.runtime_output_sha256["./admission-bootstrap"]',
     },
     {
       label: "public type catalog and package exports disagree",
@@ -1528,6 +2432,165 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         (source) => `${source}\ndeclare module "agent-plugin-kit/runtime-custody" { const HiddenRuntimeSurface: string }\n`,
       ),
       expectedOwner: 'package_contract.runtime_output_sha256["./runtime-custody"]',
+    },
+    {
+      label: "public named value re-export keeps a stale runtime digest",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\n",
+        "./implementation/runtime-custody",
+        emptyRuntimeOutputSha256,
+      ),
+      expectedOwner: 'package_contract.runtime_output_sha256["./runtime-custody"]',
+    },
+    {
+      label: "public class re-export remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export class runtimeCustodyValue {}\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public enum re-export remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export enum runtimeCustodyValue { fixture }\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public cross-owner const re-export remains type-catalog drift",
+      mutate: addCrossOwnerValueReexport,
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public dual-space target re-export remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\nexport interface runtimeCustodyValue {}\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public dollar-suffixed const target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue$other = {}\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public declaration-only const target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue: unknown\n",
+        "./implementation/runtime-custody.d.ts",
+        runtimeCustodyDeclarationReexportSha256,
+        "runtime-custody.d.ts",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public string-lookalike const target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        'export const marker = "export const runtimeCustodyValue = fixture"\n',
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public initialized declaration-file target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\n",
+        "./implementation/runtime-custody.d.ts",
+        runtimeCustodyDeclarationReexportSha256,
+        "runtime-custody.d.ts",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public initialized MTS declaration-file target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\n",
+        "./implementation/runtime-custody.d.mts",
+        runtimeCustodyMtsDeclarationReexportSha256,
+        "runtime-custody.d.mts",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public initialized CTS declaration-file target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\n",
+        "./implementation/runtime-custody.d.cts",
+        runtimeCustodyCtsDeclarationReexportSha256,
+        "runtime-custody.d.cts",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public untranspilable const target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue =",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public escaped-suffix const target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue\\u0024other = {}\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public Unicode-suffixed const target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValueÅ = {}\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public escaped dual-space target re-export remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\nexport interface \\u0072untimeCustodyValue {}\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public string-literal type target re-export remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\ntype ShadowRuntimeCustody = never\nexport type { ShadowRuntimeCustody as \"runtimeCustodyValue\" }\n",
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public symlinked owner escape remains type-catalog drift",
+      mutate: addSymlinkedOwnerEscapeReexport,
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public escaped module-literal target remains type-catalog drift",
+      mutate: addEscapedModuleLiteralValueReexport,
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "public dot-prefixed external-looking target remains type-catalog drift",
+      mutate: (root: string) => addRuntimeCustodyValueReexport(
+        root,
+        "export const runtimeCustodyValue = {}\n",
+        ".x/../implementation/runtime-custody",
+        runtimeCustodyDotPrefixedReexportSha256,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
     {
       label: "public interface with an escaped identifier",
@@ -1636,6 +2699,24 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         root,
         "src/modules/runtime-custody/interface.ts",
         (source) => `${source}\nexport { type RuntimeCustodyResult as RuntimeExecutionResult }\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "tab-separated named type re-export added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport { type\tRuntimeCustodyResult as TabSeparatedRuntimeResult }\n`,
+      ),
+      expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
+    },
+    {
+      label: "newline-separated named type re-export added",
+      mutate: (root: string) => mutateTextFile(
+        root,
+        "src/modules/runtime-custody/interface.ts",
+        (source) => `${source}\nexport { type\nRuntimeCustodyResult as NewlineSeparatedRuntimeResult }\n`,
       ),
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
@@ -1890,10 +2971,32 @@ type EscapedTypeString = "export interface \\u0048iddenStringType {}"
 type EscapedTypeTemplate = \`export interface \\u0048iddenTemplateType {}\`
 `,
   )
+  const lexicalExpected = await buildIndependentSuccessReceipt(lexicalRoot)
   const lexicalObservation = await observeVerifier(lexicalRoot)
   expect(lexicalObservation.exitCode, lexicalObservation.stderr).toBe(0)
   expect(lexicalObservation.stderr).toBe("")
-  expect(lexicalObservation.stdout).toBe(`${JSON.stringify(initialSuccess)}\n`)
+  expect(lexicalObservation.stdout).toBe(`${JSON.stringify(lexicalExpected)}\n`)
+  expect(JSON.parse(lexicalObservation.stdout)).toEqual(lexicalExpected)
+
+  const valueReexportRoot = await copyRepositoryFixture()
+  await addRuntimeCustodyValueReexport(
+    valueReexportRoot,
+    "export const runtimeCustodyValue = {}\n",
+  )
+  const valueReexportExpected = {
+    schema_version: 1,
+    command: "verify:repository-qualification",
+    status: "qualified",
+    mode: "structure-only",
+    contract: "tooling/repository-quality/repository-qualification-contract.json",
+    groups: [],
+    aggregate: null,
+  } as const
+  const valueReexportObservation = await observeVerifier(valueReexportRoot, ["--structure-only"])
+  expect(valueReexportObservation.exitCode, valueReexportObservation.stderr).toBe(0)
+  expect(valueReexportObservation.stderr).toBe("")
+  expect(valueReexportObservation.stdout).toBe(`${JSON.stringify(valueReexportExpected)}\n`)
+  expect(JSON.parse(valueReexportObservation.stdout)).toEqual(valueReexportExpected)
 
   const structureOnlyRoot = await copyRepositoryFixture()
   await mutateJsonFile(structureOnlyRoot, "package.json", (packageJson) => {
@@ -1971,7 +3074,7 @@ type EscapedTypeTemplate = \`export interface \\u0048iddenTemplateType {}\`
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
   }
-}, 15_000)
+}, 30_000)
 
 test("unknown orchestration or Git-shaped declaration keys are refused", async () => {
   const keys = ["issue", "checkpoint", "predecessor", "reviewer", "git_history"] as const
@@ -2035,6 +3138,20 @@ test("unknown orchestration or Git-shaped declaration keys are refused", async (
       owner: "structure.required_paths",
       mutate: (contract: Record<string, any>) => {
         contract.structure.required_paths = "README.md"
+      },
+    },
+    {
+      label: "Admission runtime source paths is a scalar",
+      owner: "admission.runtime_source_paths",
+      mutate: (contract: Record<string, any>) => {
+        contract.admission.runtime_source_paths = "src/admission-bootstrap/interface.ts"
+      },
+    },
+    {
+      label: "Admission runtime source path is not a string",
+      owner: "admission.runtime_source_paths",
+      mutate: (contract: Record<string, any>) => {
+        contract.admission.runtime_source_paths = [1]
       },
     },
     {

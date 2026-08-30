@@ -2,6 +2,10 @@
   "name": "agent-plugin-kit",
   "type": "module",
   "exports": {
-    "./admission-bootstrap": "./src/admission-bootstrap/interface.ts"
+    "./admission-bootstrap": {
+      "types": "./src/admission-bootstrap/interface.ts",
+      "import": "./src/admission-bootstrap/implementation/admission-bootstrap.ts",
+      "default": "./src/admission-bootstrap/implementation/admission-bootstrap.ts"
+    }
   }
 }

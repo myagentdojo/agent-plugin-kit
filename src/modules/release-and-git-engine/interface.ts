@@ -32,7 +32,24 @@ export type CandidateIdentity = {
 
 declare const admittedIdentityBrand: unique symbol
 
-export type AdmittedIdentity = CandidateIdentity & {
+export type AdmittedIdentity = {
+  readonly source: {
+    readonly repository: { readonly origin: string }
+    readonly commit: string
+  }
+  readonly release: {
+    readonly reference: string
+    readonly commit: string
+  }
+  readonly package: {
+    readonly repository: { readonly origin: string }
+    readonly commit: string
+  }
+  readonly workflow: {
+    readonly repository: { readonly origin: string }
+    readonly path: string
+    readonly commit: string
+  }
   readonly [admittedIdentityBrand]: true
 }
 
@@ -54,7 +71,7 @@ export type AdmissionRefusal = {
     | "release-pin-mismatch"
     | "package-pin-mismatch"
     | "workflow-pin-mismatch"
-  nextAction: string
+  nextAction: "Correct the mismatched immutable identity observation."
 }
 
 export type PackageObservation = {

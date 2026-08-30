@@ -1,4 +1,3 @@
-import type { AdmissionBootstrap } from "agent-plugin-kit/admission-bootstrap"
 import type { MaintenanceCommands } from "agent-plugin-kit/maintenance-command-contract"
 import type { QualificationEvidence } from "agent-plugin-kit/qualification-evidence"
 import { createHash } from "node:crypto"
@@ -13,14 +12,7 @@ export type InstalledPackageObservation = {
   installedBytesSha256: `sha256:${string}`
 }
 
-type AdmissionEnvironment = { maintenanceState: Uint8Array }
-type AdmissionFactory = (environment: AdmissionEnvironment) => AdmissionBootstrap
-const absentAdmissionFactory = (): AdmissionFactory | undefined => undefined
-const createAdmission = absentAdmissionFactory()
 const admissionDurableBytes = new TextEncoder().encode("clean-fixture:unchanged\n")
-export const admissionBootstrap = createAdmission?.({
-  maintenanceState: admissionDurableBytes,
-})
 export const admissionDurableDigest = () =>
   createHash("sha256").update(admissionDurableBytes).digest("hex")
 export const maintenanceCommands: MaintenanceCommands | undefined = undefined

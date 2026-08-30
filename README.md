@@ -4,8 +4,10 @@ Contracts and maintenance tooling for Agent Plugin repositories, with a
 dependency-free Admission Bootstrap.
 
 The repository currently contains its accepted domain and Repository Topology,
-the Source Tree Interface skeleton, and an intentional RED Contract Test
-scaffold. No Module Implementation or maintenance behaviour has moved here.
+the Source Tree Interface skeleton, and a mixed GREEN and intentional RED
+Contract Test scaffold. Admission Bootstrap is the sole current Package
+Implementation. Every other Module Implementation and all maintenance command
+behaviour remain absent.
 
 ## Start here
 
@@ -21,8 +23,8 @@ Repository Knowledge stays at root and under `docs/`. Package source begins
 under the Source Tree at `src/`. Repository Quality Tooling lives under
 `tooling/repository-quality/`. Independent cross-Module proof begins under
 `clean-fixture/`; it does not own repository policy. Later Contract Tests,
-hosted workflows, and every Implementation path remain deliberately absent
-until their owning gate.
+hosted workflows, and every other Implementation path remain deliberately
+absent until their owning gate.
 
 The accepted language-to-topology rule and complete placement rationale live in
 [`docs/adr/0001-language-to-topology.md`](docs/adr/0001-language-to-topology.md).
@@ -32,17 +34,18 @@ Repository Quality Tooling and Repository Qualification ownership
 lives in
 [`docs/adr/0003-repository-quality-and-verification-transition.md`](docs/adr/0003-repository-quality-and-verification-transition.md).
 
-## Verify the scaffold
+## Verify the current repository
 
 ```sh
 bun run check
 ```
 
-The check validates the current Interface and the exact RED Contract Test
-files, counts, and Admission Proof Layer governed by Repository Quality
-Tooling. The Repository Qualification contract owns current repository-byte
-truth; Clean Fixture remains an independent evidence source. The check refuses
-premature future Contract Tests, hosted workflows, or Implementation paths.
+The check validates the current Interfaces, GREEN Admission proof, remaining
+intentional RED Contract Test files and counts, and the Admission Proof Layer
+governed by Repository Quality Tooling. The Repository Qualification contract
+owns current repository-byte truth; Clean Fixture remains an independent
+evidence source. The check refuses premature future Contract Tests, hosted
+workflows, or Implementation paths.
 
 The product RED selector is:
 

@@ -16,7 +16,11 @@
   },
   "exports": {
     ".": "./src/interface.ts",
-    "./admission-bootstrap": "./src/admission-bootstrap/interface.ts",
+    "./admission-bootstrap": {
+      "types": "./src/admission-bootstrap/interface.ts",
+      "import": "./src/admission-bootstrap/implementation/admission-bootstrap.ts",
+      "default": "./src/admission-bootstrap/implementation/admission-bootstrap.ts"
+    },
     "./plugin-payload-production": "./src/modules/plugin-payload-production/interface.ts",
     "./runtime-custody": "./src/modules/runtime-custody/interface.ts",
     "./release-and-git-engine": "./src/modules/release-and-git-engine/interface.ts",

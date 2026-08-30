@@ -9,7 +9,7 @@ import {
   statSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, extname, join, relative, resolve } from "node:path"
+import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path"
 import {
   NonliteralModuleSpecifierError,
   staticModuleSpecifiers,
@@ -37,6 +37,14 @@ type WorkspaceSelector = BalancedCounts & {
   package_directory: string
   files: readonly string[]
 }
+
+type ConditionalPackageExport = {
+  readonly types: string
+  readonly import: string
+  readonly default: string
+}
+
+type PackageExportTarget = string | ConditionalPackageExport
 
 type ObservedCounts = BalancedCounts & {
   files: number
@@ -79,13 +87,14 @@ type RepositoryQualificationContract = {
     sentinel_count: number
     source_entry: string
     source_closure: readonly string[]
+    runtime_source_paths: readonly string[]
     owner_manifest: string
     consumer_fixture: string
     projection_fixture: string
     projection: {
       name: string
       type: string
-      exports: Readonly<Record<string, string>>
+      exports: Readonly<Record<string, PackageExportTarget>>
     }
     forbidden_self_reports: readonly string[]
     self_report_files: readonly string[]
@@ -98,7 +107,7 @@ type RepositoryQualificationContract = {
     type: string
     package_manager: string
     workspaces: readonly string[]
-    exports: Readonly<Record<string, string>>
+    exports: Readonly<Record<string, PackageExportTarget>>
     type_exports: Readonly<Record<string, readonly string[]>>
     runtime_output_sha256: Readonly<Record<string, string>>
     bin: Readonly<Record<string, string>>
@@ -180,6 +189,13 @@ class QualificationRefusal extends Error {
 const repositoryRoot = resolve(import.meta.dir, "../..")
 const contractPath = resolve(repositoryRoot, "tooling/repository-quality/repository-qualification-contract.json")
 const repositoryQualityModuleSpecifierPath = "tooling/repository-quality/static-module-specifiers.ts"
+const admissionInterfacePath = "src/admission-bootstrap/interface.ts"
+const admissionImplementationPath = "src/admission-bootstrap/implementation/admission-bootstrap.ts"
+const admissionSourceClosure = [
+  admissionImplementationPath,
+  admissionInterfacePath,
+  "src/modules/release-and-git-engine/interface.ts",
+] as const
 const knownFailureClasses = new Set(["contract-absent"])
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
 let activeMode: "complete" | "structure-only" = "complete"
@@ -505,11 +521,11 @@ function contextMapRoutePresent(
   return row?.includes(route.term) === true && row.includes(route.path)
 }
 
-function admissionDrift(): never {
+function admissionDrift(owner = "admission.source_closure"): never {
   return refuseRepository(
     "repository-unqualified",
     "admission-closure-drift",
-    "admission.source_closure",
+    owner,
     "restore-repository-bytes",
   )
 }
@@ -548,12 +564,19 @@ function discoverAdmissionSourceClosure(entry: string): string[] {
 
 function verifyAdmission(contract: RepositoryQualificationContract): void {
   const admission = contract.admission
+  if (admission.source_entry !== admissionImplementationPath) admissionDrift("admission.source_entry")
+  if (JSON.stringify(admission.source_closure) !== JSON.stringify(admissionSourceClosure)) {
+    admissionDrift("admission.source_closure")
+  }
+  if (JSON.stringify(admission.runtime_source_paths) !== JSON.stringify([admissionImplementationPath])) {
+    admissionDrift("admission.runtime_source_paths")
+  }
   verifyFirstGreenImplementationTransition(admission.first_green_implementation_transition)
   verifyAdmissionSentinel(admission)
   verifyAdmissionSelfReports(admission.forbidden_self_reports, admission.self_report_files)
   verifyAdmissionManifest(admission.owner_manifest)
   verifyAdmissionClosure(admission.source_entry, admission.source_closure)
-  verifyAdmissionProductionSources()
+  verifyAdmissionProductionSources(admission.runtime_source_paths, admission.source_closure)
   verifyAdmissionProjection(admission.projection_fixture, admission.projection, contract.package_contract)
   verifyAdmissionConsumer(admission.consumer_fixture)
   verifyAdmissionNonClaims(admission.non_claims)
@@ -566,6 +589,7 @@ function verifyFirstGreenImplementationTransition(rule: string): void {
 
 function verifyAdmissionNonClaims(nonClaims: readonly string[]): void {
   const expected = [
+    "hosted Candidate Lineage",
     "installed dependency freedom",
     "distribution",
     "linker semantics",
@@ -642,17 +666,82 @@ function verifyAdmissionClosure(entry: string, expected: readonly string[]): voi
   if (JSON.stringify(closure) !== JSON.stringify([...expected].sort())) admissionDrift()
 }
 
-function verifyAdmissionProductionSources(): void {
+function verifyAdmissionProductionSources(
+  runtimeSourcePaths: readonly string[],
+  sourceClosure: readonly string[],
+): void {
   const sources = repositoryEntries(
     resolve(repositoryRoot, "src/admission-bootstrap"),
     "src/admission-bootstrap",
     (name) => name.endsWith(".ts"),
   ).filter((path) => !path.includes("/contract-tests/"))
+  const runtimeSourceSet = new Set(runtimeSourcePaths)
+  verifyAdmissionRuntimeSourcePaths(runtimeSourcePaths, sourceClosure, sources, runtimeSourceSet)
   for (const file of sources) {
-    const source = readFileSync(resolve(repositoryRoot, file), "utf8")
-    if (typescriptRuntimeCode(source).trim() !== "") admissionDrift()
-    if (sourceSpecifiers(file, source).some(isForbiddenAdmissionSpecifier)) admissionDrift()
+    verifyAdmissionProductionSource(file, runtimeSourceSet)
   }
+}
+
+function verifyAdmissionRuntimeSourcePaths(
+  runtimeSourcePaths: readonly string[],
+  sourceClosure: readonly string[],
+  sources: readonly string[],
+  runtimeSourceSet: ReadonlySet<string>,
+): void {
+  if (runtimeSourceSet.size !== runtimeSourcePaths.length) admissionDrift("admission.runtime_source_paths")
+  if (JSON.stringify([...runtimeSourcePaths].sort()) !== JSON.stringify(runtimeSourcePaths)) {
+    admissionDrift("admission.runtime_source_paths")
+  }
+  if (runtimeSourcePaths.some((path) => isAdmissionRuntimeSourcePathInvalid(path, sourceClosure, sources))) {
+    admissionDrift("admission.runtime_source_paths")
+  }
+}
+
+function isAdmissionRuntimeSourcePathInvalid(
+  path: string,
+  sourceClosure: readonly string[],
+  sources: readonly string[],
+): boolean {
+  return !sources.includes(path) || !sourceClosure.includes(path)
+}
+
+function verifyAdmissionProductionSource(
+  file: string,
+  runtimeSourceSet: ReadonlySet<string>,
+): void {
+  const source = readFileSync(resolve(repositoryRoot, file), "utf8")
+  if (sourceSpecifiers(file, source).some(isForbiddenAdmissionSpecifier)) admissionDrift()
+  const hasRuntime = typescriptRuntimeCode(source).trim() !== ""
+  if (hasRuntime !== runtimeSourceSet.has(file)) admissionDrift("admission.runtime_source_paths")
+  if (hasGlobalEvalReference(source)) admissionDrift()
+}
+
+function hasGlobalEvalReference(source: string): boolean {
+  const normalizedSource = typescriptRuntimeCode(source)
+  const code = typescriptLexicalCode(normalizedSource)
+  if (hasUnqualifiedGlobalObjectReference(code)) return true
+  return [...code.matchAll(/\beval\b/g)].some((match) => {
+    const index = match.index
+    return index !== undefined && isGlobalEvalIdentifier(code, index)
+  })
+}
+
+function isGlobalEvalIdentifier(code: string, index: number): boolean {
+  if (/^\s*:/.test(code.slice(index + "eval".length))) return false
+  return isUnqualifiedIdentifier(code, index)
+}
+
+function hasUnqualifiedGlobalObjectReference(code: string): boolean {
+  return [...code.matchAll(/\b(?:globalThis|global)\b/g)].some((match) => {
+    const index = match.index
+    if (index === undefined || /^\s*:/.test(code.slice(index + match[0].length))) return false
+    return isUnqualifiedIdentifier(code, index)
+  })
+}
+
+function isUnqualifiedIdentifier(code: string, index: number): boolean {
+  const prefix = code.slice(0, index).trimEnd()
+  return !prefix.endsWith(".") && !prefix.endsWith("#")
 }
 
 function isForbiddenAdmissionSpecifier(specifier: string): boolean {
@@ -667,6 +756,13 @@ function verifyAdmissionProjection(
   const projection = JSON.parse(readFileSync(resolve(repositoryRoot, path), "utf8")) as unknown
   if (JSON.stringify(projection) !== JSON.stringify(expected)) admissionDrift()
   const publicEntry = packageContract.exports["./admission-bootstrap"]
+  verifyAdmissionExportConditions(
+    publicEntry,
+    "package_contract.exports[\"./admission-bootstrap\"]",
+    packageDrift,
+  )
+  const projectionEntry = expected.exports["./admission-bootstrap"]
+  verifyAdmissionExportConditions(projectionEntry, "admission.projection.exports[\"./admission-bootstrap\"]")
   const agreements = [
     expected.name === packageContract.name,
     expected.type === packageContract.type,
@@ -674,6 +770,24 @@ function verifyAdmissionProjection(
     JSON.stringify(expected.exports) === JSON.stringify({ "./admission-bootstrap": publicEntry }),
   ]
   if (agreements.includes(false)) admissionDrift()
+}
+
+function verifyAdmissionExportConditions(
+  value: PackageExportTarget | undefined,
+  owner: string,
+  drift: (owner: string) => never = admissionDrift,
+): asserts value is ConditionalPackageExport {
+  if (value === undefined || typeof value === "string") drift(owner)
+  if (JSON.stringify(Object.keys(value)) !== JSON.stringify(["types", "import", "default"])) {
+    drift(owner)
+  }
+  if (
+    value.types !== `./${admissionInterfacePath}` ||
+    value.import !== `./${admissionImplementationPath}` ||
+    value.default !== value.import
+  ) {
+    drift(owner)
+  }
 }
 
 function verifyAdmissionConsumer(path: string): void {
@@ -721,16 +835,28 @@ const unsupportedPublicTypePatterns = [
 ]
 const publicTypeIdentifier = /^[$A-Z_a-z][$\w]*$/
 const namedTypeExport = /^(?:type\s+)?([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
+const namedValueExport = /^([$A-Z_a-z][$\w]*)(?:\s+as\s+([$A-Z_a-z][$\w]*))?$/
+const directRuntimeConstDeclaration = /\bexport\s+const\s+([$A-Z_a-z][$\w]*)\s*=/g
+const declarationTypeScriptFile = /\.d\.(?:c|m)?ts$/
+const supportedRelativeReexport = /^(?:\.\/|\.\.\/)[^\\]+$/
+const descendantRelativePath = /^(?!\.\.(?:\/|$)).+$/
 
 type LocatedPublicTypeExport = {
   readonly index: number
   readonly name: string
 }
 
-function namedPublicTypeExports(match: RegExpMatchArray): LocatedPublicTypeExport[] {
+function namedPublicTypeExports(
+  path: string,
+  source: string,
+  match: RegExpMatchArray,
+): LocatedPublicTypeExport[] {
   const allTypeOnly = match[1] !== undefined
   const block = match[2] ?? ""
-  return block.split(",").flatMap((entry) => namedPublicTypeExport(entry, allTypeOnly, match.index ?? 0))
+  const specifier = publicReexportSpecifier(source, match)
+  return block.split(",").flatMap((entry) =>
+    namedPublicTypeExport(path, entry, allTypeOnly, specifier, match.index ?? 0)
+  )
 }
 
 function directPublicTypeExport(match: RegExpMatchArray): LocatedPublicTypeExport {
@@ -742,20 +868,131 @@ function directPublicTypeExport(match: RegExpMatchArray): LocatedPublicTypeExpor
 }
 
 function namedPublicTypeExport(
+  path: string,
   entry: string,
   allTypeOnly: boolean,
+  specifier: string | undefined,
   index: number,
 ): LocatedPublicTypeExport[] {
   const normalized = entry.trim()
   if (normalized === "") return []
-  if (isValueNamedExport(normalized, allTypeOnly)) throw new PublicTypeExportParseError()
-  const parsed = normalized.match(namedTypeExport)
+  const name = namedPublicTypeExportName(path, normalized, allTypeOnly, specifier)
+  return name === undefined ? [] : [{ index, name }]
+}
+
+function namedPublicTypeExportName(
+  path: string,
+  entry: string,
+  allTypeOnly: boolean,
+  specifier: string | undefined,
+): string | undefined {
+  if (isValueNamedExport(entry, allTypeOnly)) return supportedNamedValueReexport(path, entry, specifier)
+  const parsed = entry.match(namedTypeExport)
   if (parsed === null) throw new PublicTypeExportParseError()
-  return [{ index, name: publicTypeExportName(parsed) }]
+  return publicTypeExportName(parsed)
+}
+
+function supportedNamedValueReexport(
+  path: string,
+  entry: string,
+  specifier: string | undefined,
+): undefined {
+  if (!isSupportedConstValueReexport(path, entry, specifier)) {
+    throw new PublicTypeExportParseError()
+  }
+}
+
+function publicReexportSpecifier(source: string, match: RegExpMatchArray): string | undefined {
+  const end = (match.index ?? 0) + match[0].length
+  const parsed = source.slice(end).match(/^\s+from\s*(["'])([^"']+)\1/)
+  return parsed?.[2]
 }
 
 function isValueNamedExport(entry: string, allTypeOnly: boolean): boolean {
-  return !allTypeOnly && !entry.startsWith("type ")
+  return !allTypeOnly && !/^type\s+/.test(entry)
+}
+
+function isSupportedConstValueReexport(
+  exporterPath: string,
+  entry: string,
+  specifier: string | undefined,
+): boolean {
+  const reexport = localValueReexport(entry, specifier)
+  if (reexport === undefined) return false
+  const target = resolvePublicReexportTarget(exporterPath, reexport.specifier)
+  if (target === undefined) return false
+  return directlyExportsValueOnlyConst(target, reexport.sourceName)
+}
+
+function localValueReexport(
+  entry: string,
+  specifier: string | undefined,
+): { readonly sourceName: string; readonly specifier: string } | undefined {
+  const localSpecifier = relativeReexportSpecifier(specifier)
+  if (localSpecifier === undefined) return undefined
+  const sourceName = namedValueExportSourceName(entry)
+  if (sourceName === undefined) return undefined
+  return { sourceName, specifier: localSpecifier }
+}
+
+function relativeReexportSpecifier(specifier: string | undefined): string | undefined {
+  return specifier !== undefined && supportedRelativeReexport.test(specifier) ? specifier : undefined
+}
+
+function namedValueExportSourceName(entry: string): string | undefined {
+  const parsed = entry.match(namedValueExport)
+  return parsed === null ? undefined : parsed[1]
+}
+
+function directlyExportsValueOnlyConst(target: string, sourceName: string): boolean {
+  if (declarationTypeScriptFile.test(target)) return false
+  const source = readFileSync(target, "utf8")
+  const code = typescriptLexicalCode(source)
+  const targetPath = relative(repositoryRoot, target).replaceAll("\\", "/")
+  const publicTypes = locatedPublicTypeExports(targetPath, source, code).map(({ name }) => name)
+  let runtimeCode: string
+  try {
+    runtimeCode = typescriptLexicalCode(typescriptRuntimeCode(source))
+  } catch {
+    return false
+  }
+  const sourceDeclarations = topLevelMatches(runtimeCode, directRuntimeConstDeclaration)
+    .filter((match) => match[1] === sourceName)
+  return sourceDeclarations.length === 1 && !publicTypes.includes(sourceName)
+}
+
+function resolvePublicReexportTarget(exporterPath: string, specifier: string): string | undefined {
+  const unresolved = resolve(dirname(resolve(repositoryRoot, exporterPath)), specifier)
+  const resolved = admissionCandidates(unresolved).find(isFile)
+  if (resolved === undefined) return undefined
+  const implementationRoot = ownerImplementationRoot(exporterPath)
+  if (implementationRoot === undefined) return undefined
+  const absolute = realpathSync(resolved)
+  return pathInside(implementationRoot, absolute)
+}
+
+function pathInside(root: string, target: string): string | undefined {
+  const nativeRelativeTarget = relative(root, target)
+  return isDescendantRelativePath(nativeRelativeTarget) ? target : undefined
+}
+
+export function isDescendantRelativePath(nativeRelativeTarget: string): boolean {
+  return !isAbsolute(nativeRelativeTarget) &&
+    descendantRelativePath.test(nativeRelativeTarget.replaceAll("\\", "/"))
+}
+
+function ownerImplementationRoot(exporterPath: string): string | undefined {
+  const ownerRoot = realDirectory(dirname(resolve(repositoryRoot, exporterPath)))
+  if (ownerRoot === undefined) return undefined
+  const implementationRoot = realDirectory(resolve(ownerRoot, "implementation"))
+  if (implementationRoot === undefined) return undefined
+  return pathInside(ownerRoot, implementationRoot)
+}
+
+function realDirectory(path: string): string | undefined {
+  if (!existsSync(path)) return undefined
+  const absolute = realpathSync(path)
+  return statSync(absolute).isDirectory() ? absolute : undefined
 }
 
 function publicTypeExportName(match: RegExpMatchArray): string {
@@ -772,19 +1009,25 @@ function topLevelMatches(code: string, pattern: RegExp): RegExpMatchArray[] {
   return [...code.matchAll(pattern)].filter((match) => isTopLevelMatch(code, match))
 }
 
-function locatedPublicTypeExports(code: string): LocatedPublicTypeExport[] {
+function locatedPublicTypeExports(
+  path: string,
+  source: string,
+  code: string,
+): LocatedPublicTypeExport[] {
   if (unsupportedPublicTypePatterns.some((pattern) => topLevelMatches(code, pattern).length > 0)) {
     throw new PublicTypeExportParseError()
   }
   const direct = topLevelMatches(code, directPublicTypeDeclaration).map(directPublicTypeExport)
-  const named = topLevelMatches(code, namedPublicTypeExportBlock).flatMap(namedPublicTypeExports)
+  const named = topLevelMatches(code, namedPublicTypeExportBlock).flatMap((match) =>
+    namedPublicTypeExports(path, source, match)
+  )
   return [...direct, ...named].sort((left, right) => left.index - right.index)
 }
 
 function publicTypeExports(path: string): string[] {
   const source = readFileSync(resolve(repositoryRoot, path), "utf8")
   const code = typescriptLexicalCode(source)
-  return [...new Set(locatedPublicTypeExports(code).map(({ name }) => name))]
+  return [...new Set(locatedPublicTypeExports(path, source, code).map(({ name }) => name))]
 }
 
 function runtimeOutputSha256(path: string): string {
@@ -820,8 +1063,41 @@ function verifyPublicTypeExports(
     packageDrift("package_contract.runtime_output_sha256")
   }
   for (const [subpath, target] of Object.entries(expected.exports)) {
-    verifyPublicTypeExport(subpath, target, expected.type_exports[subpath])
-    verifyPublicRuntimeOutput(subpath, target, expected.runtime_output_sha256[subpath])
+    const targets = publicExportTargets(subpath, target)
+    verifyPublicTypeExport(subpath, targets.types, expected.type_exports[subpath])
+    verifyPublicRuntimeOutput(subpath, targets.runtime, expected.runtime_output_sha256[subpath])
+  }
+}
+
+function publicExportTargets(
+  subpath: string,
+  target: PackageExportTarget,
+): { readonly types: string; readonly runtime: string } {
+  if (typeof target === "string") {
+    verifyPublicTargetPath(target, `package_contract.exports[${JSON.stringify(subpath)}]`)
+    return { types: target, runtime: target }
+  }
+  verifyAdmissionExportConditions(
+    target,
+    `package_contract.exports[${JSON.stringify(subpath)}]`,
+    packageDrift,
+  )
+  if (subpath !== "./admission-bootstrap") {
+    packageDrift(`package_contract.exports[${JSON.stringify(subpath)}]`)
+  }
+  verifyPublicTargetPath(target.types, `package_contract.exports[${JSON.stringify(subpath)}].types`)
+  verifyPublicTargetPath(target.import, `package_contract.exports[${JSON.stringify(subpath)}].import`)
+  return { types: target.types, runtime: target.import }
+}
+
+function verifyPublicTargetPath(target: string, owner: string): void {
+  try {
+    if (isAbsolute(target)) packageDrift(owner)
+    const absolute = realpathSync(resolve(repositoryRoot, target))
+    const relativeTarget = relative(realpathSync(repositoryRoot), absolute).replaceAll("\\", "/")
+    if (!isDescendantRelativePath(relativeTarget) || !statSync(absolute).isFile()) packageDrift(owner)
+  } catch {
+    packageDrift(owner)
   }
 }
 
@@ -1167,7 +1443,7 @@ function validatePackageContractRecord(value: unknown): void {
   contractString(contract.type, "package_contract.type")
   contractString(contract.package_manager, "package_contract.package_manager")
   contractStringArray(contract.workspaces, "package_contract.workspaces")
-  contractStringRecord(contract.exports, "package_contract.exports")
+  validatePackageExportRecord(contract.exports, "package_contract.exports")
   contractStringArrayRecord(contract.type_exports, "package_contract.type_exports")
   contractStringRecord(contract.runtime_output_sha256, "package_contract.runtime_output_sha256")
   contractStringRecord(contract.bin, "package_contract.bin")
@@ -1248,6 +1524,7 @@ function validateAdmissionRecord(value: unknown): void {
     "sentinel_count",
     "source_entry",
     "source_closure",
+    "runtime_source_paths",
     "owner_manifest",
     "consumer_fixture",
     "projection_fixture",
@@ -1263,6 +1540,7 @@ function validateAdmissionRecord(value: unknown): void {
   contractInteger(admission.sentinel_count, "admission.sentinel_count")
   contractString(admission.source_entry, "admission.source_entry")
   contractStringArray(admission.source_closure, "admission.source_closure")
+  contractStringArray(admission.runtime_source_paths, "admission.runtime_source_paths")
   contractString(admission.owner_manifest, "admission.owner_manifest")
   contractString(admission.consumer_fixture, "admission.consumer_fixture")
   contractString(admission.projection_fixture, "admission.projection_fixture")
@@ -1272,7 +1550,18 @@ function validateAdmissionRecord(value: unknown): void {
   const projection = exactRecord(admission.projection, "admission.projection", ["name", "type", "exports"])
   contractString(projection.name, "admission.projection.name")
   contractString(projection.type, "admission.projection.type")
-  contractStringRecord(projection.exports, "admission.projection.exports")
+  validatePackageExportRecord(projection.exports, "admission.projection.exports")
+}
+
+function validatePackageExportRecord(value: unknown, owner: string): void {
+  const record = contractRecord(value, owner)
+  for (const [key, target] of Object.entries(record)) {
+    if (typeof target === "string") continue
+    const conditional = exactRecord(target, `${owner}[${JSON.stringify(key)}]`, ["types", "import", "default"])
+    contractString(conditional.types, `${owner}[${JSON.stringify(key)}].types`)
+    contractString(conditional.import, `${owner}[${JSON.stringify(key)}].import`)
+    contractString(conditional.default, `${owner}[${JSON.stringify(key)}].default`)
+  }
 }
 
 function validateShellRecords(value: unknown): void {
@@ -1876,14 +2165,16 @@ function run(): void {
   process.stdout.write(`${JSON.stringify(qualificationReceipt(mode, observation))}\n`)
 }
 
-try {
-  run()
-} catch (error) {
-  if (error instanceof QualificationRefusal) {
-    writeRefusal(error)
-  } else {
-    writeRefusal(new QualificationRefusal("proof-process-failed", activeMode, [
-      { kind: "proof-process-failed", owner: "verifier", repair_id: "repair-proof-process" },
-    ]))
+if (import.meta.main) {
+  try {
+    run()
+  } catch (error) {
+    if (error instanceof QualificationRefusal) {
+      writeRefusal(error)
+    } else {
+      writeRefusal(new QualificationRefusal("proof-process-failed", activeMode, [
+        { kind: "proof-process-failed", owner: "verifier", repair_id: "repair-proof-process" },
+      ]))
+    }
   }
 }

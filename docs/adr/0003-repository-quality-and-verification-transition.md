@@ -14,6 +14,49 @@ It may supply public-process and cross-Module evidence to Repository
 Qualification, but it does not own repository structure, permitted path
 changes, group counts, or transition policy.
 
+## Admission Public Subpath Condition Split
+
+The accepted Admission Bootstrap public Seam uses one conditional package
+subpath rather than making `interface.ts` executable:
+
+```json
+{
+  "./admission-bootstrap": {
+    "types": "./src/admission-bootstrap/interface.ts",
+    "import": "./src/admission-bootstrap/implementation/admission-bootstrap.ts",
+    "default": "./src/admission-bootstrap/implementation/admission-bootstrap.ts"
+  }
+}
+```
+
+Repository Qualification owns this condition split through
+`repository-qualification-contract.json`,
+`verify-repository-qualification.ts`, its owner-local Contract Tests, and the
+Clean Fixture `admission-package-projection.json`.
+
+The declaration and verifier must:
+
+- preserve the exact ordered `types`, `import`, and `default` conditions;
+- require `import` and `default` to resolve to the same private runtime target;
+- discover public types only from the `types` target;
+- preserve the exact runtime catalog: the root is empty, Admission exports
+  exactly `admissionBootstrap`, Qualification Evidence preserves
+  `VerificationProfile`, and the other seven named subpaths are empty;
+- hash the Admission runtime target independently from its declaration target;
+- derive this exact three-file Admission Source Closure from the runtime
+  target: `src/admission-bootstrap/implementation/admission-bootstrap.ts`,
+  `src/admission-bootstrap/interface.ts`, and
+  `src/modules/release-and-git-engine/interface.ts`; classify only the private
+  Admission Implementation as runtime source; keep
+  `src/admission-bootstrap/package.json` separately in `owner_manifest`, not in
+  `source_closure`; and require the Clean Fixture `copiedClosure` observation to
+  equal those three Source Tree paths in sorted order; and
+- reject a missing, reordered, additional, or escaped condition or target,
+  runtime-value drift, and every additional deep-Implementation export key.
+
+This is current repository-byte truth only. It gives Repository Qualification
+no ticket, worktree, review, integration, or progression authority.
+
 ## Consequences
 
 - `tooling/repository-quality/` remains one repository-level Module rather

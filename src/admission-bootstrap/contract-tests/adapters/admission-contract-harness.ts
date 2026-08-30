@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { admissionBootstrap } from "../../implementation/admission-bootstrap"
 import type { AdmissionBootstrap } from "../../interface"
 
 export function createAdmissionContractHarness(
@@ -8,7 +9,7 @@ export function createAdmissionContractHarness(
   const environment = {
     maintenanceState: durableBytes,
   }
-  const bootstrap = assemble?.(environment)
+  const bootstrap = assemble?.(environment) ?? admissionBootstrap
 
   return {
     bootstrap,
