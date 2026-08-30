@@ -641,6 +641,8 @@
       "audit:maintenance-cli": "bun run clean-fixture/audit-maintenance-cli.ts",
       "verify:maintenance-cli:local-link": "bun run clean-fixture/verify-maintenance-cli-local-link.ts"
     },
+    "dependencies": {},
+    "root_mirrored_dependencies": [],
     "dev_dependencies": {
       "@biomejs/biome": "2.4.15",
       "@types/bun": "1.4.0",
@@ -658,7 +660,8 @@
       "private": true,
       "type": "module",
       "exports": {".": "./interface.ts"},
-      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+      "dependencies": {},
+      "empty_dependency_fields": ["devDependencies", "optionalDependencies", "peerDependencies"]
     },
     "maintenance_facade": {
       "path": "src/adapters/maintenance-command-facade/package.json",
@@ -666,7 +669,8 @@
       "private": true,
       "type": "module",
       "exports": {".": "./interface.ts"},
-      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+      "dependencies": {},
+      "empty_dependency_fields": ["devDependencies", "optionalDependencies", "peerDependencies"]
     },
     "reusable_workflow_adapter": {
       "path": "src/adapters/reusable-workflow-adapter/package.json",
@@ -674,7 +678,8 @@
       "private": true,
       "type": "module",
       "exports": {".": "./interface.ts"},
-      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+      "dependencies": {},
+      "empty_dependency_fields": ["devDependencies", "optionalDependencies", "peerDependencies"]
     },
     "canary_qualification": {
       "path": "src/modules/canary-qualification/package.json",
@@ -682,7 +687,8 @@
       "private": true,
       "type": "module",
       "exports": {".": "./interface.ts"},
-      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+      "dependencies": {},
+      "empty_dependency_fields": ["devDependencies", "optionalDependencies", "peerDependencies"]
     },
     "harness_journeys": {
       "path": "src/modules/harness-journeys/package.json",
@@ -690,7 +696,8 @@
       "private": true,
       "type": "module",
       "exports": {".": "./interface.ts"},
-      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+      "dependencies": {},
+      "empty_dependency_fields": ["devDependencies", "optionalDependencies", "peerDependencies"]
     },
     "maintenance_command_contract": {
       "path": "src/modules/maintenance-command-contract/package.json",
@@ -698,7 +705,8 @@
       "private": true,
       "type": "module",
       "exports": {".": "./interface.ts"},
-      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+      "dependencies": {},
+      "empty_dependency_fields": ["devDependencies", "optionalDependencies", "peerDependencies"]
     },
     "plugin_payload_production": {
       "path": "src/modules/plugin-payload-production/package.json",
@@ -706,7 +714,8 @@
       "private": true,
       "type": "module",
       "exports": {".": "./interface.ts"},
-      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+      "dependencies": {},
+      "empty_dependency_fields": ["devDependencies", "optionalDependencies", "peerDependencies"]
     },
     "qualification_evidence": {
       "path": "src/modules/qualification-evidence/package.json",
@@ -714,7 +723,8 @@
       "private": true,
       "type": "module",
       "exports": {".": "./interface.ts"},
-      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+      "dependencies": {},
+      "empty_dependency_fields": ["devDependencies", "optionalDependencies", "peerDependencies"]
     },
     "release_and_git_engine": {
       "path": "src/modules/release-and-git-engine/package.json",
@@ -722,7 +732,8 @@
       "private": true,
       "type": "module",
       "exports": {".": "./interface.ts"},
-      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+      "dependencies": {},
+      "empty_dependency_fields": ["devDependencies", "optionalDependencies", "peerDependencies"]
     },
     "runtime_custody": {
       "path": "src/modules/runtime-custody/package.json",
@@ -730,7 +741,8 @@
       "private": true,
       "type": "module",
       "exports": {".": "./interface.ts"},
-      "empty_dependency_fields": ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+      "dependencies": {},
+      "empty_dependency_fields": ["devDependencies", "optionalDependencies", "peerDependencies"]
     }
   },
   "repository_quality_tests": [

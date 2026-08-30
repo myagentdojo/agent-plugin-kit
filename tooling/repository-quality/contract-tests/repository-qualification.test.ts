@@ -1366,6 +1366,11 @@ test("Admission Source Closure and runtime-source drift, escape, or bare depende
           packageJson.dependencies = []
         })
       },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.owner_manifest",
+        repair_id: "restore-repository-bytes",
+      },
     },
     {
       label: "type-only star dependency export",
@@ -2803,6 +2808,101 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: "package_contract.dependencies",
     },
     {
+      label: "root production dependency drift",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.dependencies = { "undeclared-root-dependency": "1.0.0" }
+      }),
+      expectedOwner: "package_contract.dependencies",
+    },
+    {
+      label: "root production dependency range",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.dependencies = { "undeclared-root-dependency": "^1.0.0" }
+      }),
+      expectedOwner: "package_contract.dependencies",
+    },
+    {
+      label: "root production dependency alias",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.dependencies = { "undeclared-root-dependency": "npm:zod@4.4.3" }
+      }),
+      expectedOwner: "package_contract.dependencies",
+    },
+    {
+      label: "root production dependency protocol",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.dependencies = { "undeclared-root-dependency": "workspace:*" }
+      }),
+      expectedOwner: "package_contract.dependencies",
+    },
+    {
+      label: "root production dependency empty version",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.dependencies = { "undeclared-root-dependency": "" }
+      }),
+      expectedOwner: "package_contract.dependencies",
+    },
+    {
+      label: "root production dependency non-string version",
+      mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
+        packageJson.dependencies = { "undeclared-root-dependency": 1 }
+      }),
+      expectedOwner: "package_contract.dependencies",
+    },
+    {
+      label: "root production dependency has no owner",
+      mutate: async (root: string) => {
+        await mutateJsonFile(root, "package.json", (packageJson) => {
+          packageJson.dependencies = { "unowned-dependency": "1.0.0" }
+        })
+        await mutateContract(root, (contract) => {
+          contract.package_contract.dependencies = { "unowned-dependency": "1.0.0" }
+        })
+      },
+      expectedOwner: 'package_contract.dependencies["unowned-dependency"]',
+    },
+    {
+      label: "root and owner production dependency versions disagree",
+      mutate: async (root: string) => {
+        await mutateJsonFile(root, "package.json", (packageJson) => {
+          packageJson.dependencies = { zod: "4.4.3" }
+        })
+        await mutateJsonFile(
+          root,
+          "src/modules/qualification-evidence/package.json",
+          (packageJson) => {
+            packageJson.dependencies = { zod: "4.4.2" }
+          },
+        )
+        await mutateContract(root, (contract) => {
+          contract.package_contract.dependencies = { zod: "4.4.3" }
+          contract.package_contract.forbidden_dependency_names =
+            contract.package_contract.forbidden_dependency_names.filter((name: string) => name !== "zod")
+          contract.owner_manifests.qualification_evidence.dependencies = { zod: "4.4.2" }
+        })
+      },
+      expectedOwner: 'package_contract.dependencies["zod"]',
+    },
+    {
+      label: "root-mirrored production dependency is missing from root",
+      mutate: async (root: string) => {
+        await mutateJsonFile(
+          root,
+          "src/modules/qualification-evidence/package.json",
+          (packageJson) => {
+            packageJson.dependencies = { zod: "4.4.3" }
+          },
+        )
+        await mutateContract(root, (contract) => {
+          contract.package_contract.root_mirrored_dependencies = ["zod"]
+          contract.package_contract.forbidden_dependency_names =
+            contract.package_contract.forbidden_dependency_names.filter((name: string) => name !== "zod")
+          contract.owner_manifests.qualification_evidence.dependencies = { zod: "4.4.3" }
+        })
+      },
+      expectedOwner: 'package_contract.root_mirrored_dependencies["zod"]',
+    },
+    {
       label: "SideQuest dependency",
       mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
         packageJson.dependencies = { "@sidequest/core": "1.0.0" }
@@ -2840,6 +2940,72 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
         },
       ),
       expectedOwner: "owner_manifests.maintenance_facade",
+    },
+    {
+      label: "owner production dependency range",
+      mutate: (root: string) => mutateJsonFile(
+        root,
+        "src/modules/runtime-custody/package.json",
+        (packageJson) => {
+          packageJson.dependencies = { "undeclared-owner-dependency": "~1.0.0" }
+        },
+      ),
+      expectedOwner: "owner_manifests.runtime_custody",
+    },
+    {
+      label: "owner production dependency non-string version",
+      mutate: (root: string) => mutateJsonFile(
+        root,
+        "src/modules/runtime-custody/package.json",
+        (packageJson) => {
+          packageJson.dependencies = { "undeclared-owner-dependency": 1 }
+        },
+      ),
+      expectedOwner: "owner_manifests.runtime_custody",
+    },
+    {
+      label: "shared owner-only dependency versions disagree",
+      mutate: async (root: string) => {
+        await mutateJsonFile(
+          root,
+          "src/adapters/maintenance-command-facade/package.json",
+          (packageJson) => {
+            packageJson.dependencies = { "@logtape/logtape": "2.3.1" }
+          },
+        )
+        await mutateJsonFile(root, "src/modules/runtime-custody/package.json", (packageJson) => {
+          packageJson.dependencies = { "@logtape/logtape": "2.3.0" }
+        })
+        await mutateContract(root, (contract) => {
+          contract.package_contract.forbidden_dependency_names =
+            contract.package_contract.forbidden_dependency_names.filter(
+              (name: string) => name !== "@logtape/logtape",
+            )
+          contract.owner_manifests.maintenance_facade.dependencies = {
+            "@logtape/logtape": "2.3.1",
+          }
+          contract.owner_manifests.runtime_custody.dependencies = {
+            "@logtape/logtape": "2.3.0",
+          }
+        })
+      },
+      expectedOwner: 'owner_manifests.maintenance_facade.dependencies["@logtape/logtape"]',
+    },
+    {
+      label: "Admission production dependency",
+      mutate: async (root: string) => {
+        await mutateJsonFile(root, "src/admission-bootstrap/package.json", (packageJson) => {
+          packageJson.dependencies = { "admission-dependency": "1.0.0" }
+        })
+        await mutateContract(root, (contract) => {
+          contract.owner_manifests.admission.dependencies = { "admission-dependency": "1.0.0" }
+        })
+      },
+      expectedFinding: {
+        kind: "admission-closure-drift",
+        owner: "admission.owner_manifest",
+        repair_id: "restore-repository-bytes",
+      },
     },
     {
       label: "owner manifest inventory",
@@ -2956,6 +3122,69 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(expected)
   }
+
+  const sharedZodRoot = await copyRepositoryFixture()
+  await mutateJsonFile(sharedZodRoot, "package.json", (packageJson) => {
+    packageJson.dependencies = { zod: "4.4.3" }
+  })
+  for (const path of [
+    "src/modules/qualification-evidence/package.json",
+    "src/modules/maintenance-command-contract/package.json",
+  ]) {
+    await mutateJsonFile(sharedZodRoot, path, (packageJson) => {
+      packageJson.dependencies = { zod: "4.4.3" }
+    })
+  }
+  await mutateContract(sharedZodRoot, (contract) => {
+    contract.package_contract.dependencies = { zod: "4.4.3" }
+    contract.package_contract.root_mirrored_dependencies = ["zod"]
+    contract.package_contract.forbidden_dependency_names =
+      contract.package_contract.forbidden_dependency_names.filter((name: string) => name !== "zod")
+    contract.owner_manifests.qualification_evidence.dependencies = { zod: "4.4.3" }
+    contract.owner_manifests.maintenance_command_contract.dependencies = { zod: "4.4.3" }
+  })
+  const positiveStructureExpected = {
+    schema_version: 1,
+    command: "verify:repository-qualification",
+    status: "qualified",
+    mode: "structure-only",
+    contract: "tooling/repository-quality/repository-qualification-contract.json",
+    groups: [],
+    aggregate: null,
+  } as const
+  const sharedZodObservation = await observeVerifier(sharedZodRoot, ["--structure-only"])
+  expect(sharedZodObservation.exitCode, sharedZodObservation.stderr).toBe(0)
+  expect(sharedZodObservation.stderr).toBe("")
+  expect(sharedZodObservation.stdout).toBe(`${JSON.stringify(positiveStructureExpected)}\n`)
+  expect(JSON.parse(sharedZodObservation.stdout)).toEqual(positiveStructureExpected)
+
+  const ownerOnlyLogTapeRoot = await copyRepositoryFixture()
+  await mutateJsonFile(
+    ownerOnlyLogTapeRoot,
+    "src/adapters/maintenance-command-facade/package.json",
+    (packageJson) => {
+      packageJson.dependencies = { "@logtape/logtape": "2.3.1" }
+    },
+  )
+  await mutateContract(ownerOnlyLogTapeRoot, (contract) => {
+    contract.package_contract.forbidden_dependency_names =
+      contract.package_contract.forbidden_dependency_names.filter(
+        (name: string) => name !== "@logtape/logtape",
+      )
+    contract.owner_manifests.maintenance_facade.dependencies = {
+      "@logtape/logtape": "2.3.1",
+    }
+  })
+  const ownerOnlyLogTapeObservation = await observeVerifier(
+    ownerOnlyLogTapeRoot,
+    ["--structure-only"],
+  )
+  expect(ownerOnlyLogTapeObservation.exitCode, ownerOnlyLogTapeObservation.stderr).toBe(0)
+  expect(ownerOnlyLogTapeObservation.stderr).toBe("")
+  expect(ownerOnlyLogTapeObservation.stdout).toBe(
+    `${JSON.stringify(positiveStructureExpected)}\n`,
+  )
+  expect(JSON.parse(ownerOnlyLogTapeObservation.stdout)).toEqual(positiveStructureExpected)
 
   const lexicalRoot = await copyRepositoryFixture()
   await mutateTextFile(
@@ -3173,6 +3402,55 @@ test("unknown orchestration or Git-shaped declaration keys are refused", async (
       owner: "owner_manifests",
       mutate: (contract: Record<string, any>) => {
         contract.owner_manifests = []
+      },
+    },
+    {
+      label: "root dependency range is not an exact version",
+      owner: 'package_contract.dependencies["zod"]',
+      mutate: (contract: Record<string, any>) => {
+        contract.package_contract.dependencies = { zod: "^4.4.3" }
+      },
+    },
+    {
+      label: "root dependency alias is not an exact version",
+      owner: 'package_contract.dependencies["zod"]',
+      mutate: (contract: Record<string, any>) => {
+        contract.package_contract.dependencies = { zod: "npm:zod@4.4.3" }
+      },
+    },
+    {
+      label: "root dependency protocol is not an exact version",
+      owner: 'package_contract.dependencies["zod"]',
+      mutate: (contract: Record<string, any>) => {
+        contract.package_contract.dependencies = { zod: "workspace:*" }
+      },
+    },
+    {
+      label: "root dependency empty version is refused",
+      owner: 'package_contract.dependencies["zod"]',
+      mutate: (contract: Record<string, any>) => {
+        contract.package_contract.dependencies = { zod: "" }
+      },
+    },
+    {
+      label: "root dependency non-string version is refused",
+      owner: "package_contract.dependencies",
+      mutate: (contract: Record<string, any>) => {
+        contract.package_contract.dependencies = { zod: 4 }
+      },
+    },
+    {
+      label: "owner dependency range is not an exact version",
+      owner: 'owner_manifests.qualification_evidence.dependencies["zod"]',
+      mutate: (contract: Record<string, any>) => {
+        contract.owner_manifests.qualification_evidence.dependencies = { zod: "~4.4.3" }
+      },
+    },
+    {
+      label: "root-mirrored dependency names are unique",
+      owner: "package_contract.root_mirrored_dependencies",
+      mutate: (contract: Record<string, any>) => {
+        contract.package_contract.root_mirrored_dependencies = ["zod", "zod"]
       },
     },
   ] as const

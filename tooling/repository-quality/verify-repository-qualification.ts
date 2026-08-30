@@ -112,6 +112,8 @@ type RepositoryQualificationContract = {
     runtime_output_sha256: Readonly<Record<string, string>>
     bin: Readonly<Record<string, string>>
     scripts: Readonly<Record<string, string>>
+    dependencies: Readonly<Record<string, string>>
+    root_mirrored_dependencies: readonly string[]
     dev_dependencies: Readonly<Record<string, string>>
     forbidden_dependency_names: readonly string[]
     forbidden_dependency_name_fragments: readonly string[]
@@ -123,6 +125,7 @@ type RepositoryQualificationContract = {
     private: boolean
     type: string
     exports: Readonly<Record<string, string>>
+    dependencies: Readonly<Record<string, string>>
     empty_dependency_fields: readonly string[]
   }>>
   repository_quality_tests: readonly {
@@ -198,6 +201,7 @@ const admissionSourceClosure = [
 ] as const
 const knownFailureClasses = new Set(["contract-absent"])
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+const exactSemanticVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 let activeMode: "complete" | "structure-only" = "complete"
 
 function writeRefusal(refusal: QualificationRefusal): void {
@@ -646,7 +650,7 @@ function sourceFile(path: string): { absolute: string; relative: string } {
 
 function verifyAdmissionManifest(path: string): void {
   const manifest = JSON.parse(readFileSync(resolve(repositoryRoot, path), "utf8")) as Record<string, unknown>
-  if (hasDependencyFieldDrift(manifest)) admissionDrift()
+  if (hasDependencyFieldDrift(manifest)) admissionDrift("admission.owner_manifest")
 }
 
 function hasDependencyFieldDrift(
@@ -1051,6 +1055,7 @@ function verifyPackageContract(contract: RepositoryQualificationContract): void 
   verifyPublicTypeExports(contract.package_contract)
   verifyRootScripts(root.scripts, contract.package_contract.scripts)
   verifyOwnerManifests(contract.owner_manifests)
+  verifyDependencyLocality(contract.package_contract, contract.owner_manifests)
 }
 
 function verifyPublicTypeExports(
@@ -1201,6 +1206,9 @@ function verifyRootCollections(
   ]
   const mismatch = checks.find(([actual, declared]) => JSON.stringify(actual) !== JSON.stringify(declared))
   if (mismatch !== undefined) packageDrift(mismatch[2])
+  if (!dependencyRecordsEqual(dependencyRecord(root.dependencies), expected.dependencies)) {
+    packageDrift("package_contract.dependencies")
+  }
 }
 
 function verifyRootScripts(value: unknown, expected: Readonly<Record<string, string>>): void {
@@ -1234,9 +1242,87 @@ function ownerManifestDrift(
     manifest.private === declaration.private,
     manifest.type === declaration.type,
     JSON.stringify(manifest.exports) === JSON.stringify(declaration.exports),
+    dependencyRecordsEqual(dependencyRecord(manifest.dependencies), declaration.dependencies),
   ].every(Boolean)
   if (!fieldsMatch) return true
   return hasDependencyFieldDrift(manifest, declaration.empty_dependency_fields)
+}
+
+function dependencyRecord(value: unknown): Readonly<Record<string, string>> {
+  return (objectValue(value) ?? {}) as Readonly<Record<string, string>>
+}
+
+function dependencyRecordsEqual(
+  left: Readonly<Record<string, string>>,
+  right: Readonly<Record<string, string>>,
+): boolean {
+  return JSON.stringify(Object.entries(left).sort()) === JSON.stringify(Object.entries(right).sort())
+}
+
+function verifyDependencyLocality(
+  packageContract: RepositoryQualificationContract["package_contract"],
+  ownerManifests: RepositoryQualificationContract["owner_manifests"],
+): void {
+  const ownersByDependency = ownerDependencyDeclarations(ownerManifests)
+  verifyOwnerDependencyVersions(ownersByDependency)
+  verifyRootDependencyOwnership(packageContract.dependencies, ownersByDependency)
+  verifyRootMirroring(packageContract, ownersByDependency)
+}
+
+type OwnerDependencyDeclaration = { owner: string; version: string }
+
+function ownerDependencyDeclarations(
+  ownerManifests: RepositoryQualificationContract["owner_manifests"],
+): ReadonlyMap<string, readonly OwnerDependencyDeclaration[]> {
+  const ownersByDependency = new Map<string, { owner: string; version: string }[]>()
+  for (const [owner, manifest] of Object.entries(ownerManifests)) {
+    for (const [name, version] of Object.entries(manifest.dependencies)) {
+      const declarations = ownersByDependency.get(name) ?? []
+      declarations.push({ owner, version })
+      ownersByDependency.set(name, declarations)
+    }
+  }
+  return ownersByDependency
+}
+
+function verifyOwnerDependencyVersions(
+  ownersByDependency: ReadonlyMap<string, readonly OwnerDependencyDeclaration[]>,
+): void {
+  for (const [name, declarations] of ownersByDependency) {
+    const expectedVersion = declarations[0]?.version
+    if (declarations.some(({ version }) => version !== expectedVersion)) {
+      packageDrift(`owner_manifests.${declarations[0]?.owner}.dependencies[${JSON.stringify(name)}]`)
+    }
+  }
+}
+
+function verifyRootDependencyOwnership(
+  rootDependencies: Readonly<Record<string, string>>,
+  ownersByDependency: ReadonlyMap<string, readonly OwnerDependencyDeclaration[]>,
+): void {
+  for (const [name, rootVersion] of Object.entries(rootDependencies)) {
+    const declarations = ownersByDependency.get(name)
+    if (declarations === undefined || declarations.some(({ version }) => version !== rootVersion)) {
+      packageDrift(`package_contract.dependencies[${JSON.stringify(name)}]`)
+    }
+  }
+}
+
+function verifyRootMirroring(
+  packageContract: RepositoryQualificationContract["package_contract"],
+  ownersByDependency: ReadonlyMap<string, readonly OwnerDependencyDeclaration[]>,
+): void {
+  for (const name of packageContract.root_mirrored_dependencies) {
+    const rootVersion = packageContract.dependencies[name]
+    const declarations = ownersByDependency.get(name)
+    if (
+      rootVersion === undefined ||
+      declarations === undefined ||
+      declarations.some(({ version }) => version !== rootVersion)
+    ) {
+      packageDrift(`package_contract.root_mirrored_dependencies[${JSON.stringify(name)}]`)
+    }
+  }
 }
 
 function shellDrift(owner: string): never {
@@ -1432,6 +1518,8 @@ function validatePackageContractRecord(value: unknown): void {
     "runtime_output_sha256",
     "bin",
     "scripts",
+    "dependencies",
+    "root_mirrored_dependencies",
     "dev_dependencies",
     "forbidden_dependency_names",
     "forbidden_dependency_name_fragments",
@@ -1448,6 +1536,11 @@ function validatePackageContractRecord(value: unknown): void {
   contractStringRecord(contract.runtime_output_sha256, "package_contract.runtime_output_sha256")
   contractStringRecord(contract.bin, "package_contract.bin")
   contractStringRecord(contract.scripts, "package_contract.scripts")
+  contractExactDependencyRecord(contract.dependencies, "package_contract.dependencies")
+  contractUniqueStringArray(
+    contract.root_mirrored_dependencies,
+    "package_contract.root_mirrored_dependencies",
+  )
   contractStringRecord(contract.dev_dependencies, "package_contract.dev_dependencies")
   contractStringArray(contract.forbidden_dependency_names, "package_contract.forbidden_dependency_names")
   contractStringArray(
@@ -1583,12 +1676,13 @@ function validateShellRecords(value: unknown): void {
 function validateOwnerManifestRecords(value: unknown): void {
   for (const [ownerName, declaration] of Object.entries(contractRecord(value, "owner_manifests"))) {
     const owner = `owner_manifests.${ownerName}`
-    const record = exactRecord(declaration, owner, ["path", "name", "private", "type", "exports", "empty_dependency_fields"])
+    const record = exactRecord(declaration, owner, ["path", "name", "private", "type", "exports", "dependencies", "empty_dependency_fields"])
     contractString(record.path, `${owner}.path`)
     contractString(record.name, `${owner}.name`)
     contractBoolean(record.private, `${owner}.private`)
     contractString(record.type, `${owner}.type`)
     contractStringRecord(record.exports, `${owner}.exports`)
+    contractExactDependencyRecord(record.dependencies, `${owner}.dependencies`)
     contractStringArray(record.empty_dependency_fields, `${owner}.empty_dependency_fields`)
   }
 }
@@ -1673,6 +1767,22 @@ function contractStringRecord(value: unknown, owner: string): Readonly<Record<st
   const record = contractRecord(value, owner)
   if (Object.values(record).some((entry) => typeof entry !== "string")) contractInvalid(owner)
   return record as Readonly<Record<string, string>>
+}
+
+function contractExactDependencyRecord(
+  value: unknown,
+  owner: string,
+): Readonly<Record<string, string>> {
+  const record = contractStringRecord(value, owner)
+  const malformed = Object.entries(record).find(([, version]) => !exactSemanticVersion.test(version))
+  if (malformed !== undefined) contractInvalid(`${owner}[${JSON.stringify(malformed[0])}]`)
+  return record
+}
+
+function contractUniqueStringArray(value: unknown, owner: string): readonly string[] {
+  const values = contractStringArray(value, owner)
+  if (new Set(values).size !== values.length) contractInvalid(owner)
+  return values
 }
 
 function contractStringArrayRecord(
