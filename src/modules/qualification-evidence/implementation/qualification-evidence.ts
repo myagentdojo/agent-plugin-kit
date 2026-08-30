@@ -17,6 +17,7 @@ import type {
   QualificationClaim,
   QualificationRefusalCode,
   QualificationResult,
+  Sha256Digest,
   SkipRationale,
   VerificationClaim,
   VerificationProfile,
@@ -119,8 +120,8 @@ function lineageMatchesCandidate(
 }
 
 function payloadDigestDisagrees(
-  previous: CandidateIdentityDigest | undefined,
-  current: CandidateIdentityDigest | undefined,
+  previous: Sha256Digest | undefined,
+  current: Sha256Digest | undefined,
 ): boolean {
   return previous !== undefined && current !== undefined && previous !== current
 }
@@ -239,7 +240,7 @@ function findInvalidResolution(cells: readonly EvidenceCell[]): EvidenceCell | n
 
 function findLineageDisagreement(candidate: CandidateIdentity, cells: readonly EvidenceCell[]): EvidenceCell | null {
   const candidateDigest = canonicalCandidateIdentityDigest(candidate)
-  let installedPayloadDigest: CandidateIdentityDigest | undefined
+  let installedPayloadDigest: Sha256Digest | undefined
   for (const cell of cells) {
     if (!lineageMatchesCandidate(candidate, cell, candidateDigest)) return cell
     const currentPayloadDigest = cell.lineage.installedPayloadSha256
@@ -273,7 +274,7 @@ function appendUnique<T>(target: T[], values: readonly T[]): void {
 
 function claimMetadata(claimCells: readonly EvidenceCell[]): Pick<ReducedClaim, "evidenceCellIds" | "nonClaims" | "receiptDigests"> {
   const nonClaims: VerificationClaim[] = []
-  const receiptDigests: CandidateIdentityDigest[] = []
+  const receiptDigests: Sha256Digest[] = []
   for (const cell of claimCells) {
     appendUnique(nonClaims, cell.nonClaims)
     if (cell.receipt !== null) appendUnique(receiptDigests, [cell.receipt.digest])
@@ -419,12 +420,12 @@ function validateReductionInput(input: {
       return outOfProfile === null ? null : refusal("out-of-profile", outOfProfile.claim, outOfProfile.id)
     },
     () => {
-      const invalidResolution = findInvalidResolution(input.cells)
-      return invalidResolution === null ? null : refusal("invalid-resolution", invalidResolution.claim, invalidResolution.id)
-    },
-    () => {
       const invalidSkip = findInvalidSkip(input.cells, profile)
       return invalidSkip === null ? null : refusal("out-of-profile", invalidSkip.claim, invalidSkip.id)
+    },
+    () => {
+      const invalidResolution = findInvalidResolution(input.cells)
+      return invalidResolution === null ? null : refusal("invalid-resolution", invalidResolution.claim, invalidResolution.id)
     },
     () => {
       const candidateIdentity = candidateIdentitySchema.safeParse(input.candidate)
@@ -470,7 +471,7 @@ function reduceClaims(input: {
   const resolvedIds = new Set(input.cells.flatMap((cell) => cell.resolves))
   const claims: ReducedClaim[] = []
   const nonClaims: VerificationClaim[] = []
-  const receiptDigests: `sha256:${string}`[] = []
+  const receiptDigests: Sha256Digest[] = []
   let skipped = 0
   let proved = 0
   let notProved = 0

@@ -21,6 +21,10 @@ const privateHostnameSuffixes = [
   ".test",
   ".invalid",
   ".example",
+  ".example.com",
+  ".example.net",
+  ".example.org",
+  ".example.edu",
   ".lan",
   ".corp",
   ".localdomain",
@@ -36,9 +40,12 @@ const reservedHostnames = new Set([
   "example.org",
   "example.edu",
 ])
-const privateIpv4Pattern = /^(?:(?:0|10|127)\.|100\.(?:6[4-9]|[7-9][0-9])\.|169\.254\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|192\.0\.0\.|192\.0\.2\.|192\.168\.|198\.(?:18|19|51)\.|203\.0\.113\.|(?:22[4-9]|23[0-9]|24[0-9]|25[0-5])\.)/
+const privateIpv4Pattern = /^(?:(?:0|10|127)\.|100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|169\.254\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|192\.0\.0\.|192\.0\.2\.|192\.168\.|198\.(?:18|19|51)\.|203\.0\.113\.|(?:22[4-9]|23[0-9]|24[0-9]|25[0-5])\.)/
 const privateIpv6Pattern = /^(?:::|f[cd]|fe[89a-f]|ff|100::|2001:(?:2|10|20|db8):|3fff:)/
 const privateCheckoutPathPattern = /(?:^|\/)(?:users?|home|private|tmp|var|volumes?|mnt|workspaces?)(?:\/|$)|(?:^|\/)\p{L}:\//iu
+const originAuthorityPattern = /^https?:\/\/([^\/?#]*)/i
+const originHostnamePattern = /^https?:\/\/(\[[^\]]+\]|[^\/:?#]+)(?::[0-9]+)?(?:[\/?#]|$)/i
+const maxPathDecodeDepth = 8
 
 function normalizedHostname(hostname: string): string {
   return hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "")
@@ -75,13 +82,29 @@ function isHttpUrl(url: URL): boolean {
 }
 
 function isBareRepositoryOrigin(url: URL): boolean {
-  return url.username === "" && url.password === "" && url.search === "" && url.hash === ""
+  return url.username === "" && url.password === "" && url.port === "" && url.search === "" && url.hash === ""
+}
+
+function hasCanonicalHostname(value: string): boolean {
+  const hostname = originHostnamePattern.exec(value)?.[1]
+  return hostname !== undefined && hostname === hostname.toLowerCase() && !hostname.endsWith(".")
+}
+
+function hasExplicitPort(value: string): boolean {
+  const authority = originAuthorityPattern.exec(value)?.[1]
+  const hostname = originHostnamePattern.exec(value)?.[1]
+  return authority !== undefined && hostname !== undefined && authority.slice(hostname.length).startsWith(":")
 }
 
 function hasPrivateCheckoutPath(pathname: string): boolean {
+  let decodedPath = pathname
   try {
-    const decodedPath = decodeURIComponent(pathname)
-    return decodedPath.includes("\\") || privateCheckoutPathPattern.test(decodedPath)
+    for (let depth = 0; depth < maxPathDecodeDepth; depth += 1) {
+      const nextPath = decodeURIComponent(decodedPath)
+      if (nextPath === decodedPath) return decodedPath.includes("\\") || privateCheckoutPathPattern.test(decodedPath)
+      decodedPath = nextPath
+    }
+    return true
   } catch {
     return true
   }
@@ -91,13 +114,15 @@ function isPublicRepositoryOrigin(value: string): boolean {
   if (value.length === 0 || value !== value.trim() || /[\\\s]/.test(value)) return false
   try {
     const url = new URL(value)
-    return (
-      isHttpUrl(url) &&
-      isBareRepositoryOrigin(url) &&
-      url.hostname.length > 0 &&
-      !isPrivateRepositoryHost(url.hostname) &&
-      !hasPrivateCheckoutPath(url.pathname)
-    )
+    return [
+      isHttpUrl(url),
+      isBareRepositoryOrigin(url),
+      hasCanonicalHostname(value),
+      !hasExplicitPort(value),
+      url.hostname.length > 0,
+      !isPrivateRepositoryHost(url.hostname),
+      !hasPrivateCheckoutPath(url.pathname),
+    ].every(Boolean)
   } catch {
     return false
   }
@@ -154,7 +179,10 @@ export function candidateHasOneFullCommitPin(candidate: CandidateIdentity): bool
 }
 
 function canonicalCandidateIdentityEncoding(candidate: CandidateIdentity): string {
-  const frame = (value: string): string => `${new TextEncoder().encode(value).length}:${value}`
+  const frame = (value: string): string => {
+    const normalized = value.normalize("NFC")
+    return `${new TextEncoder().encode(normalized).length}:${normalized}`
+  }
   const scalar = (value: string): string => `s${frame(value)}`
   const fields = candidateIdentityFields(candidate)
   return `r${frame("agent-plugin-kit.candidate-identity.v1")}${frame(String(fields.length))}${fields

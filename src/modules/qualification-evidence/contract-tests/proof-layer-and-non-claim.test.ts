@@ -120,14 +120,22 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
     "https://127.0.0.1/myagentdojo/example-plugin.git",
     "https://10.0.0.4/myagentdojo/example-plugin.git",
     "https://192.168.1.4/myagentdojo/example-plugin.git",
+    "https://100.64.0.1/myagentdojo/example-plugin.git",
+    "https://100.127.255.254/myagentdojo/example-plugin.git",
     "https://192.0.2.10/myagentdojo/example-plugin.git",
     "https://198.51.100.10/myagentdojo/example-plugin.git",
     "https://203.0.113.10/myagentdojo/example-plugin.git",
     "https://[::1]/myagentdojo/example-plugin.git",
     "https://[::ffff:192.168.1.4]/myagentdojo/example-plugin.git",
     "https://example.com/myagentdojo/example-plugin.git",
+    "https://subdomain.example.com/myagentdojo/example-plugin.git",
+    "https://private.private/myagentdojo/example-plugin.git",
+    "https://github.com:443/myagentdojo/example-plugin.git",
+    "https://GitHub.com/myagentdojo/example-plugin.git",
+    "https://github.com./myagentdojo/example-plugin.git",
     "https://git.internal/myagentdojo/example-plugin.git",
     "https://github.com/Users/nathan/private-repo",
+    "https://github.com/%2525252FUsers/nathan/private-repo",
   ]
   for (const origin of invalidOrigins) {
     expect(parseEvidenceCell({
@@ -290,4 +298,32 @@ test("serialized egress is allowlisted, preserves bounded evidence, and fails cl
       },
     },
   } as QualificationResult)).toThrow("qualification-evidence: invalid serialized value")
+
+  const duplicateEvidenceCellId = {
+    ...result,
+    claims: result.claims.map((claim, index) =>
+      index === 0
+        ? { ...claim, evidenceCellIds: [...claim.evidenceCellIds, claim.evidenceCellIds[0]!] }
+        : claim,
+    ),
+  }
+  expect(parseQualificationResult(duplicateEvidenceCellId)).toBeUndefined()
+  expect(() => serializeQualificationResult(duplicateEvidenceCellId as QualificationResult)).toThrow(
+    "qualification-evidence: invalid serialized value",
+  )
+
+  const reorderedNonClaims = { ...result, nonClaims: [...result.nonClaims].reverse() }
+  expect(parseQualificationResult(reorderedNonClaims)).toBeUndefined()
+  expect(() => serializeQualificationResult(reorderedNonClaims as QualificationResult)).toThrow(
+    "qualification-evidence: invalid serialized value",
+  )
+
+  const duplicateReceiptDigest = {
+    ...result,
+    receiptDigests: [...result.receiptDigests, result.receiptDigests[0]!],
+  }
+  expect(parseQualificationResult(duplicateReceiptDigest)).toBeUndefined()
+  expect(() => serializeQualificationResult(duplicateReceiptDigest as QualificationResult)).toThrow(
+    "qualification-evidence: invalid serialized value",
+  )
 })

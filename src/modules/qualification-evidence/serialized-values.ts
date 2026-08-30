@@ -14,6 +14,8 @@ import type {
   QualificationOutcome,
   QualificationRefusal,
   QualificationResult,
+  Sha256Digest,
+  VerificationClaim,
   VerificationProfile,
 } from "./interface"
 
@@ -65,7 +67,7 @@ const proofLayerSchema = z.enum(proofLayers)
 const skipRationaleSchema = z.enum(skipRationales)
 const lineageMemberSchema = z.enum(lineageMembers)
 const receiptOwnerSchema = z.enum(receiptOwners)
-const digestSchema = z.custom<`sha256:${string}`>(
+const digestSchema = z.custom<Sha256Digest>(
   (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value),
 )
 const cellIdPattern = /^cell:[a-z][a-z0-9-]{0,63}$/
@@ -302,6 +304,10 @@ function isExactProfile(profile: VerificationProfile): boolean {
 
 type ResultStatusCounts = Pick<QualificationResult["counts"], "skipped" | "proved" | "notProved" | "unknown">
 
+function appendFirstOccurrence<T>(target: T[], values: readonly T[]): void {
+  for (const value of values) if (!target.includes(value)) target.push(value)
+}
+
 function resultStatusCounts(result: QualificationResult): ResultStatusCounts {
   let skipped = 0
   let proved = 0
@@ -347,8 +353,35 @@ function hasConsistentResultCounts(result: QualificationResult): boolean {
     counts.unknown === actual.unknown
 }
 
+function hasUniqueEvidenceCellIds(result: QualificationResult): boolean {
+  const seen = new Set<string>()
+  for (const claim of result.claims) {
+    for (const evidenceCellId of claim.evidenceCellIds) {
+      if (seen.has(evidenceCellId)) return false
+      seen.add(evidenceCellId)
+    }
+  }
+  return true
+}
+
+function hasCanonicalResultAggregates(result: QualificationResult): boolean {
+  const nonClaims: VerificationClaim[] = []
+  const receiptDigests: Sha256Digest[] = []
+  for (const claim of result.claims) {
+    appendFirstOccurrence(nonClaims, claim.nonClaims)
+    appendFirstOccurrence(receiptDigests, claim.receiptDigests)
+  }
+  return result.nonClaims.length === nonClaims.length &&
+    result.nonClaims.every((value, index) => value === nonClaims[index]) &&
+    result.receiptDigests.length === receiptDigests.length &&
+    result.receiptDigests.every((value, index) => value === receiptDigests[index])
+}
+
 function isSemanticallyValidQualificationResult(result: QualificationResult): boolean {
-  return hasCanonicalResultClaims(result) && hasConsistentResultCounts(result)
+  return hasCanonicalResultClaims(result) &&
+    hasConsistentResultCounts(result) &&
+    hasUniqueEvidenceCellIds(result) &&
+    hasCanonicalResultAggregates(result)
 }
 
 function isSemanticallyValidQualificationOutcome(outcome: QualificationOutcome): boolean {

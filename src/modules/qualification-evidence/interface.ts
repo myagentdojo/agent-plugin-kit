@@ -7,8 +7,10 @@ import type {
   WorkflowIdentity,
 } from "../release-and-git-engine/interface"
 
+/** Evidence Cell identifiers match `^cell:[a-z][a-z0-9-]{0,63}$`. */
 export type EvidenceCellId = `cell:${string}`
-export type CandidateIdentityDigest = `sha256:${string}`
+export type Sha256Digest = `sha256:${string}`
+export type CandidateIdentityDigest = Sha256Digest
 
 export type VerificationClaim =
   | "kit.identity.admitted"
@@ -103,7 +105,7 @@ export type EvidenceCell = {
     release?: ReleaseIdentity
     package?: PackageIdentity
     workflow?: WorkflowIdentity
-    installedPayloadSha256?: CandidateIdentityDigest
+    installedPayloadSha256?: Sha256Digest
     hostedRun?: {
       provider: "github-actions"
       repository: RepositoryIdentity
@@ -130,27 +132,27 @@ export type EvidenceCell = {
       | "clean-fixture"
     receiptSchemaVersion: number
     candidateIdentitySha256: CandidateIdentityDigest
-    digest: CandidateIdentityDigest
+    digest: Sha256Digest
   } | null
   resolves: readonly EvidenceCellId[]
 } & (
   | {
       assertedStatus: "proved"
       actualProofLayer: ProofLayer
-      observable: { kind: "observed"; code: string; digest?: CandidateIdentityDigest }
+      observable: { kind: "observed"; code: string; digest?: Sha256Digest }
       skipRationale: null
     }
   | {
       assertedStatus: "not-proved"
       actualProofLayer: ProofLayer
-      observable: { kind: "failure" | "proved-absence"; code: string; digest?: CandidateIdentityDigest }
+      observable: { kind: "failure" | "proved-absence"; code: string; digest?: Sha256Digest }
       skipRationale: null
     }
   | {
       assertedStatus: "unknown"
       unknownKind: "observation"
       actualProofLayer: ProofLayer
-      observable: { kind: "unavailable" | "unknown"; code: string; digest?: CandidateIdentityDigest }
+      observable: { kind: "unavailable" | "unknown"; code: string; digest?: Sha256Digest }
       skipRationale: null
     }
   | {
@@ -213,7 +215,7 @@ export const VerificationProfile = {
 export type QualificationClaim = {
   claim: VerificationClaim
   nonClaims: readonly VerificationClaim[]
-  receiptDigests: readonly CandidateIdentityDigest[]
+  receiptDigests: readonly Sha256Digest[]
   evidenceCellIds: readonly EvidenceCellId[]
 } & (
   | {
@@ -281,7 +283,7 @@ export type QualificationResult = {
   claims: readonly QualificationClaim[]
   counts: QualificationResultCounts
   nonClaims: readonly VerificationClaim[]
-  receiptDigests: readonly CandidateIdentityDigest[]
+  receiptDigests: readonly Sha256Digest[]
 }
 
 export type QualificationRefusalCode =

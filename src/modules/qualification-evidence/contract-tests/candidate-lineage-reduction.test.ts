@@ -224,7 +224,7 @@ test("Candidate Lineage, installed payload, and receipt disagreement are refused
     release: { ...candidate.release, reference: "refs/tags/cafe\u0301" },
   }
   const composedDigest = canonicalCandidateIdentityDigest(composedCandidate)
-  expect(composedDigest).not.toBe(canonicalCandidateIdentityDigest(decomposedCandidate))
+  expect(composedDigest).toBe(canonicalCandidateIdentityDigest(decomposedCandidate))
   expectRefusal(
     qualificationEvidence.reduce({
       candidate: composedCandidate,
@@ -386,6 +386,11 @@ test("an unresolved skip plus observation is refused, while explicit resolution 
       ? skipCell(cell.claim, "cell:personal-invalid-rationale", "hosted-proof-not-run")
       : cell,
   )
+  const invalidSkipWithResolution = invalidPersonalRationale.map((cell) =>
+    cell.id === "cell:personal-invalid-rationale"
+      ? ({ ...cell, resolves: ["cell:missing"] as const } as unknown as EvidenceCell)
+      : cell,
+  )
   const invalidPersonalClaim = personalEvidenceCells().map((cell) =>
     cell.claim === "runtime.supported-platform"
       ? skipCell(cell.claim, "cell:personal-invalid-claim")
@@ -413,6 +418,7 @@ test("an unresolved skip plus observation is refused, while explicit resolution 
   )
 
   expectRefusal(reduceAttempt(personalProfile, invalidPersonalRationale), "out-of-profile")
+  expectRefusal(reduceAttempt(personalProfile, invalidSkipWithResolution), "out-of-profile")
   expectRefusal(reduceAttempt(personalProfile, invalidPersonalClaim), "out-of-profile")
   expectRefusal(reduceAttempt(publicProfile, invalidPublicMechanics), "out-of-profile")
   expectRefusal(reduceAttempt(publicProfile, invalidPublicHostedRationale), "out-of-profile")
