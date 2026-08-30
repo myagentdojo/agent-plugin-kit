@@ -46,6 +46,7 @@ async function copyRepositoryFixture(): Promise<string> {
         !segments.includes(".fallow")
     },
   })
+  await symlink(join(repositoryRoot, "node_modules"), join(root, "node_modules"), "dir")
   return root
 }
 
@@ -905,8 +906,8 @@ test("required-path or declared-structure drift is refused", async () => {
     {
       label: "forbidden path present",
       mutate: async (root: string) => {
-        const path = join(root, "src/modules/qualification-evidence/implementation/index.ts")
-        await mkdir(join(root, "src/modules/qualification-evidence/implementation"), { recursive: true })
+        const path = join(root, "src/modules/runtime-custody/implementation/index.ts")
+        await mkdir(join(root, "src/modules/runtime-custody/implementation"), { recursive: true })
         await writeFile(path, "export {}\n")
       },
       expected: {
@@ -1118,6 +1119,22 @@ test("required-path or declared-structure drift is refused", async () => {
     expect(observation.stderr, row.label).toBe(`${JSON.stringify(row.expected)}\n`)
     expect(JSON.parse(observation.stderr), row.label).toEqual(row.expected)
   }
+
+  const generatedDependencyRoot = await copyRepositoryFixture()
+  const generatedDependencyTarget = join(generatedDependencyRoot, "node_modules/zod")
+  const generatedDependencyDirectory = join(
+    generatedDependencyRoot,
+    "src/modules/qualification-evidence/node_modules",
+  )
+  await mkdir(generatedDependencyTarget, { recursive: true })
+  await writeFile(join(generatedDependencyTarget, "package.json"), "{}\n")
+  await mkdir(generatedDependencyDirectory, { recursive: true })
+  await symlink(generatedDependencyTarget, join(generatedDependencyDirectory, "zod"), "dir")
+  const generatedDependencyExpected = await buildIndependentSuccessReceipt(generatedDependencyRoot)
+  const generatedDependencyObservation = await observeVerifier(generatedDependencyRoot)
+  expect(generatedDependencyObservation.exitCode, generatedDependencyObservation.stderr).toBe(0)
+  expect(generatedDependencyObservation.stderr).toBe("")
+  expect(generatedDependencyObservation.stdout).toBe(`${JSON.stringify(generatedDependencyExpected)}\n`)
 
   const cacheRoot = await copyRepositoryFixture()
   const cacheDirectory = join(cacheRoot, ".fallow/runtime-custody")
@@ -2780,11 +2797,11 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
       expectedOwner: 'package_contract.type_exports["./runtime-custody"]',
     },
     {
-      label: "Zod dependency",
+      label: "Zod dev dependency duplication",
       mutate: (root: string) => mutateJsonFile(root, "package.json", (packageJson) => {
         packageJson.devDependencies.zod = "4.0.0"
       }),
-      expectedOwner: "package_contract.forbidden_dependency_names.zod",
+      expectedOwner: "package_contract.dev_dependencies",
     },
     {
       label: "LogTape dependency",
@@ -2886,18 +2903,12 @@ test("root check, ten exports, exact Zod agreement, or Owner Manifest locality d
     {
       label: "root-mirrored production dependency is missing from root",
       mutate: async (root: string) => {
-        await mutateJsonFile(
-          root,
-          "src/modules/qualification-evidence/package.json",
-          (packageJson) => {
-            packageJson.dependencies = { zod: "4.4.3" }
-          },
-        )
+        await mutateJsonFile(root, "package.json", (packageJson) => {
+          delete packageJson.dependencies
+        })
         await mutateContract(root, (contract) => {
+          contract.package_contract.dependencies = {}
           contract.package_contract.root_mirrored_dependencies = ["zod"]
-          contract.package_contract.forbidden_dependency_names =
-            contract.package_contract.forbidden_dependency_names.filter((name: string) => name !== "zod")
-          contract.owner_manifests.qualification_evidence.dependencies = { zod: "4.4.3" }
         })
       },
       expectedOwner: 'package_contract.root_mirrored_dependencies["zod"]',

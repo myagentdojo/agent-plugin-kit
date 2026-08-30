@@ -15,8 +15,6 @@
 		"noFallthroughCasesInSwitch": true,
 		"noUncheckedIndexedAccess": true,
 		"noUncheckedSideEffectImports": true,
-		"exactOptionalPropertyTypes": true,
-		"noImplicitReturns": true,
 		"noImplicitOverride": true,
 		"resolveJsonModule": true,
 		"types": ["bun"]

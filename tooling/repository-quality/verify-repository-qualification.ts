@@ -251,7 +251,7 @@ function repositoryEntry(
   include: (name: string) => boolean,
 ): string[] {
   if (isSkippedDirectory(entry.name, prefix)) {
-    verifySkippedDirectory(directory, entry)
+    verifySkippedDirectory(directory, prefix, entry)
     return []
   }
   const entryRelative = relativeEntryPath(prefix, entry.name)
@@ -261,17 +261,32 @@ function repositoryEntry(
 }
 
 function isSkippedDirectory(name: string, prefix: string): boolean {
-  return name === ".fallow" || (prefix === "" && (name === ".git" || name === "node_modules"))
+  return name === ".fallow" || name === "node_modules" || (prefix === "" && name === ".git")
 }
 
 function verifySkippedDirectory(
   directory: string,
+  prefix: string,
   entry: { name: string; isDirectory(): boolean },
 ): void {
+  if (entry.name === "node_modules") {
+    if (prefix !== "" && directoryContainsRegularFile(resolve(directory, entry.name))) {
+      refuseRepository("repository-unqualified", "path-drift", "structure.required_paths", "restore-current-declaration")
+    }
+    return
+  }
   if (entry.name !== ".fallow" || !entry.isDirectory()) return
   if (directoryContainsTypeScript(resolve(directory, entry.name))) {
     refuseRepository("repository-unqualified", "path-drift", "structure.required_paths", "restore-current-declaration")
   }
+}
+
+function directoryContainsRegularFile(directory: string): boolean {
+  return readdirSync(directory, { withFileTypes: true }).some((entry) =>
+    entry.isDirectory()
+      ? directoryContainsRegularFile(resolve(directory, entry.name))
+      : entry.isFile()
+  )
 }
 
 function directoryContainsTypeScript(directory: string): boolean {
