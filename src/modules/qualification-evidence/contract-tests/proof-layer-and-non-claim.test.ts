@@ -120,6 +120,39 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
   expect(JSON.stringify(parseEvidenceCell(invalidValues[7])) ?? "").not.toContain("private")
 })
 
+test("repository identity ingress and egress reject local and private origins", () => {
+  const invalidOrigins = [
+    "http://localhost/Users/nathan/private-repo",
+    "https://127.0.0.1/myagentdojo/example-plugin.git",
+    "https://10.0.0.4/myagentdojo/example-plugin.git",
+    "https://192.168.1.4/myagentdojo/example-plugin.git",
+    "https://[::1]/myagentdojo/example-plugin.git",
+    "https://git.internal/myagentdojo/example-plugin.git",
+  ]
+
+  for (const origin of invalidOrigins) {
+    const invalidCell = observedCell({
+      candidate: {
+        ...candidate,
+        source: { ...candidate.source, repository: { origin } },
+      },
+    })
+    expect(parseEvidenceCell(invalidCell)).toBeUndefined()
+  }
+
+  const result = reducedFixture()
+  const invalidResult = {
+    ...result,
+    candidate: {
+      ...result.candidate,
+      package: { ...result.candidate.package, repository: { origin: invalidOrigins[0]! } },
+    },
+  }
+  expect(() => serializeQualificationResult(invalidResult as QualificationResult)).toThrow(
+    "qualification-evidence: invalid serialized value",
+  )
+})
+
 test("profiles retain exact order and lineage while Proof Layer satisfaction is reflexive and incomparable at the top", () => {
   expect(personalProfile.schemaVersion).toBe(1)
   expect(publicProfile.schemaVersion).toBe(1)

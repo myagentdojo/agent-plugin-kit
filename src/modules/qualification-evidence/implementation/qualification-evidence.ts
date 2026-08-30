@@ -1,6 +1,7 @@
 import type { CandidateIdentity } from "../../release-and-git-engine/interface"
 import {
   candidateHasOneFullCommitPin,
+  candidateIdentitySchema,
   candidateIdentitiesMatch,
 } from "../../release-and-git-engine/serialized-values"
 import type {
@@ -11,16 +12,40 @@ import type {
   QualificationResult,
   VerificationProfile,
 } from "../interface"
-import { canonicalCandidateIdentityDigest } from "../serialized-values"
+import { canonicalCandidateIdentityDigest, parseVerificationProfile } from "../serialized-values"
 
 type ProofLayer = Exclude<EvidenceCell["actualProofLayer"], null>
 type VerificationClaim = EvidenceCell["claim"]
 type VerificationRequirement = VerificationProfile["requirements"][number]
 type LineageMember = VerificationRequirement["requiredLineage"][number]
 type NonSkipEvidenceCell = Exclude<EvidenceCell, { unknownKind: "skip" }>
+type SkipRationale = Extract<EvidenceCell, { unknownKind: "skip" }>["skipRationale"]
 type ReducedClaim = QualificationResult["claims"][number]
 
 const cellIdPattern = /^cell:[a-z][a-z0-9-]{0,63}$/
+const personalSkipClaims = new Set<VerificationClaim>([
+  "harness.claude.fresh-native",
+  "harness.codex.fresh-native",
+])
+const publicSkipRationalesByClaim: Partial<Record<VerificationClaim, readonly SkipRationale[]>> = {
+  "plugin-payload.installed": ["hosted-proof-not-run", "host-unavailable", "not-applicable"],
+  "runtime.supported-platform": [
+    "hosted-proof-not-run",
+    "platform-not-selected",
+    "host-unavailable",
+    "not-applicable",
+  ],
+  "release.identity.published": ["hosted-proof-not-run", "host-unavailable", "not-applicable"],
+  "workflow.called-revision": ["hosted-proof-not-run", "host-unavailable", "not-applicable"],
+  "canary.hosted-qualified": [
+    "hosted-proof-not-run",
+    "protected-authority-unavailable",
+    "host-unavailable",
+    "not-applicable",
+  ],
+  "harness.claude.fresh-native": ["fresh-native-proof-not-run", "host-unavailable", "not-applicable"],
+  "harness.codex.fresh-native": ["fresh-native-proof-not-run", "host-unavailable", "not-applicable"],
+}
 const proofLayerSatisfaction: Record<ProofLayer, readonly ProofLayer[]> = {
   "in-process": ["in-process"],
   "public-process": ["in-process", "public-process"],
@@ -158,6 +183,23 @@ function hasInvalidIds(cells: readonly EvidenceCell[]): `cell:${string}` | null 
 function hasOutOfProfileCell(cells: readonly EvidenceCell[], profile: VerificationProfile): EvidenceCell | null {
   const selected = new Set(profile.requirements.map(({ claim }) => claim))
   return cells.find((cell) => !selected.has(cell.claim)) ?? null
+}
+
+function isAllowedSkip(profile: VerificationProfile, cell: Extract<EvidenceCell, { unknownKind: "skip" }>): boolean {
+  const requirement = profile.requirements.find(({ claim }) => claim === cell.claim)
+  if (requirement === undefined) return false
+
+  if (profile.id === "personal") {
+    return personalSkipClaims.has(cell.claim) && cell.skipRationale === "fresh-native-proof-not-run"
+  }
+
+  const allowedRationales = publicSkipRationalesByClaim[cell.claim]
+  return (requirement.requiredProofLayer === "hosted" || requirement.requiredProofLayer === "fresh-native") &&
+    allowedRationales?.includes(cell.skipRationale) === true
+}
+
+function hasInvalidSkip(cells: readonly EvidenceCell[], profile: VerificationProfile): EvidenceCell | null {
+  return cells.find((cell) => isSkip(cell) && !isAllowedSkip(profile, cell)) ?? null
 }
 
 type IndexedCell = { cell: EvidenceCell; index: number }
@@ -362,14 +404,14 @@ function validateReductionInput(input: {
   candidate: CandidateIdentity
   profile: VerificationProfile
   cells: readonly EvidenceCell[]
-}): QualificationOutcome | null {
+}): { profile: VerificationProfile } | QualificationOutcome {
+  const invalidId = hasInvalidIds(input.cells)
+  if (invalidId !== null) return refusal("invalid-cell-id", null, invalidId)
+  const profile = parseVerificationProfile(input.profile)
+  if (profile === undefined) return refusal("out-of-profile")
   const checks: readonly (() => QualificationOutcome | null)[] = [
     () => {
-      const invalidId = hasInvalidIds(input.cells)
-      return invalidId === null ? null : refusal("invalid-cell-id", null, invalidId)
-    },
-    () => {
-      const outOfProfile = hasOutOfProfileCell(input.cells, input.profile)
+      const outOfProfile = hasOutOfProfileCell(input.cells, profile)
       return outOfProfile === null ? null : refusal("out-of-profile", outOfProfile.claim, outOfProfile.id)
     },
     () => {
@@ -377,11 +419,19 @@ function validateReductionInput(input: {
       return invalidResolution === null ? null : refusal("invalid-resolution", invalidResolution.claim, invalidResolution.id)
     },
     () => {
+      const invalidSkip = hasInvalidSkip(input.cells, profile)
+      return invalidSkip === null ? null : refusal("out-of-profile", invalidSkip.claim, invalidSkip.id)
+    },
+    () => {
+      const candidateIdentity = candidateIdentitySchema.safeParse(input.candidate)
+      return candidateIdentity.success ? null : refusal("lineage-disagreement")
+    },
+    () => {
       const lineageDisagreement = hasLineageDisagreement(input.candidate, input.cells)
       return lineageDisagreement === null ? null : refusal("lineage-disagreement", lineageDisagreement.claim, lineageDisagreement.id)
     },
     () => {
-      const unqualifiedResolution = hasUnqualifiedResolution(input.cells, input.profile)
+      const unqualifiedResolution = hasUnqualifiedResolution(input.cells, profile)
       return unqualifiedResolution === null ? null : refusal("unqualified-resolution", unqualifiedResolution.claim, unqualifiedResolution.id)
     },
   ]
@@ -389,7 +439,7 @@ function validateReductionInput(input: {
     const failure = check()
     if (failure !== null) return failure
   }
-  return null
+  return { profile }
 }
 
 type ClaimReduction = { kind: "claim"; value: ReducedClaim } | { kind: "refusal"; value: RefusedOutcome }
@@ -485,8 +535,8 @@ function reduceEvidence(input: {
   cells: readonly EvidenceCell[]
 }): QualificationOutcome {
   const validation = validateReductionInput(input)
-  if (validation !== null) return validation
-  return reduceClaims(input)
+  if ("status" in validation) return validation
+  return reduceClaims({ ...input, profile: validation.profile })
 }
 
 export const qualificationEvidence: QualificationEvidence = {

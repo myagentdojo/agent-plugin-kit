@@ -121,6 +121,29 @@ test("canonical Candidate Lineage reduction preserves profile order and evidence
   expect(reduceAttempt(personalProfile, semanticallyEqual).status).toBe("reduced")
 })
 
+test("reduction refuses every drifted Personal and Public profile shape", () => {
+  for (const profile of [personalProfile, publicProfile]) {
+    const requirements = [...profile.requirements]
+    const firstRequirement = requirements[0]!
+    const driftedProfiles = [
+      { ...profile, requirements: requirements.slice(0, -1) },
+      { ...profile, requirements: [...requirements.slice(0, -1), firstRequirement] },
+      { ...profile, requirements: [...requirements, firstRequirement] },
+      { ...profile, requirements: [...requirements].reverse() },
+      {
+        ...profile,
+        requirements: requirements.map((requirement, index) =>
+          index === 0 ? { ...requirement, requiredProofLayer: "in-process" } : requirement,
+        ),
+      },
+    ] as unknown as VerificationProfile[]
+
+    for (const driftedProfile of driftedProfiles) {
+      expectRefusal(reduceAttempt(driftedProfile, profile.id === "personal" ? personalEvidenceCells() : publicEvidenceCells()), "out-of-profile")
+    }
+  }
+})
+
 test("zero-cell selected claim is refused", () => {
   const cells = personalEvidenceCells().filter((cell) => cell.claim !== "kit.identity.admitted")
   const outcome = reduceAttempt(personalProfile, cells)
@@ -302,19 +325,20 @@ test("unknown, forward, cross-candidate, and cross-claim resolutions are refused
 })
 
 test("an unqualified lower-layer, incomplete-lineage, or incomparable resolver is refused", () => {
-  const lowerLayer = personalEvidenceCells().filter((cell) => cell.claim !== "kit.identity.admitted")
-  lowerLayer.unshift(skipCell("kit.identity.admitted", "cell:lower-layer-skip"))
+  const lowerLayer = personalEvidenceCells().filter((cell) => cell.claim !== "harness.claude.fresh-native")
+  lowerLayer.unshift(skipCell("harness.claude.fresh-native", "cell:lower-layer-skip"))
   lowerLayer.push(observedCell({
     id: "cell:lower-layer-resolver",
+    claim: "harness.claude.fresh-native",
     actualProofLayer: "public-process",
     resolves: ["cell:lower-layer-skip"],
   }))
 
-  const incompleteLineage = personalEvidenceCells().filter((cell) => cell.claim !== "plugin-payload.installed")
-  incompleteLineage.unshift(skipCell("plugin-payload.installed", "cell:incomplete-lineage-skip"))
+  const incompleteLineage = personalEvidenceCells().filter((cell) => cell.claim !== "harness.claude.fresh-native")
+  incompleteLineage.unshift(skipCell("harness.claude.fresh-native", "cell:incomplete-lineage-skip"))
   const completeResolver = observedCell({
     id: "cell:incomplete-lineage-resolver",
-    claim: "plugin-payload.installed",
+    claim: "harness.claude.fresh-native",
     resolves: ["cell:incomplete-lineage-skip"],
   })
   const { installedPayloadSha256: _installedPayloadSha256, ...lineageWithoutPayload } = completeResolver.lineage
@@ -335,22 +359,67 @@ test("an unqualified lower-layer, incomplete-lineage, or incomparable resolver i
 })
 
 test("an unresolved skip plus observation is refused, while explicit resolution preserves both", () => {
-  const mixed = personalEvidenceCells().filter((cell) => cell.claim !== "kit.identity.admitted")
-  mixed.unshift(skipCell("kit.identity.admitted", "cell:unresolved-skip"))
-  mixed.push(observedCell({ id: "cell:unresolved-observation" }))
-  expectRefusal(reduceAttempt(personalProfile, mixed), "mixed-unresolved", "kit.identity.admitted")
+  const mixed = personalEvidenceCells().filter((cell) => cell.claim !== "harness.claude.fresh-native")
+  mixed.unshift(skipCell("harness.claude.fresh-native", "cell:unresolved-skip"))
+  mixed.push(observedCell({ id: "cell:unresolved-observation", claim: "harness.claude.fresh-native", actualProofLayer: "fresh-native" }))
+  expectRefusal(reduceAttempt(personalProfile, mixed), "mixed-unresolved", "harness.claude.fresh-native")
 
-  const resolved = personalEvidenceCells().filter((cell) => cell.claim !== "kit.identity.admitted")
-  resolved.unshift(skipCell("kit.identity.admitted", "cell:earlier-skip"))
-  resolved.push(observedCell({ id: "cell:resolving", resolves: ["cell:earlier-skip"] }))
+  const resolved = personalEvidenceCells().filter((cell) => cell.claim !== "harness.claude.fresh-native")
+  resolved.unshift(skipCell("harness.claude.fresh-native", "cell:earlier-skip"))
+  resolved.push(observedCell({
+    id: "cell:resolving",
+    claim: "harness.claude.fresh-native",
+    actualProofLayer: "fresh-native",
+    resolves: ["cell:earlier-skip"],
+  }))
   const outcome = reduceAttempt(personalProfile, resolved)
   expect(outcome.status).toBe("reduced")
   if (outcome.status !== "reduced") return
-  expect(outcome.result.claims[0]).toMatchObject({
-    claim: "kit.identity.admitted",
+  expect(outcome.result.claims.find(({ claim }) => claim === "harness.claude.fresh-native")).toMatchObject({
+    claim: "harness.claude.fresh-native",
     status: "proved",
     evidenceCellIds: ["cell:earlier-skip", "cell:resolving"],
-    nonClaims: ["kit.identity.admitted", "workflow.called-revision"],
+    nonClaims: ["harness.claude.fresh-native", "workflow.called-revision"],
     receiptDigests: ["sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"],
   })
+})
+
+test("profile-specific skip claim and rationale pairs are refused", () => {
+  const invalidPersonalRationale = personalEvidenceCells().map((cell) =>
+    cell.claim === "harness.claude.fresh-native"
+      ? skipCell(cell.claim, "cell:personal-invalid-rationale", "hosted-proof-not-run")
+      : cell,
+  )
+  const invalidPersonalClaim = personalEvidenceCells().map((cell) =>
+    cell.claim === "runtime.supported-platform"
+      ? skipCell(cell.claim, "cell:personal-invalid-claim")
+      : cell,
+  )
+  const invalidPublicMechanics = publicEvidenceCells().map((cell) =>
+    cell.claim === "kit.identity.admitted"
+      ? skipCell(cell.claim, "cell:public-invalid-clean-fixture", "hosted-proof-not-run")
+      : cell,
+  )
+  const invalidPublicHostedRationale = publicEvidenceCells().map((cell) =>
+    cell.claim === "plugin-payload.installed"
+      ? skipCell(cell.claim, "cell:public-invalid-hosted-rationale", "fresh-native-proof-not-run")
+      : cell,
+  )
+  const invalidPublicFreshNativeRationale = publicEvidenceCells().map((cell) =>
+    cell.claim === "harness.claude.fresh-native"
+      ? skipCell(cell.claim, "cell:public-invalid-fresh-native-rationale", "hosted-proof-not-run")
+      : cell,
+  )
+  const invalidPublicAuthorityRationale = publicEvidenceCells().map((cell) =>
+    cell.claim === "runtime.supported-platform"
+      ? skipCell(cell.claim, "cell:public-invalid-authority-rationale", "protected-authority-unavailable")
+      : cell,
+  )
+
+  expectRefusal(reduceAttempt(personalProfile, invalidPersonalRationale), "out-of-profile")
+  expectRefusal(reduceAttempt(personalProfile, invalidPersonalClaim), "out-of-profile")
+  expectRefusal(reduceAttempt(publicProfile, invalidPublicMechanics), "out-of-profile")
+  expectRefusal(reduceAttempt(publicProfile, invalidPublicHostedRationale), "out-of-profile")
+  expectRefusal(reduceAttempt(publicProfile, invalidPublicFreshNativeRationale), "out-of-profile")
+  expectRefusal(reduceAttempt(publicProfile, invalidPublicAuthorityRationale), "out-of-profile")
 })

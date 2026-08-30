@@ -10,16 +10,68 @@ import type {
 
 const commitSchema = z.string().regex(/^[0-9a-f]{40}$/)
 
+const privateHostnameSuffixes = [
+  ".localhost",
+  ".local",
+  ".internal",
+  ".intranet",
+  ".home.arpa",
+  ".private",
+  ".test",
+  ".invalid",
+  ".example",
+] as const
+const privateIpv4Pattern = /^(?:(?:0|10|127)\.|169\.254\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|192\.168\.)/
+
+function normalizedHostname(hostname: string): string {
+  return hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "")
+}
+
+function isPrivateHostname(host: string): boolean {
+  return host === "localhost" ||
+    (!host.includes(".") && !host.includes(":")) ||
+    privateHostnameSuffixes.some((suffix) => host.endsWith(suffix))
+}
+
+function ipv4Octets(host: string): readonly number[] | undefined {
+  const parts = host.split(".")
+  if (parts.length !== 4 || parts.some((part) => !/^(?:0|[1-9][0-9]{0,2})$/.test(part))) return undefined
+  const octets = parts.map(Number)
+  return octets.every((octet) => octet <= 255) ? octets : undefined
+}
+
+function isPrivateIpv4(host: string): boolean {
+  return ipv4Octets(host) !== undefined && privateIpv4Pattern.test(host)
+}
+
+function isPrivateIpv6(host: string): boolean {
+  if (!host.includes(":")) return false
+  if (host === "::" || host === "::1" || /^f[cd]/.test(host) || /^fe[89a-f]/.test(host)) return true
+  return host.startsWith("::ffff:") && isPrivateIpv4(host.slice("::ffff:".length))
+}
+
+function isPrivateRepositoryHost(hostname: string): boolean {
+  const host = normalizedHostname(hostname)
+  return isPrivateHostname(host) || isPrivateIpv4(host) || isPrivateIpv6(host)
+}
+
+function isHttpUrl(url: URL): boolean {
+  return url.protocol === "https:" || url.protocol === "http:"
+}
+
+function isBareRepositoryOrigin(url: URL): boolean {
+  return url.username === "" && url.password === "" && url.search === "" && url.hash === ""
+}
+
 function isPublicRepositoryOrigin(value: string): boolean {
+  if (value.length === 0 || value !== value.trim() || /[\\\s]/.test(value)) return false
   try {
     const url = new URL(value)
     return (
-      (url.protocol === "https:" || url.protocol === "http:") &&
-      url.username === "" &&
-      url.password === "" &&
-      url.search === "" &&
-      url.hash === "" &&
-      url.hostname.length > 0
+      isHttpUrl(url) &&
+      isBareRepositoryOrigin(url) &&
+      url.hostname.length > 0 &&
+      !isPrivateRepositoryHost(url.hostname)
     )
   } catch {
     return false
