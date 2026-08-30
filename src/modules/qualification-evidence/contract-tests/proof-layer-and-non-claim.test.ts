@@ -539,6 +539,17 @@ test("serialized egress is allowlisted, preserves bounded evidence, and fails cl
   })
   expectInvalidQualificationResult(inapplicableSkipRationale)
 
+  const skipWithoutExplicitNonClaim = replaceReducedClaim(result, {
+    ...claudeClaim,
+    nonClaims: claudeClaim.nonClaims.filter((nonClaim) => nonClaim !== "harness.claude.fresh-native"),
+  })
+  expectInvalidQualificationResult({
+    ...skipWithoutExplicitNonClaim,
+    nonClaims: skipWithoutExplicitNonClaim.nonClaims.filter((nonClaim) =>
+      nonClaim !== "harness.claude.fresh-native"
+    ),
+  })
+
   const duplicateEvidenceCellId = {
     ...result,
     claims: result.claims.map((claim, index) =>

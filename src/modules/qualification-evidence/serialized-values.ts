@@ -425,7 +425,8 @@ function isSemanticallyValidReducedClaim(
         case "observation":
           return true
         case "skip":
-          return isAllowedSkipRationale(profile, claim.claim, claim.skipRationale)
+          return isAllowedSkipRationale(profile, claim.claim, claim.skipRationale) &&
+            claim.nonClaims.includes(claim.claim)
         default:
           return assertNever(claim)
       }
