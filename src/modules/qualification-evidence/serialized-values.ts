@@ -418,18 +418,8 @@ function isSemanticallyValidReducedClaim(
   switch (claim.status) {
     case "proved":
       return proofLayerSatisfies(claim.actualProofLayer, requirement.requiredProofLayer)
-    case "not-proved": {
-      const observationKind = claim.observationKind
-      switch (observationKind) {
-        case "observed":
-          return !proofLayerSatisfies(claim.actualProofLayer, requirement.requiredProofLayer)
-        case "failure":
-        case "proved-absence":
-          return true
-        default:
-          return assertNever(observationKind)
-      }
-    }
+    case "not-proved":
+      return true
     case "unknown":
       switch (claim.unknownKind) {
         case "observation":

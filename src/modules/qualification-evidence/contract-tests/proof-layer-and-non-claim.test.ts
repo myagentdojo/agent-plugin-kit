@@ -45,6 +45,17 @@ function refusedFixture(): QualificationRefusal {
   return outcome.refusal
 }
 
+function reducedMissingLineageFixture(): QualificationResult {
+  const cells = personalEvidenceCells().map((cell) => {
+    if (cell.claim !== "kit.identity.admitted") return cell
+    const { workflow: _workflow, ...lineage } = cell.lineage
+    return { ...cell, lineage }
+  })
+  const outcome = qualificationEvidence.reduce({ candidate, profile: personalProfile, cells })
+  if (outcome.status !== "reduced") throw new Error("expected missing-lineage reduced fixture")
+  return outcome.result
+}
+
 function replaceReducedClaim(
   result: QualificationResult,
   replacement: QualificationResult["claims"][number],
@@ -290,6 +301,15 @@ test("profiles retain exact order and lineage while Proof Layer satisfaction is 
       actualProofLayer: "clean-fixture",
     })
   }
+
+  const missingRequiredLineage = reducedMissingLineageFixture()
+  expect(missingRequiredLineage.claims[0]).toMatchObject({
+    status: "not-proved",
+    actualProofLayer: "clean-fixture",
+    observationKind: "observed",
+  })
+  expect(parseQualificationResult(JSON.parse(serializeQualificationResult(missingRequiredLineage))))
+    .toEqual(missingRequiredLineage)
 })
 
 test("reduced and refused outcomes preserve counts, skip distinction, and never promote a weak observation", () => {
