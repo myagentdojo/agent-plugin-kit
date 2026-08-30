@@ -236,7 +236,7 @@ function independentFailureClasses(failureTags: readonly string[]): Readonly<Rec
   const classes: Record<string, number> = {}
   for (const tag of failureTags) {
     const message = xmlAttribute(tag, "message")
-    const failureClass = message.match(/(?:^|[\\s"'(])([a-z][a-z0-9-]*-[a-z0-9-]*):/)?.[1]
+    const failureClass = message.match(/(?:^|[\s"'(])([a-z][a-z0-9-]*-[a-z0-9-]*):/)?.[1]
     if (failureClass === undefined) throw new Error("independent test process omitted a failure class")
     classes[failureClass] = (classes[failureClass] ?? 0) + 1
   }
@@ -706,6 +706,10 @@ test("selector discovery or aggregate de-duplication drift is refused", async ()
 })
 
 test("an absent, unknown, or miscounted test-failure class is refused", async () => {
+  expect(independentFailureClasses(['<failure message="error: contract-absent: prefixed failure">'])).toEqual({
+    "contract-absent": 1,
+  })
+
   const cases = [
     {
       label: "absent failure class",
