@@ -1,7 +1,5 @@
-import { createHash } from "node:crypto"
 import { z } from "zod"
 import { VerificationProfile as verificationProfiles } from "./interface"
-import type { CandidateIdentity } from "../release-and-git-engine/interface"
 import {
   candidateIdentitySchema,
   packageIdentitySchema,
@@ -11,6 +9,7 @@ import {
   workflowIdentitySchema,
 } from "../release-and-git-engine/serialized-values"
 import type {
+  EvidenceCellId,
   EvidenceCell,
   QualificationOutcome,
   QualificationRefusal,
@@ -69,9 +68,11 @@ const receiptOwnerSchema = z.enum(receiptOwners)
 const digestSchema = z.custom<`sha256:${string}`>(
   (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value),
 )
-const cellIdSchema = z.custom<`cell:${string}`>(
-  (value) => typeof value === "string" && /^cell:[a-z][a-z0-9-]{0,63}$/.test(value),
-)
+const cellIdPattern = /^cell:[a-z][a-z0-9-]{0,63}$/
+export function isEvidenceCellId(value: unknown): value is EvidenceCellId {
+  return typeof value === "string" && cellIdPattern.test(value)
+}
+const cellIdSchema = z.custom<EvidenceCellId>(isEvidenceCellId)
 const emptyCellIdsSchema = z.custom<readonly []>((value) => Array.isArray(value) && value.length === 0)
 const observationCodeSchema = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/)
 const commitSchema = z.string().regex(/^[0-9a-f]{40}$/)
@@ -296,7 +297,62 @@ function isExactProfile(profile: VerificationProfile): boolean {
         requirement.requiredLineage.every((member, memberIndex) =>
           member === acceptedRequirement.requiredLineage[memberIndex]
         )
-    })
+  })
+}
+
+type ResultStatusCounts = Pick<QualificationResult["counts"], "skipped" | "proved" | "notProved" | "unknown">
+
+function resultStatusCounts(result: QualificationResult): ResultStatusCounts {
+  let skipped = 0
+  let proved = 0
+  let notProved = 0
+  let unknown = 0
+  for (const claim of result.claims) {
+    switch (claim.status) {
+      case "proved":
+        proved += 1
+        break
+      case "not-proved":
+        notProved += 1
+        break
+      case "unknown":
+        if (claim.unknownKind === "skip") skipped += 1
+        else unknown += 1
+        break
+      default:
+        break
+    }
+  }
+  return { skipped, proved, notProved, unknown }
+}
+
+function hasCanonicalResultClaims(result: QualificationResult): boolean {
+  const profile = verificationProfiles[result.profileId]
+  return result.claims.length === profile.requirements.length && result.claims.every((claim, index) =>
+    claim.claim === profile.requirements[index]?.claim
+  )
+}
+
+function hasConsistentResultCounts(result: QualificationResult): boolean {
+  const profileCount = verificationProfiles[result.profileId].requirements.length
+  const actual = resultStatusCounts(result)
+  const { counts } = result
+  return counts.selected === profileCount &&
+    counts.selected === result.claims.length &&
+    counts.selected === counts.covered + counts.skipped &&
+    counts.covered === counts.proved + counts.notProved + counts.unknown &&
+    counts.skipped === actual.skipped &&
+    counts.proved === actual.proved &&
+    counts.notProved === actual.notProved &&
+    counts.unknown === actual.unknown
+}
+
+function isSemanticallyValidQualificationResult(result: QualificationResult): boolean {
+  return hasCanonicalResultClaims(result) && hasConsistentResultCounts(result)
+}
+
+function isSemanticallyValidQualificationOutcome(outcome: QualificationOutcome): boolean {
+  return outcome.status !== "reduced" || isSemanticallyValidQualificationResult(outcome.result)
 }
 
 export function parseEvidenceCell(value: unknown): EvidenceCell | undefined {
@@ -309,7 +365,8 @@ export function parseVerificationProfile(value: unknown): VerificationProfile | 
 }
 
 export function parseQualificationResult(value: unknown): QualificationResult | undefined {
-  return parseValue(qualificationResultSchema, value)
+  const parsed = parseValue(qualificationResultSchema, value)
+  return parsed !== undefined && isSemanticallyValidQualificationResult(parsed) ? parsed : undefined
 }
 
 export function parseQualificationRefusal(value: unknown): QualificationRefusal | undefined {
@@ -317,7 +374,8 @@ export function parseQualificationRefusal(value: unknown): QualificationRefusal 
 }
 
 export function parseQualificationOutcome(value: unknown): QualificationOutcome | undefined {
-  return parseValue(qualificationOutcomeSchema, value)
+  const parsed = parseValue(qualificationOutcomeSchema, value)
+  return parsed !== undefined && isSemanticallyValidQualificationOutcome(parsed) ? parsed : undefined
 }
 
 export function serializeEvidenceCell(value: EvidenceCell): string {
@@ -330,7 +388,11 @@ export function serializeVerificationProfile(value: VerificationProfile): string
 }
 
 export function serializeQualificationResult(value: QualificationResult): string {
-  return serializeValue(qualificationResultSchema, value)
+  const parsed = qualificationResultSchema.safeParse(value)
+  if (containsUndefined(value) || !parsed.success || !isSemanticallyValidQualificationResult(parsed.data)) {
+    throw new Error("qualification-evidence: invalid serialized value")
+  }
+  return JSON.stringify(parsed.data)
 }
 
 export function serializeQualificationRefusal(value: QualificationRefusal): string {
@@ -338,7 +400,11 @@ export function serializeQualificationRefusal(value: QualificationRefusal): stri
 }
 
 export function serializeQualificationOutcome(value: QualificationOutcome): string {
-  return serializeValue(qualificationOutcomeSchema, value)
+  const parsed = qualificationOutcomeSchema.safeParse(value)
+  if (containsUndefined(value) || !parsed.success || !isSemanticallyValidQualificationOutcome(parsed.data)) {
+    throw new Error("qualification-evidence: invalid serialized value")
+  }
+  return JSON.stringify(parsed.data)
 }
 
 type InferredEvidenceCell = z.infer<typeof evidenceCellSchema>
@@ -361,23 +427,3 @@ const bidirectionalTypeChecks: [
 ] = [true, true, true, true, true, true, true, true, true, true]
 
 void bidirectionalTypeChecks
-
-export function canonicalCandidateIdentityDigest(candidate: CandidateIdentity): `sha256:${string}` {
-  const frame = (value: string): string => `${new TextEncoder().encode(value).length}:${value}`
-  const scalar = (value: string): string => `s${frame(value)}`
-  const fields: readonly [string, string][] = [
-    ["sourceRepositoryOrigin", candidate.source.repository.origin],
-    ["sourceCommit", candidate.source.commit],
-    ["releaseReference", candidate.release.reference],
-    ["releaseCommit", candidate.release.commit],
-    ["packageRepositoryOrigin", candidate.package.repository.origin],
-    ["packageCommit", candidate.package.commit],
-    ["workflowRepositoryOrigin", candidate.workflow.repository.origin],
-    ["workflowPath", candidate.workflow.path],
-    ["workflowCommit", candidate.workflow.commit],
-  ]
-  const encoded = `r${frame("agent-plugin-kit.candidate-identity.v1")}${frame(String(fields.length))}${fields
-    .map(([name, value]) => `${frame(name)}${frame(scalar(value))}`)
-    .join("")}`
-  return `sha256:${createHash("sha256").update(encoded).digest("hex")}`
-}

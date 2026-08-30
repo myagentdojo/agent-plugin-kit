@@ -6,7 +6,7 @@ import type {
 } from "../interface"
 import type { CandidateIdentity } from "../../release-and-git-engine/interface"
 import { qualificationEvidence } from "../implementation/qualification-evidence"
-import { canonicalCandidateIdentityDigest } from "../serialized-values"
+import { canonicalCandidateIdentityDigest } from "../../release-and-git-engine/serialized-values"
 import {
   candidate,
   candidateDigest,
@@ -119,9 +119,7 @@ test("canonical Candidate Lineage reduction preserves profile order and evidence
   }
   const semanticallyEqual = personalEvidenceCells().map((cell) => ({ ...cell, candidate: reorderedCandidate }))
   expect(reduceAttempt(personalProfile, semanticallyEqual).status).toBe("reduced")
-})
 
-test("reduction refuses every drifted Personal and Public profile shape", () => {
   for (const profile of [personalProfile, publicProfile]) {
     const requirements = [...profile.requirements]
     const firstRequirement = requirements[0]!
@@ -382,9 +380,7 @@ test("an unresolved skip plus observation is refused, while explicit resolution 
     nonClaims: ["harness.claude.fresh-native", "workflow.called-revision"],
     receiptDigests: ["sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"],
   })
-})
 
-test("profile-specific skip claim and rationale pairs are refused", () => {
   const invalidPersonalRationale = personalEvidenceCells().map((cell) =>
     cell.claim === "harness.claude.fresh-native"
       ? skipCell(cell.claim, "cell:personal-invalid-rationale", "hosted-proof-not-run")

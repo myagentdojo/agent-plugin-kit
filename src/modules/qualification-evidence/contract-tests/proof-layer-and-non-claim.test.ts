@@ -115,42 +115,34 @@ test("strict ingress rejects mismatches, unknown fields, versions, coercion, def
   for (const value of invalidValues) {
     expect(parseEvidenceCell(value)).toBeUndefined()
   }
-  expect(parseVerificationProfile(invalidValues[10])).toBeUndefined()
-  expect(parseVerificationProfile(invalidValues[11])).toBeUndefined()
-  expect(JSON.stringify(parseEvidenceCell(invalidValues[7])) ?? "").not.toContain("private")
-})
-
-test("repository identity ingress and egress reject local and private origins", () => {
   const invalidOrigins = [
     "http://localhost/Users/nathan/private-repo",
     "https://127.0.0.1/myagentdojo/example-plugin.git",
     "https://10.0.0.4/myagentdojo/example-plugin.git",
     "https://192.168.1.4/myagentdojo/example-plugin.git",
+    "https://192.0.2.10/myagentdojo/example-plugin.git",
+    "https://198.51.100.10/myagentdojo/example-plugin.git",
+    "https://203.0.113.10/myagentdojo/example-plugin.git",
     "https://[::1]/myagentdojo/example-plugin.git",
+    "https://[::ffff:192.168.1.4]/myagentdojo/example-plugin.git",
+    "https://example.com/myagentdojo/example-plugin.git",
     "https://git.internal/myagentdojo/example-plugin.git",
+    "https://github.com/Users/nathan/private-repo",
   ]
-
   for (const origin of invalidOrigins) {
-    const invalidCell = observedCell({
+    expect(parseEvidenceCell({
+      ...cell,
       candidate: {
-        ...candidate,
-        source: { ...candidate.source, repository: { origin } },
+        source: { ...cell.candidate.source, repository: { origin } },
+        release: cell.candidate.release,
+        package: cell.candidate.package,
+        workflow: cell.candidate.workflow,
       },
-    })
-    expect(parseEvidenceCell(invalidCell)).toBeUndefined()
+    })).toBeUndefined()
   }
-
-  const result = reducedFixture()
-  const invalidResult = {
-    ...result,
-    candidate: {
-      ...result.candidate,
-      package: { ...result.candidate.package, repository: { origin: invalidOrigins[0]! } },
-    },
-  }
-  expect(() => serializeQualificationResult(invalidResult as QualificationResult)).toThrow(
-    "qualification-evidence: invalid serialized value",
-  )
+  expect(parseVerificationProfile(invalidValues[10])).toBeUndefined()
+  expect(parseVerificationProfile(invalidValues[11])).toBeUndefined()
+  expect(JSON.stringify(parseEvidenceCell(invalidValues[7])) ?? "").not.toContain("private")
 })
 
 test("profiles retain exact order and lineage while Proof Layer satisfaction is reflexive and incomparable at the top", () => {
@@ -288,4 +280,14 @@ test("serialized egress is allowlisted, preserves bounded evidence, and fails cl
     status: "reduced",
     result: { ...result, schemaVersion: 2 },
   } as unknown as QualificationOutcome)).toThrow("qualification-evidence: invalid serialized value")
+  expect(() => serializeQualificationResult({
+    ...result,
+    candidate: {
+      ...result.candidate,
+      package: {
+        ...result.candidate.package,
+        repository: { origin: "https://github.com/Users/nathan/private-repo" },
+      },
+    },
+  } as QualificationResult)).toThrow("qualification-evidence: invalid serialized value")
 })

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { z } from "zod"
 import type {
   CandidateIdentity,
@@ -20,15 +21,31 @@ const privateHostnameSuffixes = [
   ".test",
   ".invalid",
   ".example",
+  ".lan",
+  ".corp",
+  ".localdomain",
 ] as const
-const privateIpv4Pattern = /^(?:(?:0|10|127)\.|169\.254\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|192\.168\.)/
+const reservedHostnames = new Set([
+  "localhost",
+  "localdomain",
+  "test",
+  "invalid",
+  "example",
+  "example.com",
+  "example.net",
+  "example.org",
+  "example.edu",
+])
+const privateIpv4Pattern = /^(?:(?:0|10|127)\.|100\.(?:6[4-9]|[7-9][0-9])\.|169\.254\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|192\.0\.0\.|192\.0\.2\.|192\.168\.|198\.(?:18|19|51)\.|203\.0\.113\.|(?:22[4-9]|23[0-9]|24[0-9]|25[0-5])\.)/
+const privateIpv6Pattern = /^(?:::|f[cd]|fe[89a-f]|ff|100::|2001:(?:2|10|20|db8):|3fff:)/
+const privateCheckoutPathPattern = /(?:^|\/)(?:users?|home|private|tmp|var|volumes?|mnt|workspaces?)(?:\/|$)|(?:^|\/)\p{L}:\//iu
 
 function normalizedHostname(hostname: string): string {
   return hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "")
 }
 
 function isPrivateHostname(host: string): boolean {
-  return host === "localhost" ||
+  return reservedHostnames.has(host) ||
     (!host.includes(".") && !host.includes(":")) ||
     privateHostnameSuffixes.some((suffix) => host.endsWith(suffix))
 }
@@ -45,9 +62,7 @@ function isPrivateIpv4(host: string): boolean {
 }
 
 function isPrivateIpv6(host: string): boolean {
-  if (!host.includes(":")) return false
-  if (host === "::" || host === "::1" || /^f[cd]/.test(host) || /^fe[89a-f]/.test(host)) return true
-  return host.startsWith("::ffff:") && isPrivateIpv4(host.slice("::ffff:".length))
+  return host.includes(":") && privateIpv6Pattern.test(host)
 }
 
 function isPrivateRepositoryHost(hostname: string): boolean {
@@ -63,6 +78,15 @@ function isBareRepositoryOrigin(url: URL): boolean {
   return url.username === "" && url.password === "" && url.search === "" && url.hash === ""
 }
 
+function hasPrivateCheckoutPath(pathname: string): boolean {
+  try {
+    const decodedPath = decodeURIComponent(pathname)
+    return decodedPath.includes("\\") || privateCheckoutPathPattern.test(decodedPath)
+  } catch {
+    return true
+  }
+}
+
 function isPublicRepositoryOrigin(value: string): boolean {
   if (value.length === 0 || value !== value.trim() || /[\\\s]/.test(value)) return false
   try {
@@ -71,7 +95,8 @@ function isPublicRepositoryOrigin(value: string): boolean {
       isHttpUrl(url) &&
       isBareRepositoryOrigin(url) &&
       url.hostname.length > 0 &&
-      !isPrivateRepositoryHost(url.hostname)
+      !isPrivateRepositoryHost(url.hostname) &&
+      !hasPrivateCheckoutPath(url.pathname)
     )
   } catch {
     return false
@@ -101,30 +126,44 @@ export const workflowIdentitySchema = z.strictObject({
   commit: commitSchema,
 })
 
-function candidateIdentityFields(candidate: CandidateIdentity): readonly string[] {
+/** Candidate Identity projection shared by matching and digest encoding. */
+function candidateIdentityFields(candidate: CandidateIdentity): readonly (readonly [string, string])[] {
   return [
-    candidate.source.repository.origin,
-    candidate.source.commit,
-    candidate.release.reference,
-    candidate.release.commit,
-    candidate.package.repository.origin,
-    candidate.package.commit,
-    candidate.workflow.repository.origin,
-    candidate.workflow.path,
-    candidate.workflow.commit,
+    ["sourceRepositoryOrigin", candidate.source.repository.origin],
+    ["sourceCommit", candidate.source.commit],
+    ["releaseReference", candidate.release.reference],
+    ["releaseCommit", candidate.release.commit],
+    ["packageRepositoryOrigin", candidate.package.repository.origin],
+    ["packageCommit", candidate.package.commit],
+    ["workflowRepositoryOrigin", candidate.workflow.repository.origin],
+    ["workflowPath", candidate.workflow.path],
+    ["workflowCommit", candidate.workflow.commit],
   ]
 }
 
 export function candidateIdentitiesMatch(left: CandidateIdentity, right: CandidateIdentity): boolean {
   const leftFields = candidateIdentityFields(left)
   const rightFields = candidateIdentityFields(right)
-  return leftFields.every((value, index) => value === rightFields[index])
+  return leftFields.length === rightFields.length && leftFields.every(([, value], index) => value === rightFields[index]?.[1])
 }
 
 export function candidateHasOneFullCommitPin(candidate: CandidateIdentity): boolean {
   return candidate.release.commit === candidate.source.commit &&
     candidate.package.commit === candidate.source.commit &&
     candidate.workflow.commit === candidate.source.commit
+}
+
+function canonicalCandidateIdentityEncoding(candidate: CandidateIdentity): string {
+  const frame = (value: string): string => `${new TextEncoder().encode(value).length}:${value}`
+  const scalar = (value: string): string => `s${frame(value)}`
+  const fields = candidateIdentityFields(candidate)
+  return `r${frame("agent-plugin-kit.candidate-identity.v1")}${frame(String(fields.length))}${fields
+    .map(([name, value]) => `${frame(name)}${frame(scalar(value))}`)
+    .join("")}`
+}
+
+export function canonicalCandidateIdentityDigest(candidate: CandidateIdentity): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(canonicalCandidateIdentityEncoding(candidate)).digest("hex")}`
 }
 
 export const candidateIdentitySchema = z.strictObject({

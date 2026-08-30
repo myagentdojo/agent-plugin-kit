@@ -3,26 +3,30 @@ import {
   candidateHasOneFullCommitPin,
   candidateIdentitySchema,
   candidateIdentitiesMatch,
+  canonicalCandidateIdentityDigest,
 } from "../../release-and-git-engine/serialized-values"
 import type {
+  CandidateIdentityDigest,
   EvidenceCell,
+  EvidenceCellId,
+  LineageMember,
+  ProofLayer,
+  ProofLayerSatisfaction,
   QualificationEvidence,
   QualificationOutcome,
+  QualificationClaim,
   QualificationRefusalCode,
   QualificationResult,
+  SkipRationale,
+  VerificationClaim,
   VerificationProfile,
+  VerificationRequirement,
 } from "../interface"
-import { canonicalCandidateIdentityDigest, parseVerificationProfile } from "../serialized-values"
+import { isEvidenceCellId, parseVerificationProfile } from "../serialized-values"
 
-type ProofLayer = Exclude<EvidenceCell["actualProofLayer"], null>
-type VerificationClaim = EvidenceCell["claim"]
-type VerificationRequirement = VerificationProfile["requirements"][number]
-type LineageMember = VerificationRequirement["requiredLineage"][number]
 type NonSkipEvidenceCell = Exclude<EvidenceCell, { unknownKind: "skip" }>
-type SkipRationale = Extract<EvidenceCell, { unknownKind: "skip" }>["skipRationale"]
-type ReducedClaim = QualificationResult["claims"][number]
+type ReducedClaim = QualificationClaim
 
-const cellIdPattern = /^cell:[a-z][a-z0-9-]{0,63}$/
 const personalSkipClaims = new Set<VerificationClaim>([
   "harness.claude.fresh-native",
   "harness.codex.fresh-native",
@@ -46,7 +50,7 @@ const publicSkipRationalesByClaim: Partial<Record<VerificationClaim, readonly Sk
   "harness.claude.fresh-native": ["fresh-native-proof-not-run", "host-unavailable", "not-applicable"],
   "harness.codex.fresh-native": ["fresh-native-proof-not-run", "host-unavailable", "not-applicable"],
 }
-const proofLayerSatisfaction: Record<ProofLayer, readonly ProofLayer[]> = {
+const proofLayerSatisfaction: ProofLayerSatisfaction = {
   "in-process": ["in-process"],
   "public-process": ["in-process", "public-process"],
   "clean-fixture": ["in-process", "public-process", "clean-fixture"],
@@ -66,7 +70,7 @@ function sameOptional<T>(expected: T, actual: T | undefined, same: (left: T, rig
   return actual === undefined || same(expected, actual)
 }
 
-function sameReceiptDigest(candidateDigest: `sha256:${string}`, receipt: NonSkipEvidenceCell["receipt"]): boolean {
+function sameReceiptDigest(candidateDigest: CandidateIdentityDigest, receipt: NonSkipEvidenceCell["receipt"]): boolean {
   return receipt === null || receipt.candidateIdentitySha256 === candidateDigest
 }
 
@@ -81,7 +85,7 @@ function hostedRunMatches(candidate: CandidateIdentity, cell: EvidenceCell): boo
 function lineageMatchesCandidate(
   candidate: CandidateIdentity,
   cell: EvidenceCell,
-  candidateDigest: `sha256:${string}`,
+  candidateDigest: CandidateIdentityDigest,
 ): boolean {
   return [
     candidateHasOneFullCommitPin(candidate),
@@ -115,14 +119,14 @@ function lineageMatchesCandidate(
 }
 
 function payloadDigestDisagrees(
-  previous: `sha256:${string}` | undefined,
-  current: `sha256:${string}` | undefined,
+  previous: CandidateIdentityDigest | undefined,
+  current: CandidateIdentityDigest | undefined,
 ): boolean {
   return previous !== undefined && current !== undefined && previous !== current
 }
 
 function sameProofLayer(actual: ProofLayer, required: ProofLayer): boolean {
-  return proofLayerSatisfaction[actual].includes(required)
+  return proofLayerSatisfaction[actual].some((layer) => layer === required)
 }
 
 function layerCanResolve(resolver: ProofLayer, earlier: ProofLayer): boolean {
@@ -171,16 +175,16 @@ function cellStatus(cell: NonSkipEvidenceCell, requirement: VerificationRequirem
   }
 }
 
-function hasInvalidIds(cells: readonly EvidenceCell[]): `cell:${string}` | null {
+function findInvalidCellId(cells: readonly EvidenceCell[]): EvidenceCellId | null {
   const seen = new Set<string>()
   for (const cell of cells) {
-    if (!cellIdPattern.test(cell.id) || seen.has(cell.id)) return cell.id
+    if (!isEvidenceCellId(cell.id) || seen.has(cell.id)) return cell.id
     seen.add(cell.id)
   }
   return null
 }
 
-function hasOutOfProfileCell(cells: readonly EvidenceCell[], profile: VerificationProfile): EvidenceCell | null {
+function findOutOfProfileCell(cells: readonly EvidenceCell[], profile: VerificationProfile): EvidenceCell | null {
   const selected = new Set(profile.requirements.map(({ claim }) => claim))
   return cells.find((cell) => !selected.has(cell.claim)) ?? null
 }
@@ -198,7 +202,7 @@ function isAllowedSkip(profile: VerificationProfile, cell: Extract<EvidenceCell,
     allowedRationales?.includes(cell.skipRationale) === true
 }
 
-function hasInvalidSkip(cells: readonly EvidenceCell[], profile: VerificationProfile): EvidenceCell | null {
+function findInvalidSkip(cells: readonly EvidenceCell[], profile: VerificationProfile): EvidenceCell | null {
   return cells.find((cell) => isSkip(cell) && !isAllowedSkip(profile, cell)) ?? null
 }
 
@@ -220,7 +224,7 @@ function isInvalidResolutionTarget(
   ].some(Boolean)
 }
 
-function hasInvalidResolution(cells: readonly EvidenceCell[]): EvidenceCell | null {
+function findInvalidResolution(cells: readonly EvidenceCell[]): EvidenceCell | null {
   const byId = new Map(cells.map((cell, index) => [cell.id, { cell, index }]))
   for (const [index, cell] of cells.entries()) {
     const seen = new Set<string>()
@@ -233,9 +237,9 @@ function hasInvalidResolution(cells: readonly EvidenceCell[]): EvidenceCell | nu
   return null
 }
 
-function hasLineageDisagreement(candidate: CandidateIdentity, cells: readonly EvidenceCell[]): EvidenceCell | null {
+function findLineageDisagreement(candidate: CandidateIdentity, cells: readonly EvidenceCell[]): EvidenceCell | null {
   const candidateDigest = canonicalCandidateIdentityDigest(candidate)
-  let installedPayloadDigest: `sha256:${string}` | undefined
+  let installedPayloadDigest: CandidateIdentityDigest | undefined
   for (const cell of cells) {
     if (!lineageMatchesCandidate(candidate, cell, candidateDigest)) return cell
     const currentPayloadDigest = cell.lineage.installedPayloadSha256
@@ -257,7 +261,7 @@ function resolverIsUnqualified(
   })
 }
 
-function hasUnqualifiedResolution(cells: readonly EvidenceCell[], profile: VerificationProfile): EvidenceCell | null {
+function findUnqualifiedResolution(cells: readonly EvidenceCell[], profile: VerificationProfile): EvidenceCell | null {
   const requirements = new Map(profile.requirements.map((requirement) => [requirement.claim, requirement]))
   const byId = new Map(cells.map((cell) => [cell.id, cell]))
   return cells.find((cell) => cell.resolves.length > 0 && resolverIsUnqualified(cell, requirements.get(cell.claim), byId)) ?? null
@@ -269,7 +273,7 @@ function appendUnique<T>(target: T[], values: readonly T[]): void {
 
 function claimMetadata(claimCells: readonly EvidenceCell[]): Pick<ReducedClaim, "evidenceCellIds" | "nonClaims" | "receiptDigests"> {
   const nonClaims: VerificationClaim[] = []
-  const receiptDigests: `sha256:${string}`[] = []
+  const receiptDigests: CandidateIdentityDigest[] = []
   for (const cell of claimCells) {
     appendUnique(nonClaims, cell.nonClaims)
     if (cell.receipt !== null) appendUnique(receiptDigests, [cell.receipt.digest])
@@ -395,7 +399,7 @@ type RefusedOutcome = Extract<QualificationOutcome, { status: "refused" }>
 function refusal(
   code: QualificationRefusalCode,
   claim: VerificationClaim | null = null,
-  evidenceCellId: `cell:${string}` | null = null,
+  evidenceCellId: EvidenceCellId | null = null,
 ): RefusedOutcome {
   return { status: "refused", refusal: { schemaVersion: 1, code, claim, evidenceCellId } }
 }
@@ -405,21 +409,21 @@ function validateReductionInput(input: {
   profile: VerificationProfile
   cells: readonly EvidenceCell[]
 }): { profile: VerificationProfile } | QualificationOutcome {
-  const invalidId = hasInvalidIds(input.cells)
+  const invalidId = findInvalidCellId(input.cells)
   if (invalidId !== null) return refusal("invalid-cell-id", null, invalidId)
   const profile = parseVerificationProfile(input.profile)
   if (profile === undefined) return refusal("out-of-profile")
   const checks: readonly (() => QualificationOutcome | null)[] = [
     () => {
-      const outOfProfile = hasOutOfProfileCell(input.cells, profile)
+      const outOfProfile = findOutOfProfileCell(input.cells, profile)
       return outOfProfile === null ? null : refusal("out-of-profile", outOfProfile.claim, outOfProfile.id)
     },
     () => {
-      const invalidResolution = hasInvalidResolution(input.cells)
+      const invalidResolution = findInvalidResolution(input.cells)
       return invalidResolution === null ? null : refusal("invalid-resolution", invalidResolution.claim, invalidResolution.id)
     },
     () => {
-      const invalidSkip = hasInvalidSkip(input.cells, profile)
+      const invalidSkip = findInvalidSkip(input.cells, profile)
       return invalidSkip === null ? null : refusal("out-of-profile", invalidSkip.claim, invalidSkip.id)
     },
     () => {
@@ -427,11 +431,11 @@ function validateReductionInput(input: {
       return candidateIdentity.success ? null : refusal("lineage-disagreement")
     },
     () => {
-      const lineageDisagreement = hasLineageDisagreement(input.candidate, input.cells)
+      const lineageDisagreement = findLineageDisagreement(input.candidate, input.cells)
       return lineageDisagreement === null ? null : refusal("lineage-disagreement", lineageDisagreement.claim, lineageDisagreement.id)
     },
     () => {
-      const unqualifiedResolution = hasUnqualifiedResolution(input.cells, profile)
+      const unqualifiedResolution = findUnqualifiedResolution(input.cells, profile)
       return unqualifiedResolution === null ? null : refusal("unqualified-resolution", unqualifiedResolution.claim, unqualifiedResolution.id)
     },
   ]
