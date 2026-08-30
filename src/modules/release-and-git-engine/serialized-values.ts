@@ -48,16 +48,39 @@ export const workflowIdentitySchema = z.strictObject({
   ),
   commit: commitSchema,
 })
+
+function candidateIdentityFields(candidate: CandidateIdentity): readonly string[] {
+  return [
+    candidate.source.repository.origin,
+    candidate.source.commit,
+    candidate.release.reference,
+    candidate.release.commit,
+    candidate.package.repository.origin,
+    candidate.package.commit,
+    candidate.workflow.repository.origin,
+    candidate.workflow.path,
+    candidate.workflow.commit,
+  ]
+}
+
+export function candidateIdentitiesMatch(left: CandidateIdentity, right: CandidateIdentity): boolean {
+  const leftFields = candidateIdentityFields(left)
+  const rightFields = candidateIdentityFields(right)
+  return leftFields.every((value, index) => value === rightFields[index])
+}
+
+export function candidateHasOneFullCommitPin(candidate: CandidateIdentity): boolean {
+  return candidate.release.commit === candidate.source.commit &&
+    candidate.package.commit === candidate.source.commit &&
+    candidate.workflow.commit === candidate.source.commit
+}
+
 export const candidateIdentitySchema = z.strictObject({
   source: sourceIdentitySchema,
   release: releaseIdentitySchema,
   package: packageIdentitySchema,
   workflow: workflowIdentitySchema,
-}).refine((candidate) =>
-  candidate.release.commit === candidate.source.commit &&
-  candidate.package.commit === candidate.source.commit &&
-  candidate.workflow.commit === candidate.source.commit
-)
+}).refine(candidateHasOneFullCommitPin)
 
 type InferredRepositoryIdentity = z.infer<typeof repositoryIdentitySchema>
 type InferredSourceIdentity = z.infer<typeof sourceIdentitySchema>

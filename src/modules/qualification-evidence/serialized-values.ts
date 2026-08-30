@@ -363,10 +363,7 @@ const bidirectionalTypeChecks: [
 void bidirectionalTypeChecks
 
 export function canonicalCandidateIdentityDigest(candidate: CandidateIdentity): `sha256:${string}` {
-  const frame = (value: string): string => {
-    const normalized = value.normalize("NFC")
-    return `${new TextEncoder().encode(normalized).length}:${normalized}`
-  }
+  const frame = (value: string): string => `${new TextEncoder().encode(value).length}:${value}`
   const scalar = (value: string): string => `s${frame(value)}`
   const fields: readonly [string, string][] = [
     ["sourceRepositoryOrigin", candidate.source.repository.origin],

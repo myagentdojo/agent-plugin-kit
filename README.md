@@ -5,9 +5,9 @@ dependency-free Admission Bootstrap.
 
 The repository currently contains its accepted domain and Repository Topology,
 the Source Tree Interface skeleton, and a mixed GREEN and intentional RED
-Contract Test scaffold. Admission Bootstrap is the sole current Package
-Implementation. Every other Module Implementation and all maintenance command
-behaviour remain absent.
+Contract Test scaffold. Admission Bootstrap and Qualification Evidence are the
+current Source Tree Implementations. Every other Deep Module Implementation
+and all maintenance command behaviour remain absent.
 
 ## Start here
 

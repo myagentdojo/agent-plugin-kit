@@ -1,4 +1,8 @@
 import type { CandidateIdentity } from "../../release-and-git-engine/interface"
+import {
+  candidateHasOneFullCommitPin,
+  candidateIdentitiesMatch,
+} from "../../release-and-git-engine/serialized-values"
 import type {
   EvidenceCell,
   QualificationEvidence,
@@ -30,13 +34,7 @@ function assertNever(value: never): never {
 }
 
 function sameCandidate(left: CandidateIdentity, right: CandidateIdentity): boolean {
-  return canonicalCandidateIdentityDigest(left) === canonicalCandidateIdentityDigest(right)
-}
-
-function candidatePinsAgree(candidate: CandidateIdentity): boolean {
-  return candidate.release.commit === candidate.source.commit &&
-    candidate.package.commit === candidate.source.commit &&
-    candidate.workflow.commit === candidate.source.commit
+  return candidateIdentitiesMatch(left, right)
 }
 
 function sameOptional<T>(expected: T, actual: T | undefined, same: (left: T, right: T) => boolean): boolean {
@@ -61,7 +59,7 @@ function lineageMatchesCandidate(
   candidateDigest: `sha256:${string}`,
 ): boolean {
   return [
-    candidatePinsAgree(candidate),
+    candidateHasOneFullCommitPin(candidate),
     sameCandidate(cell.candidate, candidate),
     cell.lineage.candidateIdentitySha256 === candidateDigest,
     sameOptional(

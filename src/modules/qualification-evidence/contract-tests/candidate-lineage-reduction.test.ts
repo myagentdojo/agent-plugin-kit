@@ -6,6 +6,7 @@ import type {
 } from "../interface"
 import type { CandidateIdentity } from "../../release-and-git-engine/interface"
 import { qualificationEvidence } from "../implementation/qualification-evidence"
+import { canonicalCandidateIdentityDigest } from "../serialized-values"
 import {
   candidate,
   candidateDigest,
@@ -30,6 +31,34 @@ function expectRefusal(
   if (outcome.status !== "refused") return
   const expected = claim === null ? { schemaVersion: 1, code } : { schemaVersion: 1, code, claim }
   expect(outcome.refusal).toMatchObject(expected)
+}
+
+function evidenceCellsForCandidate(
+  lineageCandidate: CandidateIdentity,
+  digest: `sha256:${string}`,
+  cellCandidate: CandidateIdentity = lineageCandidate,
+): EvidenceCell[] {
+  return personalEvidenceCells().map((cell) => {
+    const lineage = {
+      ...cell.lineage,
+      candidateIdentitySha256: digest,
+      source: lineageCandidate.source,
+      release: lineageCandidate.release,
+      package: lineageCandidate.package,
+      workflow: lineageCandidate.workflow,
+    }
+    if (cell.assertedStatus === "unknown" && cell.unknownKind === "skip") {
+      return { ...cell, candidate: cellCandidate, lineage, receipt: null }
+    }
+    return {
+      ...cell,
+      candidate: cellCandidate,
+      lineage,
+      receipt: cell.receipt === null
+        ? null
+        : { ...cell.receipt, candidateIdentitySha256: digest },
+    }
+  })
 }
 
 test("canonical Candidate Lineage reduction preserves profile order and evidence metadata", () => {
@@ -154,27 +183,7 @@ test("Candidate Lineage, installed payload, and receipt disagreement are refused
   }
   const inconsistentDigest =
     "sha256:20c432f7c9b7182dbc3f900fefe7c1ac6b022ac3db1811fc6fa78c8fda519a58" as const
-  const internallyInconsistent: EvidenceCell[] = personalEvidenceCells().map((cell) => {
-    const lineage = {
-      ...cell.lineage,
-      candidateIdentitySha256: inconsistentDigest,
-      source: inconsistentCandidate.source,
-      release: inconsistentCandidate.release,
-      package: inconsistentCandidate.package,
-      workflow: inconsistentCandidate.workflow,
-    }
-    if (cell.assertedStatus === "unknown" && cell.unknownKind === "skip") {
-      return { ...cell, candidate: inconsistentCandidate, lineage, receipt: null }
-    }
-    return {
-      ...cell,
-      candidate: inconsistentCandidate,
-      lineage,
-      receipt: cell.receipt === null
-        ? null
-        : { ...cell.receipt, candidateIdentitySha256: inconsistentDigest },
-    }
-  })
+  const internallyInconsistent = evidenceCellsForCandidate(inconsistentCandidate, inconsistentDigest)
   expectRefusal(
     qualificationEvidence.reduce({
       candidate: inconsistentCandidate,
@@ -184,6 +193,25 @@ test("Candidate Lineage, installed payload, and receipt disagreement are refused
     "lineage-disagreement",
   )
   expect(candidateDigest).toMatch(/^sha256:[0-9a-f]{64}$/)
+
+  const composedCandidate: CandidateIdentity = {
+    ...candidate,
+    release: { ...candidate.release, reference: "refs/tags/caf\u00e9" },
+  }
+  const decomposedCandidate: CandidateIdentity = {
+    ...candidate,
+    release: { ...candidate.release, reference: "refs/tags/cafe\u0301" },
+  }
+  const composedDigest = canonicalCandidateIdentityDigest(composedCandidate)
+  expect(composedDigest).not.toBe(canonicalCandidateIdentityDigest(decomposedCandidate))
+  expectRefusal(
+    qualificationEvidence.reduce({
+      candidate: composedCandidate,
+      profile: personalProfile,
+      cells: evidenceCellsForCandidate(composedCandidate, composedDigest, decomposedCandidate),
+    }),
+    "lineage-disagreement",
+  )
 
   const hostedCell = observedCell({
     id: "cell:public-payload-hosted",
