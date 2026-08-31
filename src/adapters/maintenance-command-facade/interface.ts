@@ -3,7 +3,10 @@ import type {
   FailureClass,
   MaintenanceCommand,
   MaintenanceCommands,
+  MaintenanceErrorEnvelopeData,
+  MaintenanceErrorEnvelopeProjection,
   MaintenanceOutcome,
+  MaintenanceSuccessEnvelopeData,
   ResultCode,
   StationId,
 } from "../../modules/maintenance-command-contract/interface"
@@ -67,6 +70,25 @@ export type ProcessObservation = {
   stdout: string
   stderr: string
   exitCode: number
+}
+
+/** The Facade owns only the closed public process envelope around Maintenance data. */
+export type FacadeSuccessEnvelope = {
+  schema_version: 1
+  status: "ok"
+  run_id: string
+  data: MaintenanceSuccessEnvelopeData
+}
+
+/** The Facade owns only the closed public process envelope around Maintenance failures. */
+export type FacadeErrorEnvelope = {
+  record_type: "error_envelope"
+  schema_version: 1
+  status: "error"
+  message: string
+  run_id: string
+  data: MaintenanceErrorEnvelopeData
+  error: MaintenanceErrorEnvelopeProjection
 }
 
 export interface MaintenanceCommandFacade {

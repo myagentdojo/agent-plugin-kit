@@ -81,7 +81,9 @@
         "name": "source-tree-adapters/maintenance-command-facade",
         "patterns": [
           "src/adapters/maintenance-command-facade/interface.ts",
-          "src/adapters/maintenance-command-facade/maintenance.ts"
+          "src/adapters/maintenance-command-facade/maintenance.ts",
+          "src/adapters/maintenance-command-facade/serialized-values.ts",
+          "src/adapters/maintenance-command-facade/implementation/**/*.ts"
         ]
       },
       {
@@ -225,6 +227,7 @@
       },
       {
         "from": "source-tree-adapters/maintenance-command-facade",
+        "allow": ["deep-module-private/maintenance-command-contract"],
         "allowTypeOnly": ["deep-modules/maintenance-command-contract"]
       },
       {

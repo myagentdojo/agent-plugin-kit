@@ -311,7 +311,7 @@ test("resolves the complete architecture policy in first-match order", async () 
 		{ from: "deep-module-serialized-values/release-and-git-engine", allow: [] },
 		{
 			from: "source-tree-adapters/maintenance-command-facade",
-			allow: [],
+			allow: ["deep-module-private/maintenance-command-contract"],
 		},
 		{ from: "source-tree-adapters/reusable-workflow-adapter", allow: [] },
 		{

@@ -246,6 +246,72 @@ export type CommandResult = {
   stderr: string
 }
 
+/** Maintenance-owned data projected inside the Facade's success envelope. */
+export type MaintenanceSuccessEnvelopeData = {
+  contract_id: "agent-plugin-kit.maintenance-command-result"
+  result_schema_version: 1
+  command: MaintenanceCommand["command"]
+  result_code: ResultCode
+  station_id: StationId
+  effect_class: EffectClass
+  transaction_state: TransactionState
+  retry_safety: RetrySafety
+  next_action: NextAction
+  result: AgentPayload
+} & (
+  | { expected_effect_ids: readonly string[] }
+  | { completed_effect_ids: readonly string[]; remaining_effect_ids: readonly string[] }
+)
+
+/** Maintenance-owned data projected inside the Facade's error envelope. */
+export type MaintenanceErrorEnvelopeDataCommon = {
+  contract_id: "agent-plugin-kit.maintenance-command-result"
+  result_schema_version: 1
+  result_code: ResultCode
+  station_id: StationId
+  transaction_state: TransactionState
+  retry_safety: RetrySafety
+  next_action: NextAction
+}
+
+export type MaintenanceErrorEnvelopeData =
+  | (MaintenanceErrorEnvelopeDataCommon & { command: "maintenance" })
+  | (MaintenanceErrorEnvelopeDataCommon & {
+      command: MaintenanceCommand["command"]
+      effect_class: EffectClass
+      completed_effect_ids?: never
+      remaining_effect_ids?: never
+    })
+  | (MaintenanceErrorEnvelopeDataCommon & {
+      command: MaintenanceCommand["command"]
+      effect_class: EffectClass
+      completed_effect_ids: readonly string[]
+      remaining_effect_ids: readonly string[]
+    })
+
+/** Maintenance-owned Error vocabulary projected without Facade reinterpretation. */
+export type MaintenanceErrorEnvelopeProjection = {
+  schemaVersion: 1
+  name: MaintenanceError["name"]
+  code: ResultCode
+  action: MaintenanceAction
+  errorFamily: MaintenanceError["errorFamily"]
+  hintVersion: 1
+  severity: MaintenanceError["severity"]
+  recoverability: MaintenanceError["recoverability"]
+  retryable: boolean
+  exitCodeHint: MaintenanceError["exitCodeHint"]
+  failureClass: MaintenanceError["failureClass"]
+  stationId: StationId
+  agentActions: readonly [{
+    nextActionId: string
+    action: MaintenanceAction
+    summary: string
+    retryAfterMs?: number
+    idempotencyKey?: string
+  }]
+}
+
 /**
  * The Maintenance Command Contract boundary for inspection and application.
  *
