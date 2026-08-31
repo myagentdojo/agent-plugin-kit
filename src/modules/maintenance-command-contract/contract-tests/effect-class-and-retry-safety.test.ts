@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto"
 import { expect, test } from "bun:test"
-import { createMaintenanceContractHarness } from "./adapters/mutation-recording-module-adapter"
+import {
+  createMaintenanceContractHarness,
+  runtimeControl,
+} from "./adapters/mutation-recording-module-adapter"
 import { approvalDigestVectors } from "./fixtures/approval-digest-vectors"
 import { mutatingRequests } from "./fixtures/literal-command-results"
 import type { CommandPreview } from "../interface"
@@ -48,9 +51,12 @@ async function assertApply(
     expect(harness.runtimeSpawnLedger).toEqual([
       {
         argv: ["repair"],
-        control: { code: "REPAIR_PREVIEW", schemaVersion: 1, state: { before: "missing" } },
+        result: runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
       },
-      { argv: ["repair", "--apply"], control: null },
+      {
+        argv: ["repair", "--apply"],
+        result: runtimeControl("REPAIR_APPLIED", { sideEffects: ["published-runtime"] }),
+      },
     ])
   } else {
     const owner =
@@ -58,6 +64,16 @@ async function assertApply(
       : key === "release" ? "release"
       : key
     expect(harness.applyLedgers[owner]).toEqual([request])
+    if (effectClass === "external") {
+      expect(await harness.apply(request)).toMatchObject({
+        status: "error",
+        resultCode: "recovery-required",
+      })
+      expect(harness.applyLedgers[owner]).toEqual([request])
+      await harness.inspect(request)
+      expect(await harness.apply(request)).toMatchObject({ status: "ok" })
+      expect(harness.applyLedgers[owner]).toEqual([request, request])
+    }
   }
 }
 
@@ -95,25 +111,62 @@ test("runtime repair apply refreshes preview immediately before exact apply argv
   expect(Object.keys(mutatingRequests.runtime).sort()).toEqual(["argv", "command"])
   expect(mutatingRequests.runtime.argv).toEqual(["repair", "--apply"])
   const scenarios = [
-    { label: "fresh missing preview", control: { code: "REPAIR_PREVIEW", schemaVersion: 1, state: { before: "missing" } }, apply: true, stationId: "runtime-repair-apply.runtime-repair-applied" },
-    { label: "fresh corrupt preview", control: { code: "REPAIR_PREVIEW", schemaVersion: 1, state: { before: "corrupt" } }, apply: true, stationId: "runtime-repair-apply.runtime-repair-applied" },
-    { label: "repair unneeded", control: { code: "REPAIR_UNNEEDED", schemaVersion: 1, state: { before: "valid" } }, apply: false, stationId: "runtime-repair-apply.runtime-repair-unneeded" },
-    { label: "typed refusal", control: { code: "USAGE", schemaVersion: 1 }, apply: false, stationId: "runtime-repair-apply.runtime-usage-refused" },
-    { label: "invalid control", control: { code: "INVALID_CONTROL", schemaVersion: 1 }, apply: false, stationId: "runtime-repair-apply.runtime-control-invalid" },
+    {
+      label: "fresh missing preview",
+      results: [
+        runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+        runtimeControl("REPAIR_APPLIED", { sideEffects: ["published-runtime"] }),
+      ],
+      stationId: "runtime-repair-apply.runtime-repair-applied",
+    },
+    {
+      label: "fresh corrupt preview",
+      results: [
+        runtimeControl("REPAIR_PREVIEW", { state: { before: "corrupt" } }),
+        runtimeControl("REPAIR_APPLIED", { sideEffects: ["published-runtime"] }),
+      ],
+      stationId: "runtime-repair-apply.runtime-repair-applied",
+    },
+    {
+      label: "repair unneeded",
+      results: [runtimeControl("REPAIR_UNNEEDED", { state: { before: "valid" } })],
+      stationId: "runtime-repair-apply.runtime-repair-unneeded",
+    },
+    {
+      label: "typed refusal",
+      results: [runtimeControl("USAGE", { ok: false, exitClass: 2 })],
+      stationId: "runtime-repair-apply.runtime-usage-refused",
+    },
+    {
+      label: "apply refusal",
+      results: [
+        runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+        runtimeControl("USAGE", { ok: false, exitClass: 2 }),
+      ],
+      stationId: "runtime-repair-apply.runtime-usage-refused",
+    },
+    {
+      label: "invalid process result",
+      results: [{ kind: "skill-process", stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 0 }],
+      stationId: "runtime-repair-apply.runtime-control-invalid",
+    },
   ] as const
   for (const scenario of scenarios) {
-    const harness = createMaintenanceContractHarness(undefined, { runtimeControls: [scenario.control] })
+    const harness = createMaintenanceContractHarness(undefined, { runtimeResults: scenario.results })
     const actual = await harness.apply(mutatingRequests.runtime)
     expect(actual, `contract-absent: ${scenario.label} must enforce the fresh Runtime apply precondition`).toMatchObject({ stationId: scenario.stationId })
-    expect(harness.runtimeSpawnLedger).toEqual([
-      { argv: ["repair"], control: scenario.control },
-      ...(scenario.apply ? [{ argv: ["repair", "--apply"], control: null }] : []),
-    ])
+    expect(harness.runtimeSpawnLedger.map(({ argv }) => argv)).toEqual(
+      scenario.results.length === 2
+        ? [["repair"], ["repair", "--apply"]]
+        : [["repair"]],
+    )
   }
   const repeated = createMaintenanceContractHarness(undefined, {
-    runtimeControls: [
-      { code: "REPAIR_PREVIEW", schemaVersion: 1, state: { before: "missing" } },
-      { code: "REPAIR_PREVIEW", schemaVersion: 1, state: { before: "corrupt" } },
+    runtimeResults: [
+      runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+      runtimeControl("REPAIR_APPLIED", { sideEffects: ["published-runtime"] }),
+      runtimeControl("REPAIR_PREVIEW", { state: { before: "corrupt" } }),
+      runtimeControl("REPAIR_APPLIED", { sideEffects: ["published-runtime"] }),
     ],
   })
   await repeated.apply(mutatingRequests.runtime)

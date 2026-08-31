@@ -55,46 +55,9 @@ export type NextAction = {
   id: string
   action: MaintenanceAction
   summary: string
-  commandId?: MaintenanceCommand["command"] | null
+  commandId: MaintenanceCommand["command"] | null
   retryAfterMs?: number
   idempotencyKey?: string
-}
-
-export type RuntimeRepairArgv = readonly ["repair"] | readonly ["repair", "--apply"]
-
-export type RuntimeRepairControl = {
-  code:
-    | "REPAIR_PREVIEW"
-    | "REPAIR_UNNEEDED"
-    | "REPAIR_APPLIED"
-    | "USAGE"
-    | "BUN_MISSING"
-    | "CACHE_ROOT_UNSAFE"
-    | "REPAIR_REQUIRED"
-    | "HOST_TOOL_MISSING"
-    | "RUNTIME_NOT_EXECUTABLE"
-    | "UNSUPPORTED_PLATFORM"
-    | "DOWNLOAD_FAILED"
-    | "LOCK_HELD"
-    | "ARCHIVE_HASH_MISMATCH"
-    | "ARCHIVE_MEMBER_AMBIGUOUS"
-    | "ARCHIVE_MEMBER_MISSING"
-    | "ARCHIVE_SIZE_MISMATCH"
-    | "BUNDLE_MISMATCH"
-    | "BUNDLE_UNMAPPED"
-    | "EXECUTABLE_HASH_MISMATCH"
-    | "EXECUTABLE_SIZE_MISMATCH"
-    | "EXECUTABLE_VERSION_MISMATCH"
-    | "LOCK_INVALID"
-    | "SKILL_UNKNOWN"
-    | "URL_REJECTED"
-    | "INVALID_CONTROL"
-  schemaVersion: 1
-  state?: { before: "valid" | "missing" | "corrupt" }
-}
-
-export interface RuntimeRepairExecutor {
-  invoke(argv: RuntimeRepairArgv): Promise<RuntimeRepairControl>
 }
 
 export type MaintenanceApplyRequest =
@@ -146,65 +109,6 @@ export type MaintenanceCommand =
   | { command: "canary:inspect"; candidate: CanaryCandidate }
   | MaintenanceApplyRequest
 
-export type MaintenanceCommandCollaborators = {
-  payload: {
-    produce(
-      request: Extract<
-        MaintenanceCommand,
-        { command: "payload:check" | "payload:materialize" | "payload:package" }
-      >["request"],
-    ): Promise<{
-      kind: "checked" | "materialized" | "packaged" | "refused"
-      nextAction: string
-    }>
-  }
-  runtime: RuntimeRepairExecutor
-  release: {
-    inspect(
-      request: Extract<MaintenanceCommand, { command: "release:inspect" }>["request"],
-    ): Promise<{ expectedEffectIds: readonly string[] }>
-    apply(
-      request: Extract<MaintenanceApplyRequest, { command: "release:apply" }>["request"],
-      approval: Extract<MaintenanceApplyRequest, { command: "release:apply" }>["approval"],
-    ): Promise<{
-      completedEffectIds: readonly string[]
-      remainingEffectIds: readonly string[]
-    }>
-  }
-  harness: {
-    inspect(
-      request: Extract<MaintenanceCommand, { command: "harness:claude:inspect" }>["request"],
-    ): Promise<{ expectedEffectIds: readonly string[] }>
-    inspect(
-      request: Extract<MaintenanceCommand, { command: "harness:codex:inspect" }>["request"],
-    ): Promise<{ expectedEffectIds: readonly string[] }>
-    apply(
-      request: Extract<MaintenanceApplyRequest, { command: "harness:claude:apply" }>["request"],
-      approval: Extract<MaintenanceApplyRequest, { command: "harness:claude:apply" }>["approval"],
-    ): Promise<{
-      completedEffectIds: readonly string[]
-      remainingEffectIds: readonly string[]
-    }>
-    apply(
-      request: Extract<MaintenanceApplyRequest, { command: "harness:codex:apply" }>["request"],
-      approval: Extract<MaintenanceApplyRequest, { command: "harness:codex:apply" }>["approval"],
-    ): Promise<{
-      completedEffectIds: readonly string[]
-      remainingEffectIds: readonly string[]
-      freshTaskCommand: readonly string[]
-    }>
-  }
-  canary: {
-    inspect(
-      candidate: Extract<MaintenanceCommand, { command: "canary:inspect" }>["candidate"],
-    ): Promise<unknown>
-    qualify(
-      candidate: Extract<MaintenanceApplyRequest, { command: "canary:qualify" }>["candidate"],
-      authority: Extract<MaintenanceApplyRequest, { command: "canary:qualify" }>["authority"],
-    ): Promise<{ hostedRunId: string }>
-  }
-}
-
 export type ResultCode =
   | "completed"
   | "previewed"
@@ -244,7 +148,7 @@ export type StationId = `${string}.${ResultCode}`
 
 export type MaintenanceError = {
   name: "MaintenanceCommandError"
-  exitCodeHint: number
+  exitCodeHint: 1 | 2 | 20 | 21 | 22 | 23
   failureClass: MaintenanceErrorFailureClass
   errorFamily:
     | "input"
@@ -285,6 +189,19 @@ export type MaintenanceOutcome<T> =
       error: MaintenanceError
     }
 
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue }
+
+export type AgentPayload = {
+  readonly schemaVersion: 1
+  readonly [key: string]: JsonValue
+}
+
 export type CommandPreview = {
   schemaVersion: 1
   command: MaintenanceCommand["command"]
@@ -294,7 +211,7 @@ export type CommandPreview = {
   retrySafety: RetrySafety
   nextAction: NextAction
   human: string
-  agent: Readonly<Record<string, unknown>>
+  agent: AgentPayload
   stderr: string
 }
 
@@ -307,7 +224,7 @@ export type CommandResult = {
   remainingEffectIds: readonly string[]
   nextAction: NextAction
   human: string
-  agent: Readonly<Record<string, unknown>>
+  agent: AgentPayload
   stderr: string
 }
 

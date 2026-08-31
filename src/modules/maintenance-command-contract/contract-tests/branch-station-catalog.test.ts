@@ -11,7 +11,41 @@ test("catalog declares exactly 118 deterministic station rows", () => {
 })
 test("required Intentional RED scenarios are exactly help and usage", () => {
   expect(branchStationCatalog.filter(({ reachability }) => reachability === "required").map(({ stationId }) => stationId)).toEqual([...literalRequiredStationIds])
-  absent("required Branch Stations must project observed evidence")
+  const deferred = branchStationCatalog.find(({ reachability }) => reachability === "implementation-deferred")
+  if (deferred === undefined) throw new Error("missing deferred Branch Station fixture")
+  const projected = projectStationMap(branchStationCatalog, [
+    {
+      stationId: "help.previewed",
+      status: "covered",
+      provenance: "real_process",
+      observedResultCode: "previewed",
+      observedExitClass: 0,
+    },
+    {
+      stationId: "maintenance.usage-refused",
+      status: "covered",
+      provenance: "synthetic",
+      observedResultCode: "usage-refused",
+      observedExitClass: 2,
+    },
+    {
+      stationId: deferred.stationId,
+      status: "covered",
+      provenance: "real_process",
+      observedResultCode: deferred.expectedResultCode,
+      observedExitClass: deferred.expectedExitClass,
+    },
+  ])
+  expect(projected.observedBranchCoverage).toBe(1)
+  const drifted = projectStationMap(branchStationCatalog, [{
+    stationId: "help.previewed",
+    status: "covered",
+    provenance: "real_process",
+    observedResultCode: "completed",
+    observedExitClass: 0,
+  }])
+  expect(drifted.observedBranchCoverage).toBe(0)
+  expect(drifted.stations.find(({ stationId }) => stationId === "help.previewed")?.status).toBe("drifted")
 })
 test("declared unreachable rows retain the seven literal rationales", () => {
   const actual = Object.fromEntries(branchStationCatalog
@@ -33,6 +67,20 @@ test("each station preserves Result Vocabulary exit and failure meaning", () => 
     const expected = Object.hasOwn(literalRepairRouteByStationId, station.stationId) ? literalRepairRouteByStationId[station.stationId] : literalRepairRouteByResultCode[station.expectedResultCode] ?? null
     return station.repairRouteCommandId === expected
   })).toBe(true)
+  expect(branchStationCatalog
+    .filter(({ classification, commandId }) =>
+      classification === "success" &&
+      commandId !== "maintenance" &&
+      [
+        "runtime:repair-apply",
+        "release:apply",
+        "harness:claude:apply",
+        "harness:codex:apply",
+        "canary:qualify",
+      ].includes(commandId)
+    )
+    .every(({ expectedRetrySafety }) => expectedRetrySafety === "requires-fresh-inspection"))
+    .toBe(true)
   absent("Station Map must preserve Result Vocabulary ownership")
 })
 test("implementation-deferred counts remain local to canonical controlling owners", () => {

@@ -4,11 +4,30 @@ import type {
   CommandResult,
   MaintenanceApplyRequest,
   MaintenanceCommand,
-  MaintenanceCommandCollaborators,
   MaintenanceCommands,
   MaintenanceOutcome,
 } from "../../interface"
-import { createMaintenanceCommands } from "../../implementation/maintenance-commands"
+import type { CanaryQualification } from "../../../canary-qualification/interface"
+import type {
+  ClaudeApplyResult,
+  ClaudeInspection,
+  ClaudeRequest,
+  ClaudeTransitionApproval,
+  ClaudeTransitionRequest,
+  CodexApplyResult,
+  CodexInspection,
+  CodexRequest,
+  CodexTransitionApproval,
+  CodexTransitionRequest,
+  HarnessJourneys,
+} from "../../../harness-journeys/interface"
+import type { PluginPayloadProduction } from "../../../plugin-payload-production/interface"
+import type { ReleaseAndGitEngine } from "../../../release-and-git-engine/interface"
+import type { RuntimeCustodyResult } from "../../../runtime-custody/interface"
+import {
+  createMaintenanceCommands,
+  type MaintenanceCommandDependencies,
+} from "../../implementation/maintenance-commands"
 
 export type MaintenanceContractHarness = {
   readonly commands: MaintenanceCommands | undefined
@@ -21,62 +40,44 @@ export type MaintenanceContractHarness = {
 
 export type MaintenanceTestCollaborators = {
   recordApply(owner: string, request: MaintenanceApplyRequest): void
-  recordRuntimeSpawn(argv: readonly string[], control?: RuntimeControlObservation): void
-  invokeRuntime(argv: readonly string[]): RuntimeControlObservation
+  invokeRuntime(argv: readonly string[]): RuntimeCustodyResult
   readDurableTargets(): Readonly<Record<string, string>>
   mutateDurableTarget(target: string, value: string): void
 }
 
-export type RuntimeControlObservation = {
-  code: "REPAIR_PREVIEW" | "REPAIR_UNNEEDED" | "USAGE" | "INVALID_CONTROL"
-  schemaVersion: 1
-  state?: { before: "valid" | "missing" | "corrupt" }
-}
-
 export type RuntimeSpawnRecord = {
   argv: readonly string[]
-  control: RuntimeControlObservation | null
+  result: RuntimeCustodyResult
 }
 
-type ClaudeRequest = Extract<
-  MaintenanceCommand,
-  { command: "harness:claude:inspect" }
->["request"]
-type CodexRequest = Extract<
-  MaintenanceCommand,
-  { command: "harness:codex:inspect" }
->["request"]
-type ClaudeTransitionRequest = Extract<
-  MaintenanceApplyRequest,
-  { command: "harness:claude:apply" }
->["request"]
-type CodexTransitionRequest = Extract<
-  MaintenanceApplyRequest,
-  { command: "harness:codex:apply" }
->["request"]
-type ClaudeTransitionApproval = Extract<
-  MaintenanceApplyRequest,
-  { command: "harness:claude:apply" }
->["approval"]
-type CodexTransitionApproval = Extract<
-  MaintenanceApplyRequest,
-  { command: "harness:codex:apply" }
->["approval"]
-type ClaudeInspection = {
-  candidate: ClaudeRequest["identity"]
-  profileIdentity: string
-  expectedEffectIds: readonly string[]
+export function runtimeControl(
+  code: Extract<RuntimeCustodyResult, { kind: "control" }>["control"]["code"],
+  options: {
+    ok?: boolean
+    sideEffects?: readonly [] | readonly ["published-runtime"]
+    exitClass?: 0 | 2 | 20 | 21 | 22 | 23
+    state?: { before: "valid" | "missing" | "corrupt" }
+  } = {},
+): RuntimeCustodyResult {
+  return {
+    kind: "control",
+    control: {
+      schemaVersion: 1,
+      ok: options.ok ?? (options.exitClass === undefined || options.exitClass === 0),
+      code,
+      sideEffects: options.sideEffects ?? [],
+      retrySafe: code === "REPAIR_PREVIEW" || code === "REPAIR_UNNEEDED",
+      nextAction: "Inspect the Runtime Custody result.",
+      ...(options.state === undefined ? {} : { state: options.state }),
+    },
+    stderr: "",
+    exitClass: options.exitClass ?? 0,
+  }
 }
-type CodexInspection = ClaudeInspection & { checkoutIdentity: string }
-type ClaudeApplyResult = {
-  completedEffectIds: readonly string[]
-  remainingEffectIds: readonly string[]
-}
-type CodexApplyResult = ClaudeApplyResult & { freshTaskCommand: readonly string[] }
 
 export function createMaintenanceContractHarness(
   assemble?: (collaborators: MaintenanceTestCollaborators) => MaintenanceCommands,
-  options: { runtimeControls?: readonly RuntimeControlObservation[] } = {},
+  options: { runtimeResults?: readonly RuntimeCustodyResult[] } = {},
 ): MaintenanceContractHarness {
   const applyLedgers: Record<string, MaintenanceApplyRequest[]> = {
     payload: [],
@@ -86,11 +87,12 @@ export function createMaintenanceContractHarness(
     canary: [],
   }
   const runtimeSpawnLedger: RuntimeSpawnRecord[] = []
-  const runtimeControls = [...(options.runtimeControls ?? [{
-    code: "REPAIR_PREVIEW",
-    schemaVersion: 1,
-    state: { before: "missing" },
-  }])]
+  const runtimeResults = [...(options.runtimeResults ?? [
+    runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+    runtimeControl("REPAIR_APPLIED", {
+      sideEffects: ["published-runtime"],
+    }),
+  ])]
   const durableTargets: Record<string, string> = {
     repository: "unchanged",
     profile: "unchanged",
@@ -101,14 +103,11 @@ export function createMaintenanceContractHarness(
       if (!ledger) throw new Error(`unknown test collaborator ${owner}`)
       ledger.push(request)
     },
-    recordRuntimeSpawn(argv, control) {
-      runtimeSpawnLedger.push({ argv: [...argv], control: control ?? null })
-    },
     invokeRuntime(argv) {
-      const control = runtimeControls.shift()
-      if (!control) throw new Error(`missing Runtime control fixture for ${argv.join(" ")}`)
-      runtimeSpawnLedger.push({ argv: [...argv], control })
-      return control
+      const result = runtimeResults.shift()
+      if (!result) throw new Error(`missing Runtime result fixture for ${argv.join(" ")}`)
+      runtimeSpawnLedger.push({ argv: [...argv], result })
+      return result
     },
     readDurableTargets() {
       return { ...durableTargets }
@@ -118,7 +117,7 @@ export function createMaintenanceContractHarness(
     },
   }
 
-  const payload: MaintenanceCommandCollaborators["payload"] = {
+  const payload: PluginPayloadProduction = {
     async produce(request) {
       if (request.mode === "check") return { kind: "checked", nextAction: "Inspect the payload." }
       if (request.mode === "materialize") {
@@ -134,15 +133,10 @@ export function createMaintenanceContractHarness(
     },
   }
 
-  const runtime: MaintenanceCommandCollaborators["runtime"] = {
-    async invoke(argv) {
-      if (argv.length === 1) return testCollaborators.invokeRuntime(argv)
-      testCollaborators.recordRuntimeSpawn(argv)
-      return { code: "REPAIR_APPLIED", schemaVersion: 1, state: { before: "missing" } }
-    },
-  }
+  const runtime: MaintenanceCommandDependencies["runtime"] = async (argv) =>
+    testCollaborators.invokeRuntime(argv)
 
-  const release: MaintenanceCommandCollaborators["release"] = {
+  const release: ReleaseAndGitEngine = {
     async inspect(request) {
       return { candidate: request.candidate, expectedEffectIds: ["effect:release"], approvalDigest: "sha256:fixture" }
     },
@@ -176,12 +170,12 @@ export function createMaintenanceContractHarness(
     return { completedEffectIds: request.expectedEffectIds, remainingEffectIds: [] }
   }
 
-  const harness: MaintenanceCommandCollaborators["harness"] = {
+  const harness: HarnessJourneys = {
     inspect: inspectHarness,
     apply: applyHarness,
   }
 
-  const canary: MaintenanceCommandCollaborators["canary"] = {
+  const canary: CanaryQualification = {
     async inspect(candidate) {
       return { candidate: candidate.identity, target: "fixture", immutableReference: "fixture" }
     },
@@ -191,7 +185,7 @@ export function createMaintenanceContractHarness(
     },
   }
 
-  const assembled: MaintenanceCommandCollaborators = { payload, runtime, release, harness, canary }
+  const assembled: MaintenanceCommandDependencies = { payload, runtime, release, harness, canary }
   const commands = assemble?.(testCollaborators) ?? createMaintenanceCommands(assembled)
 
   return {

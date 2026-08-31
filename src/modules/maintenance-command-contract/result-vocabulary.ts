@@ -47,6 +47,18 @@ export type ResultDescriptor = {
   nextAction: NextAction
 }
 
+export const failureClassPolicy = {
+  usage: { errorFamily: "input", recoverability: "change_input" },
+  refusal: { errorFamily: "authorization_scope", recoverability: "repair_state" },
+  transient: { errorFamily: "transient", recoverability: "retry" },
+  continuation: { errorFamily: "state_conflict", recoverability: "repair_state" },
+  recovery: { errorFamily: "runtime", recoverability: "repair_state" },
+  unexpected: { errorFamily: "runtime", recoverability: "contact_support" },
+} as const satisfies Record<
+  MaintenanceErrorFailureClass,
+  Pick<MaintenanceError, "errorFamily" | "recoverability">
+>
+
 const result = (
   resultCode: ResultCode,
   exitFamilyId: ExitFamilyId,

@@ -31,6 +31,7 @@ export const commandVocabulary = [
       id: "help.choose-command",
       action: "select_command",
       summary: "Choose one command from the sealed vocabulary.",
+      commandId: null,
     },
   },
   {
@@ -46,6 +47,7 @@ export const commandVocabulary = [
       id: "payload-check.inspect-result",
       action: "inspect_state",
       summary: "Inspect the payload check result.",
+      commandId: null,
     },
   },
   {
@@ -69,6 +71,7 @@ export const commandVocabulary = [
       id: "payload-materialize.inspect-result",
       action: "inspect_state",
       summary: "Inspect the materialized Plugin Payload.",
+      commandId: null,
     },
   },
   {
@@ -84,6 +87,7 @@ export const commandVocabulary = [
       id: "payload-package.inspect-result",
       action: "inspect_state",
       summary: "Inspect the packaged Plugin Payload.",
+      commandId: null,
     },
   },
   {
@@ -99,6 +103,7 @@ export const commandVocabulary = [
       id: "runtime-repair.inspect-result",
       action: "inspect_state",
       summary: "Inspect the Runtime Custody result.",
+      commandId: null,
     },
   },
   {
@@ -114,6 +119,7 @@ export const commandVocabulary = [
       id: "runtime-repair-apply.inspect-result",
       action: "inspect_state",
       summary: "Inspect Runtime Custody after repair.",
+      commandId: null,
     },
   },
   {
@@ -129,6 +135,7 @@ export const commandVocabulary = [
       id: "release-inspect.review-preview",
       action: "open_docs",
       summary: "Review the preview before requesting apply.",
+      commandId: null,
     },
   },
   {
@@ -154,6 +161,7 @@ export const commandVocabulary = [
       id: "release-apply.inspect-result",
       action: "inspect_state",
       summary: "Inspect the release result.",
+      commandId: null,
     },
   },
   {
@@ -178,6 +186,7 @@ export const commandVocabulary = [
       id: "harness-claude-inspect.inspect-result",
       action: "inspect_state",
       summary: "Inspect the Claude journey preview.",
+      commandId: null,
     },
   },
   {
@@ -204,6 +213,7 @@ export const commandVocabulary = [
       id: "harness-claude-apply.inspect-result",
       action: "inspect_state",
       summary: "Inspect the Claude journey result.",
+      commandId: null,
     },
   },
   {
@@ -228,6 +238,7 @@ export const commandVocabulary = [
       id: "harness-codex-inspect.inspect-result",
       action: "inspect_state",
       summary: "Inspect the Codex journey preview.",
+      commandId: null,
     },
   },
   {
@@ -254,6 +265,7 @@ export const commandVocabulary = [
       id: "harness-codex-apply.inspect-result",
       action: "inspect_state",
       summary: "Inspect the Codex journey result.",
+      commandId: null,
     },
   },
   {
@@ -269,6 +281,7 @@ export const commandVocabulary = [
       id: "canary-inspect.inspect-result",
       action: "inspect_state",
       summary: "Inspect the canary preview.",
+      commandId: null,
     },
   },
   {
@@ -294,6 +307,7 @@ export const commandVocabulary = [
       id: "canary-qualify.inspect-result",
       action: "inspect_state",
       summary: "Inspect the canary qualification result.",
+      commandId: null,
     },
   },
 ] as const satisfies readonly CommandDescriptor[]

@@ -27,6 +27,7 @@ const commandRefusal = (stationId: `${string}.command-refused`): MaintenanceOutc
       id: "maintenance.inspect-refusal",
       action: "inspect_state",
       summary: "Inspect the refusal before changing state.",
+      commandId: null,
     },
   },
 })

@@ -1,4 +1,5 @@
 import type {
+  EffectClass,
   MaintenanceCommand,
   MaintenanceErrorFailureClass,
   RetrySafety,
@@ -11,6 +12,7 @@ import {
   resultSchemaVersion,
   resultVocabulary,
 } from "./result-vocabulary"
+import { commandVocabulary } from "./command-vocabulary"
 
 export type BranchKind =
   | "execution"
@@ -127,8 +129,10 @@ const evidenceForStation = (
 export const projectStationMap: StationMapProjector = (catalog, evidence) => {
   const stations = catalog.map((station) => evidenceForStation(station, evidence))
   const required = catalog.filter(({ reachability }) => reachability === "required").length
-  const observed = stations.filter(
-    ({ status, provenance }) => status === "covered" && provenance === "real_process",
+  const observed = stations.filter(({ status, provenance }, index) =>
+    catalog[index]?.reachability === "required" &&
+    status === "covered" &&
+    provenance === "real_process"
   ).length
   return {
     commandContractId: maintenanceCommandContractId,
@@ -198,6 +202,40 @@ const branchKindFor = (failureClass: MaintenanceErrorFailureClass | null): Branc
   return failureClass
 }
 
+const inspectionCommands: readonly BranchStation["commandId"][] = [
+  "help",
+  "payload:check",
+  "runtime:repair",
+  "release:inspect",
+  "harness:claude:inspect",
+  "harness:codex:inspect",
+  "canary:inspect",
+]
+
+const mutationExpectationFor = (
+  commandId: BranchStation["commandId"],
+): BranchStation["mutationExpectation"] => {
+  if (commandId === "maintenance") return { kind: "none" }
+  if (inspectionCommands.includes(commandId)) return { kind: "preview", expectedEffectIds: [] }
+  return { kind: "result", completedEffectIds: [], remainingEffectIds: [] }
+}
+
+const expectedRetrySafetyFor = (
+  classification: BranchStation["classification"],
+  effectClass: EffectClass | undefined,
+  declared: RetrySafety,
+): RetrySafety => classification === "success" && effectClass === "external"
+  ? "requires-fresh-inspection"
+  : declared
+
+const repairRouteFor = (
+  input: { repairRouteCommandId?: MaintenanceCommand["command"] | null },
+  descriptor: ReturnType<typeof descriptorFor>,
+): MaintenanceCommand["command"] | null =>
+  Object.hasOwn(input, "repairRouteCommandId")
+    ? input.repairRouteCommandId ?? null
+    : descriptor.nextAction.commandId
+
 const station = (input: {
   commandId: BranchStation["commandId"]
   resultCode: ResultCode
@@ -213,24 +251,9 @@ const station = (input: {
   const commandSlug = input.commandId === "maintenance" ? "maintenance" : input.commandId.replaceAll(":", "-")
   const stationId = `${commandSlug}.${input.resultCode}` as StationId
   const classification = descriptor.exitClass === 0 ? "success" : "failure"
-  const inspectionCommands: readonly BranchStation["commandId"][] = [
-    "help",
-    "payload:check",
-    "runtime:repair",
-    "release:inspect",
-    "harness:claude:inspect",
-    "harness:codex:inspect",
-    "canary:inspect",
-  ]
-  const mutationExpectation: BranchStation["mutationExpectation"] =
-    input.commandId === "maintenance" ? { kind: "none" }
-    : inspectionCommands.includes(input.commandId) ?
-      { kind: "preview", expectedEffectIds: [] }
-    : {
-        kind: "result",
-        completedEffectIds: [],
-        remainingEffectIds: [],
-      }
+  const commandDescriptor = input.commandId === "maintenance"
+    ? undefined
+    : commandVocabulary.find(({ command }) => command === input.commandId)
   return {
     stationId,
     commandId: input.commandId,
@@ -241,17 +264,19 @@ const station = (input: {
     expectedResultCode: input.resultCode,
     expectedExitClass: descriptor.exitClass,
     expectedEnvelopeStatus: classification === "success" ? "ok" : "error",
-    expectedRetrySafety: descriptor.retrySafety,
+    expectedRetrySafety: expectedRetrySafetyFor(
+      classification,
+      commandDescriptor?.effectClass,
+      descriptor.retrySafety,
+    ),
     expectedTransactionState: descriptor.transactionState,
     controllingOwnerId: input.controllingOwnerId,
     reachability: input.reachability,
     skipRationale: input.skipRationale ?? null,
     governingInterface: input.governingInterface,
     expectedNextActionId: input.nextActionId ?? descriptor.nextAction.id,
-    repairRouteCommandId:
-      "repairRouteCommandId" in input ? input.repairRouteCommandId ?? null
-      : descriptor.nextAction.commandId ?? null,
-    mutationExpectation,
+    repairRouteCommandId: repairRouteFor(input, descriptor),
+    mutationExpectation: mutationExpectationFor(input.commandId),
   }
 }
 

@@ -1,5 +1,14 @@
 import { expect, test } from "bun:test"
 import { failureNextActionProjection, resultVocabulary } from "../result-vocabulary"
+import {
+  parseCommandPreview,
+  parseCommandResult,
+  parseMaintenanceError,
+  parseMaintenancePreviewOutcome,
+  parseMaintenanceResultOutcome,
+  serializeMaintenancePreviewOutcome,
+  serializeMaintenanceResultOutcome,
+} from "../serialized-values"
 import { createMaintenanceContractHarness } from "./adapters/mutation-recording-module-adapter"
 import {
   literalHelpPreview,
@@ -11,6 +20,11 @@ test("help returns the canonical tagged preview", async () => {
   const actual = await createMaintenanceContractHarness().inspect({ command: "help" })
 
   expect(actual, "contract-absent: help must return the canonical tagged preview").toEqual(literalHelpPreview)
+  if (actual === undefined) throw new Error("missing help outcome")
+  expect(parseMaintenancePreviewOutcome(JSON.parse(serializeMaintenancePreviewOutcome(actual)))).toEqual(actual)
+  expect(actual.status === "ok" ? parseCommandPreview(actual.value) : undefined).toEqual(
+    actual.status === "ok" ? actual.value : undefined,
+  )
 })
 
 test("usage refusal retains sealed Result Vocabulary meaning", () => {
@@ -51,12 +65,35 @@ test("diagnostics remain on stderr", async () => {
 test("unknown Transaction State never exits zero", async () => {
   const actual = await createMaintenanceContractHarness().apply(mutatingRequests.release)
   expect(actual, "contract-absent: unknown durable state must return a typed result").toBeDefined()
-  expect(actual?.status === "error" ? actual.error.transactionState : undefined).toBe("unknown")
-  expect(actual === undefined ? undefined : resultVocabulary.find(({ resultCode }) => resultCode === actual.resultCode)?.exitClass).not.toBe(0)
+  if (actual === undefined || actual.status !== "error") throw new Error("missing recovery error outcome")
+  expect(actual.error.transactionState).toBe("unknown")
+  const descriptor = resultVocabulary.find(({ resultCode }) => resultCode === actual.resultCode)
+  expect(descriptor?.exitClass).not.toBe(0)
+  expect(parseMaintenanceError(actual.error)).toEqual(actual.error)
+  expect(parseMaintenanceResultOutcome(JSON.parse(serializeMaintenanceResultOutcome(actual)))).toEqual(actual)
 })
 
 test("governing result status and effects pass through unchanged", async () => {
-  const actual = await createMaintenanceContractHarness().apply(mutatingRequests.materialize)
+  const harness = createMaintenanceContractHarness()
+  const actual = await harness.apply(mutatingRequests.materialize)
   expect(failureNextActionProjection).toHaveLength(22)
   expect(actual?.status === "ok" ? actual.value : actual, "contract-absent: the governing result must pass through unchanged").toEqual(literalPayloadResult)
+  if (actual === undefined) throw new Error("missing payload outcome")
+  expect(parseMaintenanceResultOutcome(JSON.parse(serializeMaintenanceResultOutcome(actual)))).toEqual(actual)
+  expect(parseCommandResult({ ...literalPayloadResult, extra: true })).toBeUndefined()
+  expect(parseCommandResult({ ...literalPayloadResult, schemaVersion: 2 })).toBeUndefined()
+  expect(parseCommandResult({ ...literalPayloadResult, nextAction: { ...literalPayloadResult.nextAction, commandId: undefined } })).toBeUndefined()
+  expect(parseCommandResult({ ...literalPayloadResult, agent: { schemaVersion: 1, invalid: () => undefined } })).toBeUndefined()
+
+  for (const request of [mutatingRequests.release, mutatingRequests.claude, mutatingRequests.codex, mutatingRequests.canary]) {
+    await harness.inspect(request)
+    const ownerOutcome = await harness.apply(request)
+    expect(ownerOutcome?.status === "ok" ? ownerOutcome.value.agent.result : undefined).toBeDefined()
+  }
+  const codex = createMaintenanceContractHarness()
+  await codex.inspect(mutatingRequests.codex)
+  const codexOutcome = await codex.apply(mutatingRequests.codex)
+  expect(codexOutcome?.status === "ok" ? codexOutcome.value.agent.result : undefined).toMatchObject({
+    freshTaskCommand: ["task"],
+  })
 })
