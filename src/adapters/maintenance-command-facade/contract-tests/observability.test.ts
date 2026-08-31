@@ -428,24 +428,36 @@ test("fake-clock delivery owns two bounded attempts and all settlement cases", a
 })
 test("redaction validates and freezes both seams before crossing", async () => {
   const redactionTrace: DiagnosticRedactionStep[] = []
+  const embeddedBearerCredential = "fixture-embedded-bearer-credential"
+  const embeddedBasicCredential = "fixture-embedded-basic-credential"
+  const embeddedOpReference = "op://fixture-vault/fixture-item/fixture-field"
   const diagnostic = diagnosticHarness("debug", {
     redactionTrace: (step) => redactionTrace.push(step),
   })
   diagnostic?.pipeline.record({
     ...diagnosticRecord(1, "error", "fixture.hostile-redaction"),
-    message: "token=fixture-diagnostic-secret",
+    message: `context before Bearer ${embeddedBearerCredential}; Basic ${embeddedBasicCredential}; ${embeddedOpReference}; token=fixture-diagnostic-secret`,
     secret_token: "fixture-diagnostic-secret",
   } as DiagnosticRecord)
   const harness = await facadeHarness({ eventAcceptance: "refused" })
   const serialized = JSON.stringify({ injectedDiagnostics: diagnostic?.records, diagnostics: harness?.diagnostics.records, events: harness?.events.records })
+  const redactionSecrets = [
+    "fixture-secret-must-not-cross",
+    "fixture-diagnostic-secret",
+    "secret_token",
+    embeddedBearerCredential,
+    embeddedBasicCredential,
+    embeddedOpReference,
+  ]
   absent(
     harness && {
       recordsFrozen: [...(diagnostic?.records ?? []), ...harness.diagnostics.records, ...harness.events.records].every(Object.isFrozen),
-      leakedSecret: serialized.includes("fixture-secret-must-not-cross") || serialized.includes("fixture-diagnostic-secret") || serialized.includes("secret_token"),
+      leakedSecret: redactionSecrets.some((secret) => serialized.includes(secret)),
+      redactedMessage: diagnostic?.records[0]?.message,
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
       order: redactionTrace,
     },
-    { recordsFrozen: true, leakedSecret: false, primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
+    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED]; [REDACTED]; [REDACTED] token=[REDACTED]", primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
     "redaction must precede both seams without changing the fixed primary result",
   )
 })

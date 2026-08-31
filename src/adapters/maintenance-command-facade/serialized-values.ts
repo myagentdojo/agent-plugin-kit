@@ -116,7 +116,18 @@ const authUrlPattern = /\bhttps?:\/\/[^\s/@]+:[^\s/@]+@[^\s]+/gi
 const authUrlDetectPattern = /\bhttps?:\/\/[^\s/@]+:[^\s/@]+@[^\s]+/i
 const privateKeyPattern = /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/gi
 const privateKeyDetectPattern = /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/i
-const bearerPattern = /^(?:bearer\s+|basic\s+|op:\/\/)/i
+const maximumCredentialMatchLength = 4096
+const credentialTokenPattern = `[A-Za-z0-9._~+/=-]{1,${maximumCredentialMatchLength}}`
+const bearerCredentialPattern = new RegExp(
+  `\\b(?:bearer|basic)\\s+${credentialTokenPattern}(?![A-Za-z0-9._~+/=-])`,
+  "gi",
+)
+const bearerCredentialDetectPattern = /\b(?:bearer|basic)\s+/i
+const opReferencePattern = new RegExp(
+  `\\bop:\\/\\/[^\\s"'<>]{1,${maximumCredentialMatchLength}}(?![^\\s"'<>])`,
+  "gi",
+)
+const opReferenceDetectPattern = /\bop:\/\//i
 const redactedDiagnosticValue = "[REDACTED]"
 const maximumDiagnosticNestedDepth = 4
 const maximumDiagnosticArrayEntries = 100
@@ -201,7 +212,9 @@ const redactString = (value: string, secrets: readonly string[]): string => {
   const configured = replaceConfiguredSecrets(value, secrets)
   const privateKeyRedacted = configured.replace(privateKeyPattern, redactedDiagnosticValue)
   const urlRedacted = privateKeyRedacted.replace(authUrlPattern, redactedDiagnosticValue)
-  return urlRedacted.replace(secretAssignmentPattern, (_match, key: string, separator: string) => `${key}${separator}${redactedDiagnosticValue}`)
+  const bearerRedacted = urlRedacted.replace(bearerCredentialPattern, redactedDiagnosticValue)
+  const opReferenceRedacted = bearerRedacted.replace(opReferencePattern, redactedDiagnosticValue)
+  return opReferenceRedacted.replace(secretAssignmentPattern, (_match, key: string, separator: string) => `${key}${separator}${redactedDiagnosticValue}`)
 }
 
 const isRedactionBlocked = (key: string, depth: number): boolean =>
@@ -279,7 +292,10 @@ const canonicalTimestamp = (value: unknown): string | undefined => {
 }
 
 const isSecretValue = (value: string): boolean =>
-  bearerPattern.test(value) || authUrlDetectPattern.test(value) || privateKeyDetectPattern.test(value)
+  bearerCredentialDetectPattern.test(value) ||
+  opReferenceDetectPattern.test(value) ||
+  authUrlDetectPattern.test(value) ||
+  privateKeyDetectPattern.test(value)
 
 const hasUnredactedSecret = (value: unknown, secrets: readonly string[], depth = 0): boolean => {
   if (depth > maximumDiagnosticNestedDepth) return value !== redactedDiagnosticValue
