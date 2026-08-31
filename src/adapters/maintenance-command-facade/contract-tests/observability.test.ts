@@ -394,13 +394,14 @@ test("fake-clock delivery owns two bounded attempts and all settlement cases", a
   if (capturedEvent === undefined) throw new Error("Facade must capture the accepted Event Record")
   const scenarios = []
   const cases = [
-    { label: "success", outcomes: ["success"] },
-    { label: "timeout", outcomes: ["timeout", "success"] },
-    { label: "synchronous-failure", outcomes: ["failure", "success"] },
-    { label: "both-attempts-failed", outcomes: ["failure", "failure"] },
+    { label: "success", outcomes: ["success"], clockOutcome: "success" },
+    { label: "timeout", outcomes: ["timeout", "success"], clockOutcome: "success" },
+    { label: "synchronous-failure", outcomes: ["failure", "success"], clockOutcome: "success" },
+    { label: "both-attempts-failed", outcomes: ["failure", "failure"], clockOutcome: "success" },
+    { label: "clock-failure", outcomes: ["timeout", "timeout"], clockOutcome: "failure" },
   ] as const
-  for (const { label, outcomes } of cases) {
-    const clock = createFakeClockRecordingAdapter()
+  for (const { label, outcomes, clockOutcome } of cases) {
+    const clock = createFakeClockRecordingAdapter(clockOutcome)
     const transport = createTransportRecordingAdapter(outcomes)
     const result = await createEventDelivery({ clock: clock.clock, transport: transport.transport, attemptTimeoutMs: 250, maximumAttempts: 2 }).deliver(capturedEvent)
     scenarios.push({
@@ -422,6 +423,7 @@ test("fake-clock delivery owns two bounded attempts and all settlement cases", a
         { label: "timeout", result: { status: "delivered", attempts: 2 }, attempts: 2, eventIds: ["opaque-event-id", "opaque-event-id"], sequences: [1, 1], sameRecord: true, sleeps: [250, 250] },
         { label: "synchronous-failure", result: { status: "delivered", attempts: 2 }, attempts: 2, eventIds: ["opaque-event-id", "opaque-event-id"], sequences: [1, 1], sameRecord: true, sleeps: [250, 250] },
         { label: "both-attempts-failed", result: { status: "failed", attempts: 2 }, attempts: 2, eventIds: ["opaque-event-id", "opaque-event-id"], sequences: [1, 1], sameRecord: true, sleeps: [250, 250] },
+        { label: "clock-failure", result: { status: "failed", attempts: 2 }, attempts: 2, eventIds: ["opaque-event-id", "opaque-event-id"], sequences: [1, 1], sameRecord: true, sleeps: [250, 250] },
       ],
     },
     "event delivery must use a stable event ID and at most two 250ms fake-clock attempts",

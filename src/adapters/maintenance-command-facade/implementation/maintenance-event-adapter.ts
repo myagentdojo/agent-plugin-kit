@@ -35,14 +35,9 @@ const attempt = async (
   const delivery = Promise.resolve()
     .then(() => assembly.transport.deliver(record))
     .then(() => "success" as const, () => "failure" as const)
-  let timeout: Promise<"timeout">
-  try {
-    timeout = Promise.resolve()
-      .then(() => assembly.clock.sleep(assembly.attemptTimeoutMs))
-      .then(() => "timeout" as const)
-  } catch {
-    timeout = Promise.resolve("timeout")
-  }
+  const timeout = Promise.resolve()
+    .then(() => assembly.clock.sleep(assembly.attemptTimeoutMs))
+    .then(() => "timeout" as const, () => "timeout" as const)
   return Promise.race([delivery, timeout])
 }
 

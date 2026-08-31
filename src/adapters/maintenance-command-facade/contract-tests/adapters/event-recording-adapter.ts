@@ -11,11 +11,12 @@ export function createEventRecordingAdapter(acceptance: EventAcceptance = { stat
   return { adapter, records }
 }
 
-export function createFakeClockRecordingAdapter() {
+export function createFakeClockRecordingAdapter(outcome: "success" | "failure" = "success") {
   const sleeps: number[] = []
   const clock: EventDeliveryClock = {
     async sleep(milliseconds) {
       sleeps.push(milliseconds)
+      if (outcome === "failure") throw new Error("fixture clock failure")
     },
   }
   return { clock, sleeps }
