@@ -193,26 +193,26 @@ test("machine stdout contains only the primary success envelope", async () => {
 })
 test("quiet mode discards debug info and warning before buffering", () => {
   const harness = diagnosticHarness("quiet")
-  for (const [sequence, level] of ["debug", "info", "warning", "error", "fatal"].entries()) harness?.pipeline.record(diagnosticRecord(sequence + 1, level as DiagnosticRecord["level"]))
-  absent(harness?.records.map(({ level }) => level), diagnosticModeContract.quiet.writtenLevels, "quiet diagnostics must discard lower levels")
+  for (const [sequence, level] of ["debug", "info", "warning", "error", "fatal"].entries()) harness.pipeline.record(diagnosticRecord(sequence + 1, level as DiagnosticRecord["level"]))
+  absent(harness.records.map(({ level }) => level), diagnosticModeContract.quiet.writtenLevels, "quiet diagnostics must discard lower levels")
 })
 test("verbose mode writes info through fatal immediately without buffering", () => {
   const harness = diagnosticHarness("verbose")
-  for (const [sequence, level] of ["debug", "info", "warning", "error", "fatal"].entries()) harness?.pipeline.record(diagnosticRecord(sequence + 1, level as DiagnosticRecord["level"]))
-  absent(harness?.records.map(({ level }) => level), diagnosticModeContract.verbose.writtenLevels, "verbose diagnostics must bypass the buffer")
+  for (const [sequence, level] of ["debug", "info", "warning", "error", "fatal"].entries()) harness.pipeline.record(diagnosticRecord(sequence + 1, level as DiagnosticRecord["level"]))
+  absent(harness.records.map(({ level }) => level), diagnosticModeContract.verbose.writtenLevels, "verbose diagnostics must bypass the buffer")
 })
 test("debug mode retains debug records in order", () => {
   expect(diagnosticModes).toEqual(["quiet", "verbose", "debug"])
   const harness = diagnosticHarness("debug")
-  for (const [sequence, level] of ["debug", "info", "warning", "error", "fatal"].entries()) harness?.pipeline.record(diagnosticRecord(sequence + 1, level as DiagnosticRecord["level"]))
-  absent(harness?.records.map(({ level }) => level), diagnosticModeContract.debug.writtenLevels, "debug diagnostics must preserve record order without buffering")
+  for (const [sequence, level] of ["debug", "info", "warning", "error", "fatal"].entries()) harness.pipeline.record(diagnosticRecord(sequence + 1, level as DiagnosticRecord["level"]))
+  absent(harness.records.map(({ level }) => level), diagnosticModeContract.debug.writtenLevels, "debug diagnostics must preserve record order without buffering")
 })
 test("fingers-crossed buffer is bounded at 250 records", () => {
   expect(bufferedSequence).toEqual([1, 2, 3, 4])
   const harness = diagnosticHarness("default")
-  for (const sequence of bufferedSequence) harness?.pipeline.record(diagnosticRecord(sequence, "info"))
-  harness?.pipeline.record(diagnosticRecord(5, "error"))
-  absent(harness?.records.map(({ sequence }) => sequence), [1, 2, 3, 4, 5], "default diagnostics must flush oldest-to-newest within the bound")
+  for (const sequence of bufferedSequence) harness.pipeline.record(diagnosticRecord(sequence, "info"))
+  harness.pipeline.record(diagnosticRecord(5, "error"))
+  absent(harness.records.map(({ sequence }) => sequence), [1, 2, 3, 4, 5], "default diagnostics must flush oldest-to-newest within the bound")
 })
 test("buffer overflow drops oldest and emits one truncation record", () => {
   let nextSequence = 0
@@ -243,7 +243,7 @@ test("buffer overflow drops oldest and emits one truncation record", () => {
 test("buffered context precedes trigger and primary error envelope is last", async () => {
   const harness = await facadeHarness({ argv: ["--run-id", "contract-help-literal", "unknown"] })
   absent(
-    harness && {
+    {
       diagnosticSequences: harness.diagnostics.records.map(({ sequence }) => sequence),
       finalStderrRecord: harness.observation.stderr.split("\n").filter(Boolean).at(-1),
     },
@@ -253,16 +253,16 @@ test("buffered context precedes trigger and primary error envelope is last", asy
 })
 test("reset configure and dispose are idempotent and throwing close preserves primary result", async () => {
   const harness = diagnosticHarness("default")
-  harness?.pipeline.record(diagnosticRecord(1, "info", "fixture.before-reset"))
-  harness?.pipeline.reset()
-  harness?.pipeline.reset()
-  harness?.pipeline.record(diagnosticRecord(2, "info", "fixture.after-reset"))
-  harness?.pipeline.record(diagnosticRecord(3, "error", "fixture.trigger"))
-  harness?.pipeline.dispose()
-  harness?.pipeline.dispose()
+  harness.pipeline.record(diagnosticRecord(1, "info", "fixture.before-reset"))
+  harness.pipeline.reset()
+  harness.pipeline.reset()
+  harness.pipeline.record(diagnosticRecord(2, "info", "fixture.after-reset"))
+  harness.pipeline.record(diagnosticRecord(3, "error", "fixture.trigger"))
+  harness.pipeline.dispose()
+  harness.pipeline.dispose()
   const successful = diagnosticHarness("default")
-  successful?.pipeline.record(diagnosticRecord(1, "info", "fixture.discard-on-success"))
-  successful?.pipeline.dispose()
+  successful.pipeline.record(diagnosticRecord(1, "info", "fixture.discard-on-success"))
+  successful.pipeline.dispose()
   const throwingFacade = await facadeHarness({
     throwOnDispose: true,
     argv: ["--run-id", "contract-help-literal", "unknown"],
@@ -271,14 +271,14 @@ test("reset configure and dispose are idempotent and throwing close preserves pr
   const productionLogTape = productionLogTapeSummaryFor(productionDiagnosticLifecycle())
   absent(
     {
-      resetSequences: harness?.records.map(({ sequence }) => sequence),
-      pipelineLifecycle: harness?.lifecycle,
-      successfulRecords: successful?.records,
-      successfulLifecycle: successful?.lifecycle,
-      facadeLifecycle: throwingFacade?.diagnostics.lifecycle,
+      resetSequences: harness.records.map(({ sequence }) => sequence),
+      pipelineLifecycle: harness.lifecycle,
+      successfulRecords: successful.records,
+      successfulLifecycle: successful.lifecycle,
+      facadeLifecycle: throwingFacade.diagnostics.lifecycle,
       directFacadeCorrelation,
       productionLogTape,
-      primary: throwingFacade?.observation,
+      primary: throwingFacade.observation,
     },
     {
       resetSequences: [2, 3],
@@ -331,10 +331,10 @@ test("event acceptance is synchronous and best effort", async () => {
   }
   absent(
     {
-      accepted: harness && { eventCount: harness.events.records.length, primary: harness.observation },
-      off: off && { eventFactoryLoads: offFactoryLoads, commandCalls: off.commands.calls.length, primary: off.observation },
-      absentEndpoint: absentEndpoint && { commandCalls: absentEndpoint.commands.calls.length, primary: absentEndpoint.observation },
-      invalid: invalid && {
+      accepted: { eventCount: harness.events.records.length, primary: harness.observation },
+      off: { eventFactoryLoads: offFactoryLoads, commandCalls: off.commands.calls.length, primary: off.observation },
+      absentEndpoint: { commandCalls: absentEndpoint.commands.calls.length, primary: absentEndpoint.observation },
+      invalid: {
         eventFactoryLoads: invalidFactoryLoads,
         commandCalls: invalid.commands.calls,
         diagnostics: invalid.diagnostics.records.map(({ event }) => event),
@@ -360,7 +360,7 @@ test("event refusal retains run sequence event ID result and station correlation
   const harness = await facadeHarness({ eventAdapter: production.adapter })
   const recordedEvent = production.records[0]
   absent(
-    harness && {
+    {
       failure: (() => {
         const record = harness.diagnostics.records.find(({ event }) => event === fixedEventFailure.event)
         return record && { event: record.event, stationId: record.station_id, resultCode: record.result_code, failureClass: record.failure_class, nextActionId: record.next_action?.id }
@@ -459,7 +459,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
   const diagnostic = diagnosticHarness("debug", {
     redactionTrace: (step) => redactionTrace.push(step),
   })
-  diagnostic?.pipeline.record({
+  diagnostic.pipeline.record({
     ...diagnosticRecord(1, "error", "fixture.hostile-redaction"),
     message: [
       `context before Bearer ${embeddedBearerCredential}`,
@@ -483,6 +483,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
       ftpAuthUrl,
       postgresAuthUrl,
       "https://fixture.example:8080",
+      "https://fixture.example:8443.",
       "Bearer fixtureHead;fixtureTail",
       "Basic fixtureHead,fixtureTail",
       "op://fixture/head;fixtureTail",
@@ -513,7 +514,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
     message: incompleteNoAtAuthUrl,
   })
   const harness = await facadeHarness({ eventAcceptance: "refused" })
-  const serialized = JSON.stringify({ injectedDiagnostics: diagnostic?.records, incompletePrivateKeyDiagnostics: incompletePrivateKeyDiagnostic.records, overlongAuthDiagnostics: overlongAuthDiagnostic.records, incompleteAuthDiagnostics: incompleteAuthDiagnostic.records, incompleteNoAtAuthDiagnostics: incompleteNoAtAuthDiagnostic.records, diagnostics: harness?.diagnostics.records, events: harness?.events.records })
+  const serialized = JSON.stringify({ injectedDiagnostics: diagnostic.records, incompletePrivateKeyDiagnostics: incompletePrivateKeyDiagnostic.records, overlongAuthDiagnostics: overlongAuthDiagnostic.records, incompleteAuthDiagnostics: incompleteAuthDiagnostic.records, incompleteNoAtAuthDiagnostics: incompleteNoAtAuthDiagnostic.records, diagnostics: harness.diagnostics.records, events: harness.events.records })
   const redactionSecrets = [
     "fixture-secret-must-not-cross",
     "fixture-diagnostic-secret",
@@ -554,10 +555,10 @@ test("redaction validates and freezes both seams before crossing", async () => {
     "fixtureHead",
   ]
   absent(
-    harness && {
-      recordsFrozen: [...(diagnostic?.records ?? []), ...harness.diagnostics.records, ...harness.events.records].every(Object.isFrozen),
+    {
+      recordsFrozen: [...diagnostic.records, ...harness.diagnostics.records, ...harness.events.records].every(Object.isFrozen),
       leakedSecret: redactionSecrets.some((secret) => serialized.includes(secret)),
-      redactedMessage: diagnostic?.records[0]?.message,
+      redactedMessage: diagnostic.records[0]?.message,
       incompletePrivateKeyRecords: incompletePrivateKeyDiagnostic.records,
       overlongAuthRecords: overlongAuthDiagnostic.records,
       incompleteAuthRecords: incompleteAuthDiagnostic.records,
@@ -565,7 +566,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
       order: redactionTrace,
     },
-    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | token=[REDACTED]", incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
+    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | token=[REDACTED]", incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
     "redaction must precede both seams without changing the fixed primary result",
   )
 })

@@ -123,7 +123,7 @@ const authUrlDetectPattern = new RegExp(
   "i",
 )
 const incompleteAuthUrlDetectPattern = new RegExp(
-  `(?:^|[^A-Za-z0-9])${uriSchemePattern}:\\/\\/[^\\s/:@?#]*:(?![0-9]+(?:[/?#]|$|[\\s,;]))[^\\s@,;]*(?=$|[\\s,;])`,
+  `(?:^|[^A-Za-z0-9])${uriSchemePattern}:\\/\\/[^\\s/:@?#]*:(?![0-9]+(?:[/?#]|\\.(?=$|[\\s,;])|$|[\\s,;]))[^\\s@,;]*(?=$|[\\s,;])`,
   "i",
 )
 const privateKeyPattern = /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/gi

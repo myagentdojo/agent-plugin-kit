@@ -21,7 +21,7 @@ const facade = createMaintenanceCommandFacade({
     const { createLogTapeDiagnosticAdapter } = await import("./implementation/logtape-diagnostic-adapter")
     return createLogTapeDiagnosticAdapter()
   },
-  ...(eventEndpoint === undefined
+  ...(eventEndpoint === undefined || eventEndpoint === ""
     ? {}
     : {
         eventFactory: async () => {

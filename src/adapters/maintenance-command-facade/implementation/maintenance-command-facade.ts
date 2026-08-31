@@ -15,6 +15,8 @@ import type {
   ProcessObservation,
 } from "../interface"
 import type {
+  CommandPreview,
+  CommandResult,
   MaintenanceApplyRequest,
   MaintenanceCommand,
   MaintenanceOutcome,
@@ -34,6 +36,8 @@ import {
 } from "../serialized-values"
 
 const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
+
+type TrustedMaintenanceOutcome = MaintenanceOutcome<CommandPreview | CommandResult>
 
 type ParseFailure = {
   message: string
@@ -254,7 +258,7 @@ const parseCommand = (
 
 const successEnvelope = (
   runId: string,
-  outcome: MaintenanceOutcome<unknown> & { status: "ok" },
+  outcome: Extract<TrustedMaintenanceOutcome, { status: "ok" }>,
 ) => ({
   schema_version: 1,
   status: "ok",
@@ -294,7 +298,7 @@ const observationForUsage = (runId: string, message: string): ProcessObservation
 const observationForOutcome = (
   runId: string,
   requested: MaintenanceCommand,
-  outcome: MaintenanceOutcome<unknown>,
+  outcome: TrustedMaintenanceOutcome,
 ): ProcessObservation => {
   if (outcome.status === "ok") {
     const stdout = serializeFacadeSuccessEgress(successEnvelope(runId, outcome))
@@ -324,7 +328,7 @@ type OutcomeValueMetadata = {
   nextAction: DiagnosticNextAction
 }
 
-const outcomeValueMetadata = (outcome: MaintenanceOutcome<unknown>): OutcomeValueMetadata => {
+const outcomeValueMetadata = (outcome: TrustedMaintenanceOutcome): OutcomeValueMetadata => {
   if (outcome.status === "error") {
     return {
       transactionState: outcome.error.transactionState,
@@ -332,11 +336,7 @@ const outcomeValueMetadata = (outcome: MaintenanceOutcome<unknown>): OutcomeValu
       nextAction: outcome.error.nextAction,
     }
   }
-  const value = outcome.value as {
-    transactionState: OutcomeValueMetadata["transactionState"]
-    retrySafety: OutcomeValueMetadata["retrySafety"]
-    nextAction: DiagnosticNextAction
-  }
+  const value = outcome.value
   return {
     transactionState: value.transactionState,
     retrySafety: value.retrySafety,
@@ -379,7 +379,7 @@ const eventFailureNextAction: DiagnosticNextAction = {
 const eventFailureDiagnosticFor = (
   timestamp: string,
   runId: string,
-  outcome: MaintenanceOutcome<unknown>,
+  outcome: TrustedMaintenanceOutcome,
   command: MaintenanceCommand["command"],
 ): Omit<DiagnosticRecord, "sequence"> => {
   const metadata = outcomeValueMetadata(outcome)
@@ -402,7 +402,7 @@ const eventFailureDiagnosticFor = (
   }
 }
 
-const eventOutcomeFor = (outcome: MaintenanceOutcome<unknown>): EventRecord["outcome"] => {
+const eventOutcomeFor = (outcome: TrustedMaintenanceOutcome): EventRecord["outcome"] => {
   if (outcome.status === "ok") return outcome.resultCode === "previewed" ? "previewed" : "completed"
   return outcome.error.failureClass === "usage" || outcome.error.failureClass === "refusal" ? "refused" : "failed"
 }
@@ -411,7 +411,7 @@ const eventRecordFor = (
   runId: string,
   sequence: number,
   command: MaintenanceCommand,
-  outcome: MaintenanceOutcome<unknown>,
+  outcome: TrustedMaintenanceOutcome,
   secrets: readonly string[],
   correlation: FacadeCorrelationSources,
 ): EventRecord | undefined => {
@@ -447,7 +447,7 @@ const isMaintenanceApplyRequest = (
 const dispatchFor = async (
   commands: MaintenanceCommandFacadeAssembly["commands"],
   command: MaintenanceCommand,
-): Promise<MaintenanceOutcome<unknown>> => {
+): Promise<TrustedMaintenanceOutcome> => {
   if (isMaintenanceApplyRequest(command)) return commands.apply(command)
   return commands.inspect(command)
 }
@@ -593,7 +593,7 @@ const recordOutcomeDiagnostic = async (
   correlation: FacadeCorrelationSources,
   runId: string,
   command: MaintenanceCommand,
-  outcome: MaintenanceOutcome<unknown>,
+  outcome: TrustedMaintenanceOutcome,
 ): Promise<void> => {
   if (outcome.status !== "error") return
   await runtime.record(diagnosticWithoutSequenceFor(
@@ -614,7 +614,7 @@ const acceptEventFor = async (
   nextSequence: () => number,
   secrets: readonly string[],
   command: MaintenanceCommand,
-  outcome: MaintenanceOutcome<unknown>,
+  outcome: TrustedMaintenanceOutcome,
 ): Promise<void> => {
   if (eventAdapter === undefined) return
   let event: EventRecord | undefined

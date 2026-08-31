@@ -85,7 +85,7 @@ test("the public process refuses stdin without waiting for the producer to close
     openStdin,
   )
 })
-test("root executable has Bun shebang and executable mode", async () => {
+test("root executable has Bun shebang, executable mode, and optional event configuration", async () => {
   const mode = (await stat(resolve(import.meta.dir, "../maintenance.ts"))).mode & 0o111
   expect(mode).not.toBe(0)
   expect(await invokeRetainedDescriptorNegativeControl()).toEqual({
@@ -97,6 +97,10 @@ test("root executable has Bun shebang and executable mode", async () => {
     retainedResources: 0,
   })
   await invokeAndExpect(["--run-id", fixedRunId, "--help"], fixedHelpScenarios[3].expected, "the executable shell must load the facade")
+  const emptyEventEndpoint = await invokePublicProcess(fixedHelpScenarios[3].argv, {
+    AGENT_PLUGIN_KIT_EVENT_ENDPOINT: "",
+  })
+  expect(emptyEventEndpoint, "an empty optional event endpoint must remain unconfigured").toEqual(fixedHelpScenarios[3].expected)
 })
 test("hostile color environments preserve exact machine bytes", async () => {
   const actual = await invokePublicProcess(fixedHelpScenarios[3].argv, { FORCE_COLOR: "3", TERM: "xterm-256color", NO_COLOR: "0" })
