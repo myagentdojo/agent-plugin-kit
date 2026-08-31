@@ -98,8 +98,10 @@ export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
       const truncation = pendingTruncationSequence === undefined
         ? undefined
         : truncationRecordFor(record, droppedRecordCount, pendingTruncationSequence, secrets, trace)
-      for (const bufferedRecord of buffered) write(bufferedRecord)
-      if (truncation !== undefined) write(truncation)
+      const retainedAndTruncation = truncation === undefined
+        ? buffered
+        : [...buffered, truncation].sort((left, right) => left.sequence - right.sequence)
+      for (const bufferedRecord of retainedAndTruncation) write(bufferedRecord)
       buffered = []
       droppedRecordCount = 0
       pendingTruncationSequence = undefined

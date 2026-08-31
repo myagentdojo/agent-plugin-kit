@@ -175,7 +175,7 @@ const overflowSummaryFor = (records: readonly DiagnosticRecord[]) => {
     sequences,
     truncationSequence: truncationIndex < 0 ? undefined : records[truncationIndex]?.sequence,
     firstRetained: records[0]?.sequence,
-    lastRetained: truncationIndex <= 0 ? undefined : records[truncationIndex - 1]?.sequence,
+    lastRetained: records.at(-2)?.sequence,
     triggerEvent: records.at(-1)?.event,
     triggerSequence: records.at(-1)?.sequence,
     recordCount: records.length,
@@ -221,23 +221,23 @@ test("buffer overflow drops oldest and emits one truncation record", () => {
     return nextSequence
   }
   const harness = diagnosticHarness("default", { nextSequence: allocate })
-  for (let record = 1; record <= 251; record += 1) harness.pipeline.record(diagnosticRecord(allocate(), "info"))
+  for (let record = 1; record <= 252; record += 1) harness.pipeline.record(diagnosticRecord(allocate(), "info"))
   harness.pipeline.record(diagnosticRecord(allocate(), "error"))
   absent(
     overflowSummaryFor(harness.records),
     {
       firstEvent: "fixture.info",
-      sequences: [...Array.from({ length: 250 }, (_, index) => index + 2), 252, 253],
-      firstRetained: 2,
+      sequences: [...Array.from({ length: 249 }, (_, index) => index + 3), 252, 253, 254],
+      firstRetained: 3,
       truncationSequence: 252,
-      lastRetained: 251,
+      lastRetained: 253,
       triggerEvent: "fixture.error",
-      triggerSequence: 253,
+      triggerSequence: 254,
       recordCount: 252,
       truncationRecords: 1,
       uniqueSequences: true,
     },
-    "diagnostic truncation must preserve unique assigned identities while emitting truncation first",
+    "diagnostic truncation must preserve unique assigned identities while flushing in allocated order",
   )
 })
 test("buffered context precedes trigger and primary error envelope is last", async () => {
