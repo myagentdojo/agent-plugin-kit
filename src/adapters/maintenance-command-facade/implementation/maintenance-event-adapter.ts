@@ -7,10 +7,8 @@ import type {
   EventDeliveryResult,
   EventRecord,
 } from "../interface"
-import { sanitizeEventRecord } from "./logtape-diagnostic-adapter"
+import { sanitizeEventRecord } from "../serialized-values"
 
-const attemptTimeoutMs = 250
-const maximumAttempts = 2
 const loopbackHosts = new Set(["127.0.0.1", "::1", "localhost"])
 
 const parsedEndpoint = (endpoint: string | undefined): URL | undefined => {
@@ -41,7 +39,7 @@ const attempt = async (
   let timeout: Promise<"timeout">
   try {
     timeout = Promise.resolve()
-      .then(() => assembly.clock.sleep(attemptTimeoutMs))
+      .then(() => assembly.clock.sleep(assembly.attemptTimeoutMs))
       .then(() => "timeout" as const)
   } catch {
     timeout = Promise.resolve("timeout")
@@ -60,7 +58,7 @@ export const createEventDelivery: EventDeliveryFactory = (
   async deliver(value: EventRecord): Promise<EventDeliveryResult> {
     const record = sanitizeEventRecord(value)
     if (record === undefined) return { status: "failed", attempts: 2 }
-    for (let attemptNumber = 1; attemptNumber <= maximumAttempts; attemptNumber += 1) {
+    for (let attemptNumber = 1; attemptNumber <= assembly.maximumAttempts; attemptNumber += 1) {
       const result = await attempt(assembly, record)
       if (result === "success") return { status: "delivered", attempts: attemptNumber as 1 | 2 }
     }
@@ -70,7 +68,6 @@ export const createEventDelivery: EventDeliveryFactory = (
 
 export type MaintenanceEventAdapterOptions = {
   endpoint?: string
-  authorization?: string
 }
 
 /**

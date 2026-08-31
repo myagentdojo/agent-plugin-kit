@@ -1,13 +1,9 @@
 import { expect, test } from "bun:test"
 import { literalHelpProcess, literalUsageProcess } from "../../../modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results"
-import {
-  createDiagnosticPipeline,
-  createEventDelivery,
-  createMaintenanceCommandFacade,
-  type DiagnosticMode,
-  type DiagnosticRecord,
-  type EventRecord,
-} from "../interface"
+import { createDiagnosticPipeline } from "../implementation/logtape-diagnostic-adapter"
+import { createEventDelivery } from "../implementation/maintenance-event-adapter"
+import { createMaintenanceCommandFacade } from "../implementation/maintenance-command-facade"
+import type { DiagnosticMode, DiagnosticRecord, EventRecord } from "../interface"
 import { createDiagnosticRecordingAdapter } from "./adapters/diagnostic-recording-adapter"
 import {
   createEventRecordingAdapter,
@@ -66,10 +62,6 @@ const eventRecord: EventRecord = Object.freeze({
 })
 
 function diagnosticHarness(mode: DiagnosticMode) {
-  if (createDiagnosticPipeline === undefined) {
-    expect(createDiagnosticPipeline, "contract-absent: the diagnostic pipeline must cross its callable facade-owned Interface").toBeFunction()
-    return undefined
-  }
   const recording = createDiagnosticRecordingAdapter()
   return {
     ...recording,
@@ -78,10 +70,6 @@ function diagnosticHarness(mode: DiagnosticMode) {
 }
 
 async function facadeHarness(options: { eventAcceptance?: "accepted" | "refused"; throwOnDispose?: boolean; argv?: readonly string[] } = {}) {
-  if (createMaintenanceCommandFacade === undefined) {
-    expect(createMaintenanceCommandFacade, "contract-absent: observability must cross the callable facade Interface").toBeFunction()
-    return undefined
-  }
   const commands = createMaintenanceCommandsRecordingAdapter()
   const diagnostics = createDiagnosticRecordingAdapter(
     options.throwOnDispose === undefined ? {} : { throwOnDispose: options.throwOnDispose },
@@ -93,7 +81,7 @@ async function facadeHarness(options: { eventAcceptance?: "accepted" | "refused"
     events: events.adapter,
   })
   const observation = await facade.invoke({
-    argv: options.argv ?? ["--events", "auto", "--run-id", "contract-help-literal", "help"],
+    argv: options.argv ?? ["--run-id", "contract-help-literal", "help"],
     environment: {
       AGENT_PLUGIN_KIT_EVENT_ENDPOINT: "http://127.0.0.1:9/events",
       AGENT_PLUGIN_KIT_EVENT_AUTH: "fixture-secret-must-not-cross",
@@ -133,13 +121,26 @@ test("buffer overflow drops oldest and emits one truncation record", () => {
   const harness = diagnosticHarness("default")
   for (let sequence = 1; sequence <= 251; sequence += 1) harness?.pipeline.record(diagnosticRecord(sequence, "info"))
   harness?.pipeline.record(diagnosticRecord(252, "error"))
+  const sequences = harness?.records.map(({ sequence }) => sequence) ?? []
   absent(
     harness && {
       firstRetained: harness.records.find(({ event }) => event !== "diagnostic.buffer-truncated")?.sequence,
+      truncationSequence: harness.records.find(({ event }) => event === "diagnostic.buffer-truncated")?.sequence,
+      triggerSequence: harness.records.at(-1)?.sequence,
       recordCount: harness.records.length,
       truncationRecords: harness.records.filter(({ event }) => event === "diagnostic.buffer-truncated").length,
+      uniqueSequences: new Set(sequences).size === sequences.length,
+      monotonicSequences: sequences.every((sequence, index) => index === 0 || sequence > (sequences[index - 1] ?? 0)),
     },
-    { firstRetained: 2, recordCount: 252, truncationRecords: 1 },
+    {
+      firstRetained: 2,
+      truncationSequence: 253,
+      triggerSequence: 254,
+      recordCount: 252,
+      truncationRecords: 1,
+      uniqueSequences: true,
+      monotonicSequences: true,
+    },
     "diagnostic truncation must be observable",
   )
 })
@@ -210,10 +211,6 @@ test("event refusal retains run sequence event ID result and station correlation
 })
 test("fake-clock delivery owns two bounded attempts and all settlement cases", async () => {
   expect(fixedEventFailure.endpoint).toBe("http://127.0.0.1:9/events")
-  if (createEventDelivery === undefined) {
-    expect(createEventDelivery, "contract-absent: event settlement must cross the callable delivery Interface").toBeFunction()
-    return
-  }
   const scenarios = []
   const cases = [
     { label: "success", outcomes: ["success"] },

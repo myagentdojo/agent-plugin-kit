@@ -99,7 +99,9 @@ export interface MaintenanceCommandFacade {
 export type MaintenanceCommandFacadeAssembly = {
   commands: MaintenanceCommands
   diagnostics?: DiagnosticAdapter
+  diagnosticFactory?: () => Promise<DiagnosticAdapter>
   events?: EventAdapter
+  eventFactory?: () => EventAdapter | undefined
 }
 
 export type DiagnosticMode = "quiet" | "default" | "verbose" | "debug"
@@ -115,6 +117,7 @@ export type DiagnosticPipelineAssembly = {
   maximumBufferedRecords: 250
   diagnostics: DiagnosticAdapter
   secretValues?: readonly string[]
+  nextSequence?: () => number
 }
 
 export interface EventDeliveryClock {
@@ -150,7 +153,4 @@ export type EventDeliveryFactory = (
   assembly: EventDeliveryAssembly,
 ) => EventDelivery
 
-export { createMaintenanceCommandFacade } from "./implementation/maintenance-command-facade"
-export { createDiagnosticPipeline } from "./implementation/logtape-diagnostic-adapter"
-export { createEventDelivery } from "./implementation/maintenance-event-adapter"
 export const maintenanceCommandFacade: MaintenanceCommandFacade | undefined = undefined

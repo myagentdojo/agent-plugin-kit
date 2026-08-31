@@ -1,8 +1,12 @@
 import { randomUUID } from "node:crypto"
 import type {
+  DiagnosticAdapter,
   DiagnosticMode,
+  DiagnosticPipeline,
+  DiagnosticPipelineFactory,
   DiagnosticRecord,
   EventAcceptance,
+  EventAdapter,
   EventRecord,
   MaintenanceCommandFacade,
   MaintenanceCommandFacadeAssembly,
@@ -25,8 +29,8 @@ import {
 import {
   serializeFacadeErrorEgress,
   serializeFacadeSuccessEgress,
+  sanitizeEventRecord,
 } from "../serialized-values"
-import { createDiagnosticPipeline, sanitizeEventRecord } from "./logtape-diagnostic-adapter"
 
 const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
 
@@ -40,7 +44,7 @@ type ParseFailure = {
 type ParsedGlobals = {
   runId: string | undefined
   diagnosticMode: DiagnosticMode | undefined
-  eventMode: EventMode | undefined
+  eventMode: EventMode
   route: string[]
   group: boolean
 }
@@ -50,7 +54,7 @@ type EventMode = "auto" | "off"
 type GlobalState = {
   runId: string | undefined
   diagnosticMode: DiagnosticMode | undefined
-  eventMode: EventMode | undefined
+  eventMode: EventMode
   seen: Set<string>
 }
 
@@ -172,7 +176,7 @@ const parseGlobals = (argv: readonly string[]): ParsedGlobals | ParseFailure => 
     globals: {
       runId: undefined,
       diagnosticMode: undefined,
-      eventMode: undefined,
+      eventMode: "auto",
       seen: new Set<string>(),
     },
   }
@@ -210,7 +214,7 @@ const parseCommand = (
   command: MaintenanceCommand
   runId: string | undefined
   diagnosticMode: DiagnosticMode | undefined
-  eventMode: EventMode | undefined
+  eventMode: EventMode
 } | ParseFailure => {
   const parsed = parseGlobals(argv)
   if ("message" in parsed) return parsed
@@ -425,81 +429,207 @@ const dispatchFor = async (
   return commands.inspect(command)
 }
 
+const loadDiagnosticPipelineFactory = async (): Promise<DiagnosticPipelineFactory | undefined> => {
+  try {
+    const implementation = await import("./logtape-diagnostic-adapter")
+    return implementation.createDiagnosticPipeline
+  } catch {
+    return undefined
+  }
+}
+
+const createDiagnosticPipelineFor = async (
+  adapter: DiagnosticAdapter,
+  mode: DiagnosticMode,
+  secrets: readonly string[],
+  nextSequence: () => number,
+): Promise<DiagnosticPipeline | undefined> => {
+  const factory = await loadDiagnosticPipelineFactory()
+  if (factory === undefined) return undefined
+  try {
+    return factory({
+      mode,
+      maximumBufferedRecords: 250,
+      diagnostics: adapter,
+      secretValues: secrets,
+      nextSequence,
+    })
+  } catch {
+    return undefined
+  }
+}
+
+type EventResolution = {
+  adapter: EventAdapter | undefined
+  invalidConfiguration: boolean
+}
+
+const resolveEvent = (
+  assembly: MaintenanceCommandFacadeAssembly,
+  mode: EventMode,
+): EventResolution => {
+  if (mode === "off" || assembly.events !== undefined) {
+    return { adapter: mode === "off" ? undefined : assembly.events, invalidConfiguration: false }
+  }
+  if (assembly.eventFactory === undefined) return { adapter: undefined, invalidConfiguration: false }
+  try {
+    const adapter = assembly.eventFactory()
+    return { adapter, invalidConfiguration: adapter === undefined }
+  } catch {
+    return { adapter: undefined, invalidConfiguration: true }
+  }
+}
+
+type DiagnosticRuntime = {
+  initialize(): Promise<void>
+  record(record: Omit<DiagnosticRecord, "sequence">): Promise<void>
+  dispose(): void
+}
+
+const diagnosticAdapterFor = async (
+  assembly: MaintenanceCommandFacadeAssembly,
+): Promise<DiagnosticAdapter | undefined> => {
+  if (assembly.diagnostics !== undefined) return assembly.diagnostics
+  if (assembly.diagnosticFactory === undefined) return undefined
+  try {
+    return await assembly.diagnosticFactory()
+  } catch {
+    return undefined
+  }
+}
+
+const createDiagnosticRuntime = (
+  assembly: MaintenanceCommandFacadeAssembly,
+  parsed: ReturnType<typeof parseCommand>,
+  secrets: readonly string[],
+  nextSequence: () => number,
+): DiagnosticRuntime => {
+  let diagnostics: DiagnosticPipeline | undefined
+  let loadAttempted = false
+  const ensure = async (): Promise<DiagnosticPipeline | undefined> => {
+    if (diagnostics !== undefined || loadAttempted) return diagnostics
+    loadAttempted = true
+    const adapter = await diagnosticAdapterFor(assembly)
+    if (adapter === undefined) return undefined
+    diagnostics = await createDiagnosticPipelineFor(
+      adapter,
+      "diagnosticMode" in parsed && parsed.diagnosticMode !== undefined ? parsed.diagnosticMode : "default",
+      secrets,
+      nextSequence,
+    )
+    return diagnostics
+  }
+  return {
+    async initialize(): Promise<void> {
+      if (assembly.diagnostics !== undefined) await ensure()
+    },
+    async record(record): Promise<void> {
+      const pipeline = await ensure()
+      pipeline?.record({ ...record, sequence: nextSequence() })
+    },
+    dispose(): void {
+      try {
+        diagnostics?.dispose()
+      } catch {
+        // A throwing environmental close cannot replace the primary result.
+      }
+    },
+  }
+}
+
+const usageRefusalFor = async (
+  runtime: DiagnosticRuntime,
+  runId: string,
+  message: string,
+): Promise<ProcessObservation> => {
+  const usage = maintenanceUsageRefusalOutcome()
+  await runtime.record(diagnosticWithoutSequenceFor(
+    runId,
+    "maintenance.usage-refused",
+    "error",
+    usage,
+  ))
+  return observationForUsage(runId, message)
+}
+
+const recordOutcomeDiagnostic = async (
+  runtime: DiagnosticRuntime,
+  runId: string,
+  command: MaintenanceCommand,
+  outcome: MaintenanceOutcome<unknown>,
+): Promise<void> => {
+  if (outcome.status !== "error") return
+  await runtime.record(diagnosticWithoutSequenceFor(
+    runId,
+    outcome.stationId,
+    outcome.error.severity === "fatal" ? "fatal" : outcome.error.severity === "warning" ? "warning" : "error",
+    outcome,
+    command.command,
+  ))
+}
+
+const acceptEventFor = async (
+  runtime: DiagnosticRuntime,
+  eventAdapter: EventAdapter | undefined,
+  runId: string,
+  nextSequence: () => number,
+  secrets: readonly string[],
+  command: MaintenanceCommand,
+  outcome: MaintenanceOutcome<unknown>,
+): Promise<void> => {
+  if (eventAdapter === undefined) return
+  const event = eventRecordFor(runId, nextSequence(), command, outcome, secrets)
+  if (event === undefined) return
+  let acceptance: EventAcceptance | undefined
+  try {
+    acceptance = eventAdapter.accept(event)
+  } catch {
+    acceptance = undefined
+  }
+  if (acceptance?.status !== "accepted") {
+    await runtime.record(eventFailureDiagnosticFor(runId, outcome, command.command))
+  }
+}
+
+const runParsedInvocation = async (
+  assembly: MaintenanceCommandFacadeAssembly,
+  parsed: ReturnType<typeof parseCommand>,
+  runtime: DiagnosticRuntime,
+  runId: string,
+  nextSequence: () => number,
+  secrets: readonly string[],
+): Promise<ProcessObservation> => {
+  if ("message" in parsed) return usageRefusalFor(runtime, runId, parsed.message)
+  const eventResolution = resolveEvent(assembly, parsed.eventMode)
+  if (eventResolution.invalidConfiguration) return usageRefusalFor(runtime, runId, "Invalid event endpoint.")
+  const outcome = await dispatchFor(assembly.commands, parsed.command)
+  await recordOutcomeDiagnostic(runtime, runId, parsed.command, outcome)
+  const observation = observationForOutcome(runId, parsed.command, outcome)
+  await acceptEventFor(runtime, eventResolution.adapter, runId, nextSequence, secrets, parsed.command, outcome)
+  return observation
+}
+
 export const createMaintenanceCommandFacade: MaintenanceCommandFacadeFactory = (
   assembly,
 ): MaintenanceCommandFacade => ({
   async invoke(invocation): Promise<ProcessObservation> {
     const parsed = parseCommand(invocation.argv, invocation.stdin)
     const runId = parsed.runId ?? generatedRunId()
-    const diagnostics = assembly.diagnostics === undefined
-      ? undefined
-      : createDiagnosticPipeline({
-          mode: parsed.diagnosticMode ?? "default",
-          maximumBufferedRecords: 250,
-          diagnostics: assembly.diagnostics,
-          secretValues: secretValuesFor(invocation.environment),
-        })
     let sequence = 0
     const nextSequence = (): number => {
       sequence += 1
       return sequence
     }
-    const recordDiagnostic = (record: Omit<DiagnosticRecord, "sequence">): void => {
-      diagnostics?.record({ ...record, sequence: nextSequence() })
-    }
-    const acceptEvent = (
-      command: MaintenanceCommand,
-      outcome: MaintenanceOutcome<unknown>,
-    ): void => {
-      if (assembly.events === undefined || parsed.eventMode !== "auto") return
-      const eventSequence = nextSequence()
-      const event = eventRecordFor(
-        runId,
-        eventSequence,
-        command,
-        outcome,
-        secretValuesFor(invocation.environment),
-      )
-      if (event === undefined) return
-      let acceptance: EventAcceptance | undefined
-      try {
-        acceptance = assembly.events.accept(event)
-      } catch {
-        acceptance = undefined
-      }
-      if (acceptance?.status !== "accepted") {
-        recordDiagnostic(eventFailureDiagnosticFor(runId, outcome, command.command))
-      }
-    }
+    const secrets = secretValuesFor(invocation.environment)
+    const runtime = createDiagnosticRuntime(assembly, parsed, secrets, nextSequence)
 
     try {
-      if ("message" in parsed) {
-        const usage = maintenanceUsageRefusalOutcome()
-        recordDiagnostic(diagnosticWithoutSequenceFor(
-          runId,
-          "maintenance.usage-refused",
-          "error",
-          usage,
-        ))
-        return observationForUsage(runId, parsed.message)
-      }
-      const outcome = await dispatchFor(assembly.commands, parsed.command)
-      if (outcome.status === "error") {
-        recordDiagnostic(diagnosticWithoutSequenceFor(
-          runId,
-          outcome.stationId,
-          outcome.error.severity === "fatal" ? "fatal" : outcome.error.severity === "warning" ? "warning" : "error",
-          outcome,
-          parsed.command.command,
-        ))
-      }
-      const observation = observationForOutcome(runId, parsed.command, outcome)
-      acceptEvent(parsed.command, outcome)
-      return observation
+      await runtime.initialize()
+      return await runParsedInvocation(assembly, parsed, runtime, runId, nextSequence, secrets)
     } catch {
       return emergencyContainment()
     } finally {
-      diagnostics?.dispose()
+      runtime.dispose()
     }
   },
 
