@@ -15,7 +15,14 @@ const commands = createMaintenanceCommands({
 })
 
 const facade = createMaintenanceCommandFacade({ commands })
-const stdin = process.stdin.isTTY ? "" : await Bun.stdin.text()
+const detectStdin = async (): Promise<string> => {
+  if (process.stdin.isTTY) return ""
+  for await (const chunk of Bun.stdin.stream()) {
+    if (chunk.byteLength > 0) return "present"
+  }
+  return ""
+}
+const stdin = await detectStdin()
 const observation = await facade.invoke({
   argv: process.argv.slice(2),
   environment: {

@@ -184,7 +184,7 @@ const parseCommand = (
   const parsed = parseGlobals(argv)
   if ("message" in parsed) return parsed
   const route = routeFor(parsed)
-  if (!helpAlias(route) || stdin.trim() !== "") {
+  if (!helpAlias(route) || stdin !== "") {
     return parseFailureFor("Unknown maintenance command.", parsed.runId)
   }
   return { command: { command: "help" }, runId: parsed.runId }
