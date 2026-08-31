@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { stat } from "node:fs/promises"
 import { resolve } from "node:path"
 import { literalUsageProcess } from "../../../modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results"
-import { invokePublicProcess, invokeRetainedDescriptorNegativeControl } from "./adapters/public-process-adapter"
+import { invokeClosedStreamNegativeControl, invokePublicProcess, invokeRetainedDescriptorNegativeControl } from "./adapters/public-process-adapter"
 import { fixedHelpScenarios, fixedRunId, fixedUsageScenario } from "./fixtures/literal-cli-scenarios"
 import type { ProcessObservation } from "../interface"
 
@@ -118,6 +118,16 @@ test("root executable has Bun shebang, executable mode, and optional event confi
     "first-write-refused",
     "Maintenance command facade containment failure.\n",
   ])
+  expect(await invokeClosedStreamNegativeControl("stdout", ["--run-id", fixedRunId, "--help"])).toEqual({
+    stdout: "",
+    stderr: "Maintenance command facade containment failure.\n",
+    exitCode: 1,
+  })
+  expect(await invokeClosedStreamNegativeControl("stderr", fixedUsageScenario.argv)).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 1,
+  })
   expect(await invokeRetainedDescriptorNegativeControl()).toEqual({
     deadlineMs: 100,
     timedOut: true,

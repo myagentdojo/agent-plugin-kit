@@ -18,6 +18,23 @@ const writeContainmentFailure = (writeStderr: ProcessWriters["stderr"]): void =>
   }
 }
 
+const installProcessStreamFailureContainment = (): ((nominalExitCode: number) => number) => {
+  let streamFailure = false
+  let fallbackAttempted = false
+  const contain = (): void => {
+    streamFailure = true
+    process.exitCode = 1
+    if (fallbackAttempted) return
+    fallbackAttempted = true
+    writeContainmentFailure((value) => {
+      process.stderr.write(value)
+    })
+  }
+  process.stdout.on("error", contain)
+  process.stderr.on("error", contain)
+  return (nominalExitCode) => streamFailure ? 1 : nominalExitCode
+}
+
 export const writeMaintenanceProcessObservation = (
   observation: ProcessObservation,
   writers: ProcessWriters,
@@ -75,6 +92,7 @@ const detectStdin = async (): Promise<string> => {
   return ""
 }
 const runMaintenanceProcess = async (): Promise<void> => {
+  const containedExitCode = installProcessStreamFailureContainment()
   const stdin = await detectStdin()
   const observation = await facade.invoke({
     argv: process.argv.slice(2),
@@ -84,14 +102,14 @@ const runMaintenanceProcess = async (): Promise<void> => {
     },
     stdin,
   })
-  process.exitCode = writeMaintenanceProcessObservation(observation, {
+  process.exitCode = containedExitCode(writeMaintenanceProcessObservation(observation, {
     stdout: (value) => {
       process.stdout.write(value)
     },
     stderr: (value) => {
       process.stderr.write(value)
     },
-  })
+  }))
 }
 
 if (import.meta.main) await runMaintenanceProcess()
