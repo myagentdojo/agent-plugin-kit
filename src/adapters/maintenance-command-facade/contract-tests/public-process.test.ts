@@ -88,6 +88,36 @@ test("the public process refuses stdin without waiting for the producer to close
 test("root executable has Bun shebang, executable mode, and optional event configuration", async () => {
   const mode = (await stat(resolve(import.meta.dir, "../maintenance.ts"))).mode & 0o111
   expect(mode).not.toBe(0)
+  const { writeMaintenanceProcessObservation } = await import("../maintenance")
+  const stdoutFailureStderr: string[] = []
+  expect(writeMaintenanceProcessObservation(fixedHelpScenarios[3].expected, {
+    stdout: () => {
+      throw new Error("private stdout failure")
+    },
+    stderr: (value) => {
+      stdoutFailureStderr.push(value)
+    },
+  })).toBe(1)
+  expect(stdoutFailureStderr).toEqual(["Maintenance command facade containment failure.\n"])
+  const stderrFailureStdout: string[] = []
+  const stderrFailureStderr: string[] = []
+  expect(writeMaintenanceProcessObservation(literalUsageProcess, {
+    stdout: (value) => {
+      stderrFailureStdout.push(value)
+    },
+    stderr: (value) => {
+      if (stderrFailureStderr.length === 0) {
+        stderrFailureStderr.push("first-write-refused")
+        throw new Error("private stderr failure")
+      }
+      stderrFailureStderr.push(value)
+    },
+  })).toBe(1)
+  expect(stderrFailureStdout).toEqual([])
+  expect(stderrFailureStderr).toEqual([
+    "first-write-refused",
+    "Maintenance command facade containment failure.\n",
+  ])
   expect(await invokeRetainedDescriptorNegativeControl()).toEqual({
     deadlineMs: 100,
     timedOut: true,
