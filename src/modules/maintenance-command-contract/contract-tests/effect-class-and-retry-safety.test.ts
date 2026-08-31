@@ -6,10 +6,47 @@ import {
 } from "./adapters/mutation-recording-module-adapter"
 import { approvalDigestVectors } from "./fixtures/approval-digest-vectors"
 import { mutatingRequests } from "./fixtures/literal-command-results"
-import type { CommandPreview } from "../interface"
+import type {
+  CommandPreview,
+  MaintenanceApplyRequest,
+  MaintenanceCommand,
+} from "../interface"
 
 const digest = (bytes: string) =>
   `sha256:${createHash("sha256").update(bytes).digest("hex")}`
+
+const canonicalInspectionFor = (request: MaintenanceApplyRequest): MaintenanceCommand => {
+  switch (request.command) {
+    case "release:apply":
+      return {
+        command: "release:inspect",
+        request: { candidate: request.request.candidate, intent: request.request.intent },
+      }
+    case "harness:claude:apply":
+      return {
+        command: "harness:claude:inspect",
+        request: {
+          identity: request.request.identity,
+          payload: request.request.payload,
+          profileIdentity: request.request.profileIdentity,
+        },
+      }
+    case "harness:codex:apply":
+      return {
+        command: "harness:codex:inspect",
+        request: {
+          identity: request.request.identity,
+          payload: request.request.payload,
+          profileIdentity: request.request.profileIdentity,
+          checkoutIdentity: request.request.checkoutIdentity,
+        },
+      }
+    case "canary:qualify":
+      return { command: "canary:inspect", candidate: request.candidate }
+    default:
+      return request
+  }
+}
 
 async function assertApply(
   key: keyof typeof mutatingRequests,
@@ -32,10 +69,15 @@ async function assertApply(
 
   const retrySafety =
     key === "materialize" || key === "package" ? "safe" : "requires-fresh-inspection"
-  const preview = await harness.inspect(request)
+  const inspection = canonicalInspectionFor(request)
+  const preview = await harness.inspect(inspection)
   expect(preview, `contract-absent: ${request.command} must classify before apply`).toMatchObject({
     status: "ok",
-    value: { command: request.command, effectClass, retrySafety },
+    value: {
+      command: inspection.command,
+      effectClass: inspection.command === request.command ? effectClass : "inspect",
+      retrySafety: inspection.command === request.command ? retrySafety : "safe",
+    },
   })
   const actual = await harness.apply(request)
   expect(actual, `contract-absent: ${request.command} must preserve exact Retry Safety`).toMatchObject({
@@ -70,7 +112,7 @@ async function assertApply(
         resultCode: "recovery-required",
       })
       expect(harness.applyLedgers[owner]).toEqual([request])
-      await harness.inspect(request)
+      await harness.inspect(inspection)
       expect(await harness.apply(request)).toMatchObject({ status: "ok" })
       expect(harness.applyLedgers[owner]).toEqual([request, request])
     }
@@ -80,7 +122,31 @@ async function assertApply(
 test("payload materialize is repository-local", () => assertApply("materialize", "repository-local"))
 test("payload package is repository-local", () => assertApply("package", "repository-local"))
 test("runtime repair apply transports outside approval", () => assertApply("runtime", "external"))
-test("release apply transports only its fixed approval vector", () => assertApply("release", "external"))
+test("release apply transports only its fixed approval vector", async () => {
+  await assertApply("release", "external")
+  const request = mutatingRequests.release
+  const partial = createMaintenanceContractHarness(undefined, {
+    releaseResult: {
+      candidate: request.request.candidate,
+      completedEffectIds: [],
+      remainingEffectIds: ["effect:release"],
+    },
+  })
+  await partial.inspect(canonicalInspectionFor(request))
+  expect(await partial.apply(request)).toMatchObject({
+    status: "error",
+    resultCode: "continuation-required",
+    stationId: "release-apply.continuation-required",
+    error: {
+      exitCodeHint: 20,
+      failureClass: "continuation",
+      retrySafety: "unsafe",
+      transactionState: "partially-completed",
+      completedEffectIds: [],
+      remainingEffectIds: ["effect:release"],
+    },
+  })
+})
 test("Claude apply transports only its fixed approval vector", () => assertApply("claude", "external"))
 test("Codex apply transports only its fixed approval vector", () => assertApply("codex", "external"))
 test("canary qualify transports protected authority", () => assertApply("canary", "external"))
@@ -110,6 +176,19 @@ test("inspection requests no capability and writes no durable target", async () 
 test("runtime repair apply refreshes preview immediately before exact apply argv", async () => {
   expect(Object.keys(mutatingRequests.runtime).sort()).toEqual(["argv", "command"])
   expect(mutatingRequests.runtime.argv).toEqual(["repair", "--apply"])
+  const exactPreview = createMaintenanceContractHarness(undefined, {
+    runtimeResults: [runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } })],
+  })
+  expect(await exactPreview.inspect({ command: "runtime:repair", argv: ["repair"] })).toMatchObject({
+    status: "ok",
+    resultCode: "runtime-repair-preview",
+    stationId: "runtime-repair.runtime-repair-preview",
+    value: {
+      nextAction: { id: "runtime.review-repair-preview" },
+      retrySafety: "safe",
+      transactionState: "unchanged",
+    },
+  })
   const scenarios = [
     {
       label: "fresh missing preview",
@@ -148,6 +227,27 @@ test("runtime repair apply refreshes preview immediately before exact apply argv
     {
       label: "invalid process result",
       results: [{ kind: "skill-process", stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 0 }],
+      stationId: "runtime-repair-apply.runtime-control-invalid",
+    },
+    {
+      label: "applied result in inspection position",
+      results: [runtimeControl("REPAIR_APPLIED", { sideEffects: ["published-runtime"] })],
+      stationId: "runtime-repair-apply.runtime-control-invalid",
+    },
+    {
+      label: "preview result in apply position",
+      results: [
+        runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+        runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+      ],
+      stationId: "runtime-repair-apply.runtime-control-invalid",
+    },
+    {
+      label: "unneeded result in apply position",
+      results: [
+        runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+        runtimeControl("REPAIR_UNNEEDED", { state: { before: "valid" } }),
+      ],
       stationId: "runtime-repair-apply.runtime-control-invalid",
     },
   ] as const

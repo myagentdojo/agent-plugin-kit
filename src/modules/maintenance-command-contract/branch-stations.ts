@@ -118,8 +118,9 @@ const evidenceForStation = (
   }
 
   if (matches.length > 1 ||
-    (observed.status === "covered" && observed.provenance === "real_process" &&
-      (observed.observedResultCode !== station.expectedResultCode ||
+    (observed.status === "covered" &&
+      (observed.provenance !== "real_process" ||
+        observed.observedResultCode !== station.expectedResultCode ||
         observed.observedExitClass !== station.expectedExitClass))) {
     return { ...observed, status: "drifted" }
   }

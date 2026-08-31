@@ -37,6 +37,7 @@ test("required Intentional RED scenarios are exactly help and usage", () => {
     },
   ])
   expect(projected.observedBranchCoverage).toBe(1)
+  expect(projected.stations.find(({ stationId }) => stationId === "maintenance.usage-refused")?.status).toBe("drifted")
   const drifted = projectStationMap(branchStationCatalog, [{
     stationId: "help.previewed",
     status: "covered",

@@ -9,12 +9,67 @@ import {
   serializeMaintenancePreviewOutcome,
   serializeMaintenanceResultOutcome,
 } from "../serialized-values"
+import type { MaintenanceResultOutcome } from "../serialized-values"
 import { createMaintenanceContractHarness } from "./adapters/mutation-recording-module-adapter"
 import {
   literalHelpPreview,
   literalPayloadResult,
   mutatingRequests,
 } from "./fixtures/literal-command-results"
+
+function assertFrozenResult(actual: MaintenanceResultOutcome) {
+  expect(Object.isFrozen(actual)).toBeTrue()
+  if (actual.status !== "ok") throw new Error("missing payload result")
+  expect(Object.isFrozen(actual.value)).toBeTrue()
+  expect(Object.isFrozen(actual.value.nextAction)).toBeTrue()
+  expect(Object.isFrozen(actual.value.agent)).toBeTrue()
+  expect(Object.isFrozen(actual.value.completedEffectIds)).toBeTrue()
+}
+
+function hostileAgentValues(): readonly Record<PropertyKey, unknown>[] {
+  class NonJsonValue {}
+  const cyclic: Record<string, unknown> = { schemaVersion: 1 }
+  cyclic.self = cyclic
+  const accessor = { schemaVersion: 1 } as Record<string, unknown>
+  Object.defineProperty(accessor, "secret", { enumerable: true, get: () => "hidden" })
+  const symbolKeyed = { schemaVersion: 1 } as Record<PropertyKey, unknown>
+  symbolKeyed[Symbol("hidden")] = "hidden"
+  return [
+    { schemaVersion: 1, value: new Map([["key", "value"]]) },
+    { schemaVersion: 1, value: new Date(0) },
+    { schemaVersion: 1, value: new NonJsonValue() },
+    { schemaVersion: 1, value: Number.POSITIVE_INFINITY },
+    cyclic,
+    accessor,
+    symbolKeyed,
+  ]
+}
+
+function assertHostileAgentValuesAreRejected() {
+  for (const agent of hostileAgentValues()) {
+    expect(parseCommandResult({ ...literalPayloadResult, agent })).toBeUndefined()
+  }
+}
+
+async function assertOwnerResultsArePreserved() {
+  const harness = createMaintenanceContractHarness()
+  for (const request of [
+    mutatingRequests.release,
+    mutatingRequests.claude,
+    mutatingRequests.codex,
+    mutatingRequests.canary,
+  ]) {
+    await harness.inspect(request)
+    const ownerOutcome = await harness.apply(request)
+    expect(ownerOutcome?.status === "ok" ? ownerOutcome.value.agent.result : undefined).toBeDefined()
+  }
+  const codex = createMaintenanceContractHarness()
+  await codex.inspect(mutatingRequests.codex)
+  const codexOutcome = await codex.apply(mutatingRequests.codex)
+  expect(codexOutcome?.status === "ok" ? codexOutcome.value.agent.result : undefined).toMatchObject({
+    freshTaskCommand: ["task"],
+  })
+}
 
 test("help returns the canonical tagged preview", async () => {
   const actual = await createMaintenanceContractHarness().inspect({ command: "help" })
@@ -84,16 +139,7 @@ test("governing result status and effects pass through unchanged", async () => {
   expect(parseCommandResult({ ...literalPayloadResult, schemaVersion: 2 })).toBeUndefined()
   expect(parseCommandResult({ ...literalPayloadResult, nextAction: { ...literalPayloadResult.nextAction, commandId: undefined } })).toBeUndefined()
   expect(parseCommandResult({ ...literalPayloadResult, agent: { schemaVersion: 1, invalid: () => undefined } })).toBeUndefined()
-
-  for (const request of [mutatingRequests.release, mutatingRequests.claude, mutatingRequests.codex, mutatingRequests.canary]) {
-    await harness.inspect(request)
-    const ownerOutcome = await harness.apply(request)
-    expect(ownerOutcome?.status === "ok" ? ownerOutcome.value.agent.result : undefined).toBeDefined()
-  }
-  const codex = createMaintenanceContractHarness()
-  await codex.inspect(mutatingRequests.codex)
-  const codexOutcome = await codex.apply(mutatingRequests.codex)
-  expect(codexOutcome?.status === "ok" ? codexOutcome.value.agent.result : undefined).toMatchObject({
-    freshTaskCommand: ["task"],
-  })
+  assertFrozenResult(actual)
+  assertHostileAgentValuesAreRejected()
+  await assertOwnerResultsArePreserved()
 })

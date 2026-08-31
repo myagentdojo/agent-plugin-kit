@@ -5,6 +5,7 @@ import type {
   CommandResult,
   EffectClass,
   FailureClass,
+  JsonValue,
   MaintenanceAction,
   MaintenanceApplyRequest,
   MaintenanceCommand,
@@ -71,26 +72,13 @@ const failureClassSchema = z.enum([
   "event_delivery",
 ])
 
-function isJsonValue(value: unknown, seen = new Set<object>()): boolean {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true
-  if (typeof value === "number") return Number.isFinite(value)
-  if (typeof value !== "object" || seen.has(value)) return false
-  seen.add(value)
-  const values = Array.isArray(value) ? value : Object.values(value)
-  const valid = values.every((entry) => isJsonValue(entry, seen))
-  seen.delete(value)
-  return valid
-}
-
-function isAgentPayload(value: unknown): value is AgentPayload {
-  return typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Reflect.get(value, "schemaVersion") === 1 &&
-    isJsonValue(value)
-}
-
-const agentPayloadSchema = z.custom<AgentPayload>(isAgentPayload)
+const jsonPrimitiveSchema = z.union([z.null(), z.boolean(), z.number().finite(), z.string()])
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
+  jsonPrimitiveSchema,
+  z.array(jsonValueSchema).readonly(),
+  z.record(z.string(), jsonValueSchema),
+]))
+const agentPayloadSchema = z.object({ schemaVersion: z.literal(1) }).catchall(jsonValueSchema)
 const nextActionSchema = z.strictObject({
   id: z.string(),
   action: maintenanceActionSchema,
@@ -99,43 +87,62 @@ const nextActionSchema = z.strictObject({
   retryAfterMs: z.number().int().nonnegative().exactOptional(),
   idempotencyKey: z.string().exactOptional(),
 })
-const maintenanceErrorSchema = z.strictObject({
+const maintenanceErrorCommonShape = {
   name: z.literal("MaintenanceCommandError"),
-  exitCodeHint: z.union([
-    z.literal(1),
-    z.literal(2),
-    z.literal(20),
-    z.literal(21),
-    z.literal(22),
-    z.literal(23),
-  ]),
-  failureClass: failureClassSchema.exclude(["event_delivery"]),
-  errorFamily: z.enum([
-    "input",
-    "state_conflict",
-    "authentication",
-    "authorization_scope",
-    "network",
-    "transient",
-    "runtime",
-  ]),
-  severity: z.enum(["warning", "error", "fatal"]),
-  action: maintenanceActionSchema,
-  retryable: z.boolean(),
-  recoverability: z.enum([
-    "none",
-    "retry",
-    "change_input",
-    "authenticate",
-    "repair_state",
-    "contact_support",
-  ]),
-  retrySafety: retrySafetySchema,
-  transactionState: transactionStateSchema,
   nextAction: nextActionSchema,
   retryAfterMs: z.number().int().nonnegative().exactOptional(),
   idempotencyKey: z.string().exactOptional(),
-})
+} as const
+const maintenanceErrorSchema = z.discriminatedUnion("failureClass", [
+  z.strictObject({
+    ...maintenanceErrorCommonShape,
+    exitCodeHint: z.literal(20),
+    failureClass: z.literal("continuation"),
+    errorFamily: z.literal("state_conflict"),
+    severity: z.literal("error"),
+    action: z.literal("inspect_state"),
+    retryable: z.literal(false),
+    recoverability: z.literal("repair_state"),
+    retrySafety: z.literal("unsafe"),
+    transactionState: z.literal("partially-completed"),
+    completedEffectIds: z.array(z.string()).readonly(),
+    remainingEffectIds: z.tuple([z.string()], z.string()).readonly(),
+  }),
+  z.strictObject({
+    ...maintenanceErrorCommonShape,
+    exitCodeHint: z.union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(20),
+      z.literal(21),
+      z.literal(22),
+      z.literal(23),
+    ]),
+    failureClass: failureClassSchema.exclude(["event_delivery", "continuation"]),
+    errorFamily: z.enum([
+      "input",
+      "state_conflict",
+      "authentication",
+      "authorization_scope",
+      "network",
+      "transient",
+      "runtime",
+    ]),
+    severity: z.enum(["warning", "error", "fatal"]),
+    action: maintenanceActionSchema,
+    retryable: z.boolean(),
+    recoverability: z.enum([
+      "none",
+      "retry",
+      "change_input",
+      "authenticate",
+      "repair_state",
+      "contact_support",
+    ]),
+    retrySafety: retrySafetySchema,
+    transactionState: transactionStateSchema,
+  }),
+])
 const commandPreviewSchema = z.strictObject({
   schemaVersion: z.literal(1),
   command: commandIdSchema,
@@ -195,39 +202,68 @@ const errorOutcomeSchema = z.strictObject({
   error: maintenanceErrorSchema,
 })
 
-function containsUndefined(value: unknown): boolean {
-  const pending: unknown[] = [value]
-  const visited = new Set<object>()
-  while (pending.length > 0) {
-    const candidate = pending.pop()
-    if (candidate === undefined) return true
-    if (typeof candidate !== "object" || candidate === null) continue
-    if (visited.has(candidate)) return true
-    visited.add(candidate)
-    pending.push(...(Array.isArray(candidate) ? candidate : Object.values(candidate)))
+function isPlainJsonArray(value: unknown[], seen: Set<object>): boolean {
+  if (Object.getPrototypeOf(value) !== Array.prototype) return false
+  if (Reflect.ownKeys(value).some((key) =>
+    key !== "length" && (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key)))) return false
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index) || !isPlainJsonTree(value[index], seen)) return false
   }
-  return false
+  return true
+}
+
+function isPlainJsonRecord(value: object, seen: Set<object>): boolean {
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== Object.prototype && prototype !== null) return false
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string") return false
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (descriptor === undefined || !descriptor.enumerable || !("value" in descriptor)) return false
+    if (!isPlainJsonTree(descriptor.value, seen)) return false
+  }
+  return true
+}
+
+function isPlainJsonTree(value: unknown, seen = new Set<object>()): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true
+  if (typeof value === "number") return Number.isFinite(value)
+  if (typeof value !== "object" || seen.has(value)) return false
+  seen.add(value)
+  const valid = Array.isArray(value)
+    ? isPlainJsonArray(value, seen)
+    : isPlainJsonRecord(value, seen)
+  seen.delete(value)
+  return valid
 }
 
 function parseValue<T>(schema: z.ZodType<T>, value: unknown): T | undefined {
-  if (containsUndefined(value)) return undefined
+  if (!isPlainJsonTree(value)) return undefined
   const result = schema.safeParse(value)
   if (!result.success) return undefined
   return result.data
 }
 
 function serializeValue<T>(schema: z.ZodType<T>, value: T): string {
+  if (!isPlainJsonTree(value)) {
+    throw new Error("maintenance-command-contract: invalid serialized value")
+  }
   const result = schema.safeParse(value)
-  if (containsUndefined(value) || !result.success) {
+  if (!result.success) {
     throw new Error("maintenance-command-contract: invalid serialized value")
   }
   return JSON.stringify(result.data)
 }
 
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== "object" || value === null || Object.isFrozen(value)) return value
+  for (const child of Object.values(value)) deepFreeze(child)
+  return Object.freeze(value)
+}
+
 function validateEgress<T>(schema: z.ZodType<T>, value: T): T {
   const parsed = parseValue(schema, value)
   if (parsed === undefined) throw new Error("maintenance-command-contract: invalid serialized egress")
-  return Object.freeze(parsed)
+  return deepFreeze(parsed)
 }
 
 export function parseCommandPreview(value: unknown): CommandPreview | undefined {
@@ -281,6 +317,7 @@ type InferredRetrySafety = z.infer<typeof retrySafetySchema>
 type InferredMaintenanceAction = z.infer<typeof maintenanceActionSchema>
 type InferredFailureClass = z.infer<typeof failureClassSchema>
 type InferredNextAction = z.infer<typeof nextActionSchema>
+type InferredAgentPayload = z.infer<typeof agentPayloadSchema>
 type InferredMaintenanceError = z.infer<typeof maintenanceErrorSchema>
 type InferredCommandPreview = z.infer<typeof commandPreviewSchema>
 type InferredCommandResult = z.infer<typeof commandResultSchema>
@@ -302,6 +339,8 @@ const bidirectionalTypeChecks: [
   FailureClass extends InferredFailureClass ? true : false,
   InferredNextAction extends NextAction ? true : false,
   NextAction extends InferredNextAction ? true : false,
+  InferredAgentPayload extends AgentPayload ? true : false,
+  AgentPayload extends InferredAgentPayload ? true : false,
   InferredMaintenanceError extends MaintenanceError ? true : false,
   MaintenanceError extends InferredMaintenanceError ? true : false,
   InferredCommandPreview extends CommandPreview ? true : false,
@@ -314,6 +353,7 @@ const bidirectionalTypeChecks: [
   MaintenanceResultOutcome extends InferredResultOutcome ? true : false,
 ] = [
   true, true, true, true, true, true, true, true, true, true, true, true,
+  true, true,
   true, true, true, true, true, true, true, true, true, true, true, true,
 ]
 

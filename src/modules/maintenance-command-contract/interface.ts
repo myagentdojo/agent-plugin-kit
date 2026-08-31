@@ -148,8 +148,6 @@ export type StationId = `${string}.${ResultCode}`
 
 export type MaintenanceError = {
   name: "MaintenanceCommandError"
-  exitCodeHint: 1 | 2 | 20 | 21 | 22 | 23
-  failureClass: MaintenanceErrorFailureClass
   errorFamily:
     | "input"
     | "state_conflict"
@@ -160,7 +158,6 @@ export type MaintenanceError = {
     | "runtime"
   severity: "warning" | "error" | "fatal"
   action: MaintenanceAction
-  retryable: boolean
   recoverability:
     | "none"
     | "retry"
@@ -168,12 +165,33 @@ export type MaintenanceError = {
     | "authenticate"
     | "repair_state"
     | "contact_support"
-  retrySafety: RetrySafety
-  transactionState: TransactionState
   nextAction: NextAction
   retryAfterMs?: number
   idempotencyKey?: string
-}
+} & (
+  | {
+      exitCodeHint: 20
+      failureClass: "continuation"
+      errorFamily: "state_conflict"
+      severity: "error"
+      action: "inspect_state"
+      retryable: false
+      recoverability: "repair_state"
+      retrySafety: "unsafe"
+      transactionState: "partially-completed"
+      completedEffectIds: readonly string[]
+      remainingEffectIds: readonly [string, ...string[]]
+    }
+  | {
+      exitCodeHint: 1 | 2 | 20 | 21 | 22 | 23
+      failureClass: Exclude<MaintenanceErrorFailureClass, "continuation">
+      retryable: boolean
+      retrySafety: RetrySafety
+      transactionState: TransactionState
+      completedEffectIds?: never
+      remainingEffectIds?: never
+    }
+)
 
 export type MaintenanceOutcome<T> =
   | {

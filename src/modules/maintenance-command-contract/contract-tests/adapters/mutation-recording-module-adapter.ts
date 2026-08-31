@@ -22,7 +22,10 @@ import type {
   HarnessJourneys,
 } from "../../../harness-journeys/interface"
 import type { PluginPayloadProduction } from "../../../plugin-payload-production/interface"
-import type { ReleaseAndGitEngine } from "../../../release-and-git-engine/interface"
+import type {
+  ReleaseAndGitEngine,
+  ReleaseResult,
+} from "../../../release-and-git-engine/interface"
 import type { RuntimeCustodyResult } from "../../../runtime-custody/interface"
 import {
   createMaintenanceCommands,
@@ -77,7 +80,10 @@ export function runtimeControl(
 
 export function createMaintenanceContractHarness(
   assemble?: (collaborators: MaintenanceTestCollaborators) => MaintenanceCommands,
-  options: { runtimeResults?: readonly RuntimeCustodyResult[] } = {},
+  options: {
+    runtimeResults?: readonly RuntimeCustodyResult[]
+    releaseResult?: ReleaseResult
+  } = {},
 ): MaintenanceContractHarness {
   const applyLedgers: Record<string, MaintenanceApplyRequest[]> = {
     payload: [],
@@ -142,7 +148,11 @@ export function createMaintenanceContractHarness(
     },
     async apply(request, approval) {
       testCollaborators.recordApply("release", { command: "release:apply", request, approval })
-      return { candidate: request.candidate, completedEffectIds: request.expectedEffectIds, remainingEffectIds: [] }
+      return options.releaseResult ?? {
+        candidate: request.candidate,
+        completedEffectIds: request.expectedEffectIds,
+        remainingEffectIds: [],
+      }
     },
   }
 
