@@ -659,6 +659,12 @@ const runParsedInvocation = async (
   return observation
 }
 
+/**
+ * Create a maintenance command facade that orchestrates command invocation,
+ * diagnostic recording, and event delivery. The facade manages the complete
+ * lifecycle of maintenance commands from parsing through execution to
+ * observability.
+ */
 export const createMaintenanceCommandFacade: MaintenanceCommandFacadeFactory = (
   assembly,
 ): MaintenanceCommandFacade => ({

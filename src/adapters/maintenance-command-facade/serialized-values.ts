@@ -113,10 +113,7 @@ const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
 const maximumCredentialMatchLength = 4096
 const secretKeyPattern = /(?:password|passwd|secret|token|authorization|cookie|credential|private[-_]?key|api[-_]?key)/i
 const uriSchemePattern = "[A-Za-z][A-Za-z0-9+.-]*"
-const secretAssignmentPattern = new RegExp(
-  String.raw`(^|[^A-Za-z0-9])(secret|password|passwd|token|credential|authorization|cookie|private[-_ ]?key|api[-_ ]?key)(\s*)([:=])(\s*)("(?:\\.|[^"\\])*"[^\s]*|'(?:\\.|[^'\\])*'[^\s]*|"(?:(?:\\.|[^"\\])*)$|'(?:(?:\\.|[^'\\])*)$|[^\s]+)`,
-  "gi",
-)
+const secretAssignmentPattern = /(^|[^A-Za-z0-9])(secret|password|passwd|token|credential|authorization|cookie|private[-_ ]?key|api[-_ ]?key)(\s*)([:=])(\s*)("(?:\\.|[^"\\])*"[^\s]*|'(?:\\.|[^'\\])*'[^\s]*|"(?:(?:\\.|[^"\\])*)$|'(?:(?:\\.|[^'\\])*)$|[^\s]+)/gi
 const authUrlPattern = new RegExp(
   `(^|[^A-Za-z0-9])(?=${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@)${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@[^\\s]+`,
   "gi",
@@ -212,7 +209,7 @@ const isRecord = (value: unknown): value is DiagnosticRecordInput =>
   value !== null && typeof value === "object" && !Array.isArray(value)
 
 const hasOwn = (value: DiagnosticRecordInput, key: string): boolean =>
-  Object.prototype.hasOwnProperty.call(value, key)
+  Object.hasOwn(value, key)
 
 const replaceConfiguredSecrets = (value: string, secrets: readonly string[]): string => {
   let redacted = value
@@ -381,6 +378,11 @@ const sanitizeRecord = <T>(
   return frozen
 }
 
+/**
+ * Sanitize and validate a diagnostic record by filtering allowed fields,
+ * redacting sensitive values, and ensuring schema compliance. Returns undefined
+ * if the record fails validation or contains unredacted secrets.
+ */
 export const sanitizeDiagnosticRecord = (
   value: unknown,
   secrets: readonly string[] = [],
@@ -388,6 +390,11 @@ export const sanitizeDiagnosticRecord = (
 ): import("./interface").DiagnosticRecord | undefined =>
   sanitizeRecord(diagnosticRecordSchema, value, buildDiagnosticAllowlist, "timestamp", secrets, trace)
 
+/**
+ * Sanitize and validate an event record by filtering allowed fields, redacting
+ * sensitive values, and ensuring schema compliance. Returns undefined if the
+ * record fails validation or contains unredacted secrets.
+ */
 export const sanitizeEventRecord = (
   value: unknown,
   secrets: readonly string[] = [],
@@ -400,17 +407,33 @@ const validate = <T>(schema: z.ZodType<T>, value: unknown): T | undefined => {
   return parsed.success ? deepFreeze(parsed.data) : undefined
 }
 
+/**
+ * Validate and freeze a facade success envelope. Returns the validated envelope
+ * or undefined if validation fails.
+ */
 export const validateFacadeSuccessEnvelope = (value: unknown): FacadeSuccessEnvelope | undefined =>
   validate(facadeSuccessEnvelopeSchema, value)
 
+/**
+ * Validate and freeze a facade error envelope. Returns the validated envelope
+ * or undefined if validation fails.
+ */
 export const validateFacadeErrorEnvelope = (value: unknown): FacadeErrorEnvelope | undefined =>
   validate(facadeErrorEnvelopeSchema, value)
 
+/**
+ * Serialize a facade success envelope to a newline-terminated JSON string.
+ * Returns undefined if the envelope fails validation.
+ */
 export const serializeFacadeSuccessEgress = (value: unknown): string | undefined => {
   const parsed = validateFacadeSuccessEnvelope(value)
   return parsed === undefined ? undefined : `${JSON.stringify(parsed)}\n`
 }
 
+/**
+ * Serialize a facade error envelope to a newline-terminated JSON string.
+ * Returns undefined if the envelope fails validation.
+ */
 export const serializeFacadeErrorEgress = (value: unknown): string | undefined => {
   const parsed = validateFacadeErrorEnvelope(value)
   return parsed === undefined ? undefined : `${JSON.stringify(parsed)}\n`

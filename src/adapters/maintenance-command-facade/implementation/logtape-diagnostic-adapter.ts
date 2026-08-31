@@ -61,6 +61,11 @@ const truncationRecordFor = (
     message: `Diagnostic buffer dropped ${droppedRecordCount} oldest record${droppedRecordCount === 1 ? "" : "s"}.`,
   }, secrets, trace)
 
+/**
+ * Create a diagnostic pipeline that sanitizes, buffers, and delivers diagnostic
+ * records. The pipeline enforces redaction policies, maintains ordering, and
+ * handles buffer overflow by dropping oldest records.
+ */
 export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
   assembly: DiagnosticPipelineAssembly,
 ): DiagnosticPipeline => {
