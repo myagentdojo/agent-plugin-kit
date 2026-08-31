@@ -7,7 +7,8 @@ The repository currently contains its accepted domain and Repository Topology,
 the Source Tree Interface skeleton, and a mixed GREEN and intentional RED
 Contract Test scaffold. Admission Bootstrap and Qualification Evidence are the
 current Source Tree Implementations. Every other Deep Module Implementation
-and all maintenance command behaviour remain absent.
+remains absent. The Maintenance Command Facade admits only deterministic help
+and usage-refusal behaviour; apply and inspect execution remain absent.
 
 ## Start here
 
