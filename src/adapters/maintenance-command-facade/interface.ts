@@ -114,6 +114,7 @@ export type DiagnosticPipelineAssembly = {
   mode: DiagnosticMode
   maximumBufferedRecords: 250
   diagnostics: DiagnosticAdapter
+  secretValues?: readonly string[]
 }
 
 export interface EventDeliveryClock {
@@ -149,7 +150,7 @@ export type EventDeliveryFactory = (
   assembly: EventDeliveryAssembly,
 ) => EventDelivery
 
-export const createMaintenanceCommandFacade: MaintenanceCommandFacadeFactory | undefined = undefined
-export const createDiagnosticPipeline: DiagnosticPipelineFactory | undefined = undefined
-export const createEventDelivery: EventDeliveryFactory | undefined = undefined
+export { createMaintenanceCommandFacade } from "./implementation/maintenance-command-facade"
+export { createDiagnosticPipeline } from "./implementation/logtape-diagnostic-adapter"
+export { createEventDelivery } from "./implementation/maintenance-event-adapter"
 export const maintenanceCommandFacade: MaintenanceCommandFacade | undefined = undefined

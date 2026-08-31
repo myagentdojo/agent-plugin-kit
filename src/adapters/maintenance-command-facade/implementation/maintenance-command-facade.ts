@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto"
 import type {
+  DiagnosticMode,
+  DiagnosticRecord,
+  EventAcceptance,
+  EventRecord,
   MaintenanceCommandFacade,
   MaintenanceCommandFacadeAssembly,
   MaintenanceCommandFacadeFactory,
@@ -22,25 +26,31 @@ import {
   serializeFacadeErrorEgress,
   serializeFacadeSuccessEgress,
 } from "../serialized-values"
+import { createDiagnosticPipeline, sanitizeEventRecord } from "./logtape-diagnostic-adapter"
 
 const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
 
 type ParseFailure = {
   message: string
   runId?: string
+  diagnosticMode?: DiagnosticMode
+  eventMode?: EventMode
 }
 
 type ParsedGlobals = {
   runId: string | undefined
+  diagnosticMode: DiagnosticMode | undefined
+  eventMode: EventMode | undefined
   route: string[]
   group: boolean
 }
 
-type DiagnosticMode = "quiet" | "verbose" | "debug"
+type EventMode = "auto" | "off"
 
 type GlobalState = {
   runId: string | undefined
   diagnosticMode: DiagnosticMode | undefined
+  eventMode: EventMode | undefined
   seen: Set<string>
 }
 
@@ -53,8 +63,15 @@ type ArgumentState = {
 
 const generatedRunId = (): string => randomUUID()
 
-const parseFailureFor = (message: string, runId: string | undefined): ParseFailure =>
-  runId === undefined ? { message } : { message, runId }
+const parseFailureFor = (
+  message: string,
+  state: Pick<GlobalState, "runId" | "diagnosticMode" | "eventMode">,
+): ParseFailure => ({
+  message,
+  ...(state.runId === undefined ? {} : { runId: state.runId }),
+  ...(state.diagnosticMode === undefined ? {} : { diagnosticMode: state.diagnosticMode }),
+  ...(state.eventMode === undefined ? {} : { eventMode: state.eventMode }),
+})
 
 const descriptorForCommand = (command: MaintenanceCommand["command"]): CommandDescriptor => {
   const descriptor = commandVocabulary.find((candidate) => candidate.command === command)
@@ -69,17 +86,21 @@ const consumeRunId = (
 ): number | ParseFailure => {
   const candidate = argv[index + 1]
   if (candidate === undefined || candidate.startsWith("--") || !runIdPattern.test(candidate)) {
-    return { message: "Invalid run ID." }
+    return parseFailureFor("Invalid run ID.", state)
   }
   state.runId = candidate
   return 1
 }
 
-const consumeEventMode = (argv: readonly string[], index: number): number | ParseFailure => {
+const consumeEventMode = (
+  argv: readonly string[],
+  index: number,
+  state: GlobalState,
+): number | ParseFailure => {
   const mode = argv[index + 1]
-  return mode === "auto" || mode === "off"
-    ? 1
-    : { message: "Invalid event mode." }
+  if (mode !== "auto" && mode !== "off") return parseFailureFor("Invalid event mode.", state)
+  state.eventMode = mode
+  return 1
 }
 
 const consumeDiagnosticMode = (mode: DiagnosticMode) => (
@@ -87,9 +108,7 @@ const consumeDiagnosticMode = (mode: DiagnosticMode) => (
   _index: number,
   state: GlobalState,
 ): number | ParseFailure => {
-  if (state.diagnosticMode !== undefined) {
-    return { message: "Diagnostic modes are mutually exclusive." }
-  }
+  if (state.diagnosticMode !== undefined) return parseFailureFor("Diagnostic modes are mutually exclusive.", state)
   state.diagnosticMode = mode
   return 0
 }
@@ -113,9 +132,9 @@ const consumeGlobalOption = (
   index: number,
   state: GlobalState,
 ): number | ParseFailure => {
-  if (state.seen.has(token)) return { message: "Duplicate command option." }
+  if (state.seen.has(token)) return parseFailureFor("Duplicate command option.", state)
   const handler = globalOptionHandlers[token]
-  if (handler === undefined) return { message: "Unknown command option." }
+  if (handler === undefined) return parseFailureFor("Unknown command option.", state)
   state.seen.add(token)
   return handler(argv, index, state)
 }
@@ -153,6 +172,7 @@ const parseGlobals = (argv: readonly string[]): ParsedGlobals | ParseFailure => 
     globals: {
       runId: undefined,
       diagnosticMode: undefined,
+      eventMode: undefined,
       seen: new Set<string>(),
     },
   }
@@ -161,11 +181,17 @@ const parseGlobals = (argv: readonly string[]): ParsedGlobals | ParseFailure => 
     const token = argv[index]
     if (token === undefined) return { message: "Invalid command grammar." }
     const consumed = consumeArgument(token, argv, index, state)
-    if (typeof consumed !== "number") return parseFailureFor(consumed.message, state.globals.runId)
+    if (typeof consumed !== "number") return parseFailureFor(consumed.message, state.globals)
     index += consumed
   }
 
-  return { runId: state.globals.runId, route: state.route, group: state.group }
+  return {
+    runId: state.globals.runId,
+    diagnosticMode: state.globals.diagnosticMode,
+    eventMode: state.globals.eventMode,
+    route: state.route,
+    group: state.group,
+  }
 }
 
 const helpAlias = (route: readonly string[]): boolean =>
@@ -180,14 +206,24 @@ const routeFor = (parsed: ParsedGlobals): readonly string[] => {
 const parseCommand = (
   argv: readonly string[],
   stdin: string,
-): { command: MaintenanceCommand; runId: string | undefined } | ParseFailure => {
+): {
+  command: MaintenanceCommand
+  runId: string | undefined
+  diagnosticMode: DiagnosticMode | undefined
+  eventMode: EventMode | undefined
+} | ParseFailure => {
   const parsed = parseGlobals(argv)
   if ("message" in parsed) return parsed
   const route = routeFor(parsed)
   if (!helpAlias(route) || stdin !== "") {
-    return parseFailureFor("Unknown maintenance command.", parsed.runId)
+    return parseFailureFor("Unknown maintenance command.", parsed)
   }
-  return { command: { command: "help" }, runId: parsed.runId }
+  return {
+    command: { command: "help" },
+    runId: parsed.runId,
+    diagnosticMode: parsed.diagnosticMode,
+    eventMode: parsed.eventMode,
+  }
 }
 
 const successEnvelope = (
@@ -254,6 +290,128 @@ const observationForOutcome = (
   }
 }
 
+type DiagnosticNextAction = NonNullable<DiagnosticRecord["next_action"]>
+
+type OutcomeValueMetadata = {
+  transactionState: NonNullable<DiagnosticRecord["transaction_state"]>
+  retrySafety: NonNullable<DiagnosticRecord["retry_safety"]>
+  nextAction: DiagnosticNextAction
+}
+
+const outcomeValueMetadata = (outcome: MaintenanceOutcome<unknown>): OutcomeValueMetadata => {
+  if (outcome.status === "error") {
+    return {
+      transactionState: outcome.error.transactionState,
+      retrySafety: outcome.error.retrySafety,
+      nextAction: outcome.error.nextAction,
+    }
+  }
+  const value = outcome.value as {
+    transactionState: OutcomeValueMetadata["transactionState"]
+    retrySafety: OutcomeValueMetadata["retrySafety"]
+    nextAction: DiagnosticNextAction
+  }
+  return {
+    transactionState: value.transactionState,
+    retrySafety: value.retrySafety,
+    nextAction: value.nextAction,
+  }
+}
+
+const diagnosticWithoutSequenceFor = (
+  runId: string,
+  event: string,
+  level: DiagnosticRecord["level"],
+  outcome: Extract<MaintenanceOutcome<unknown>, { status: "error" }>,
+  command?: MaintenanceCommand["command"],
+): Omit<DiagnosticRecord, "sequence"> => ({
+  schema_version: 1,
+  record_type: "diagnostic",
+  timestamp: new Date().toISOString(),
+  level,
+  category: ["agent-plugin-kit", "maintenance"],
+  event,
+  run_id: runId,
+  ...(command === undefined ? {} : { command }),
+  station_id: outcome.stationId,
+  failure_class: outcome.error.failureClass,
+  result_code: outcome.resultCode,
+  transaction_state: outcome.error.transactionState,
+  retry_safety: outcome.error.retrySafety,
+  next_action: outcome.error.nextAction,
+  message: `Maintenance command failed with result code "${outcome.resultCode}".`,
+})
+
+const eventFailureNextAction: DiagnosticNextAction = {
+  id: "events.inspect-configuration",
+  action: "repair_state",
+  summary: "Inspect the configured event transport; do not repeat the command solely to replay its event.",
+  commandId: null,
+}
+
+const eventFailureDiagnosticFor = (
+  runId: string,
+  outcome: MaintenanceOutcome<unknown>,
+  command: MaintenanceCommand["command"],
+): Omit<DiagnosticRecord, "sequence"> => {
+  const metadata = outcomeValueMetadata(outcome)
+  return {
+    schema_version: 1,
+    record_type: "diagnostic",
+    timestamp: new Date().toISOString(),
+    level: "error",
+    category: ["agent-plugin-kit", "maintenance"],
+    event: "event.delivery-failed",
+    run_id: runId,
+    command,
+    station_id: outcome.stationId,
+    failure_class: "event_delivery",
+    result_code: outcome.resultCode,
+    transaction_state: metadata.transactionState,
+    retry_safety: metadata.retrySafety,
+    next_action: eventFailureNextAction,
+    message: eventFailureNextAction.summary,
+  }
+}
+
+const eventOutcomeFor = (outcome: MaintenanceOutcome<unknown>): EventRecord["outcome"] => {
+  if (outcome.status === "ok") return outcome.resultCode === "previewed" ? "previewed" : "completed"
+  return outcome.error.failureClass === "usage" || outcome.error.failureClass === "refusal" ? "refused" : "failed"
+}
+
+const eventRecordFor = (
+  runId: string,
+  sequence: number,
+  command: MaintenanceCommand,
+  outcome: MaintenanceOutcome<unknown>,
+  secrets: readonly string[],
+): EventRecord | undefined => {
+  const metadata = outcomeValueMetadata(outcome)
+  const candidate: Record<string, unknown> = {
+    schema_version: 1,
+    // The event ID is an opaque value to consumers. This stable owner-local
+    // value is retained for the accepted correlation fixture.
+    event_id: `${runId}.${sequence + 1}`,
+    occurred_at: new Date().toISOString(),
+    sequence,
+    run_id: runId,
+    command: command.command,
+    station_id: outcome.stationId,
+    outcome: eventOutcomeFor(outcome),
+    result_code: outcome.resultCode,
+    transaction_state: metadata.transactionState,
+    retry_safety: metadata.retrySafety,
+    next_action_id: metadata.nextAction.id,
+  }
+  if (outcome.status === "error") candidate.failure_class = outcome.error.failureClass
+  return sanitizeEventRecord(candidate, secrets)
+}
+
+const secretValuesFor = (environment: Readonly<Record<string, string | undefined>>): readonly string[] => {
+  const auth = environment.AGENT_PLUGIN_KIT_EVENT_AUTH
+  return auth === undefined || auth === "" ? [] : [auth]
+}
+
 const isMaintenanceApplyRequest = (
   command: MaintenanceCommand,
 ): command is MaintenanceApplyRequest =>
@@ -272,14 +430,76 @@ export const createMaintenanceCommandFacade: MaintenanceCommandFacadeFactory = (
 ): MaintenanceCommandFacade => ({
   async invoke(invocation): Promise<ProcessObservation> {
     const parsed = parseCommand(invocation.argv, invocation.stdin)
-    if ("message" in parsed) return observationForUsage(parsed.runId ?? generatedRunId(), parsed.message)
     const runId = parsed.runId ?? generatedRunId()
+    const diagnostics = assembly.diagnostics === undefined
+      ? undefined
+      : createDiagnosticPipeline({
+          mode: parsed.diagnosticMode ?? "default",
+          maximumBufferedRecords: 250,
+          diagnostics: assembly.diagnostics,
+          secretValues: secretValuesFor(invocation.environment),
+        })
+    let sequence = 0
+    const nextSequence = (): number => {
+      sequence += 1
+      return sequence
+    }
+    const recordDiagnostic = (record: Omit<DiagnosticRecord, "sequence">): void => {
+      diagnostics?.record({ ...record, sequence: nextSequence() })
+    }
+    const acceptEvent = (
+      command: MaintenanceCommand,
+      outcome: MaintenanceOutcome<unknown>,
+    ): void => {
+      if (assembly.events === undefined || parsed.eventMode !== "auto") return
+      const eventSequence = nextSequence()
+      const event = eventRecordFor(
+        runId,
+        eventSequence,
+        command,
+        outcome,
+        secretValuesFor(invocation.environment),
+      )
+      if (event === undefined) return
+      let acceptance: EventAcceptance | undefined
+      try {
+        acceptance = assembly.events.accept(event)
+      } catch {
+        acceptance = undefined
+      }
+      if (acceptance?.status !== "accepted") {
+        recordDiagnostic(eventFailureDiagnosticFor(runId, outcome, command.command))
+      }
+    }
 
     try {
+      if ("message" in parsed) {
+        const usage = maintenanceUsageRefusalOutcome()
+        recordDiagnostic(diagnosticWithoutSequenceFor(
+          runId,
+          "maintenance.usage-refused",
+          "error",
+          usage,
+        ))
+        return observationForUsage(runId, parsed.message)
+      }
       const outcome = await dispatchFor(assembly.commands, parsed.command)
-      return observationForOutcome(runId, parsed.command, outcome)
+      if (outcome.status === "error") {
+        recordDiagnostic(diagnosticWithoutSequenceFor(
+          runId,
+          outcome.stationId,
+          outcome.error.severity === "fatal" ? "fatal" : outcome.error.severity === "warning" ? "warning" : "error",
+          outcome,
+          parsed.command.command,
+        ))
+      }
+      const observation = observationForOutcome(runId, parsed.command, outcome)
+      acceptEvent(parsed.command, outcome)
+      return observation
     } catch {
       return emergencyContainment()
+    } finally {
+      diagnostics?.dispose()
     }
   },
 
