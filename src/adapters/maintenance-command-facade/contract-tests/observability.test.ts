@@ -447,6 +447,8 @@ test("redaction validates and freezes both seams before crossing", async () => {
   const emptyUsernameAuthUrl = "https://:fixture-empty-username-password@fixture-empty-username.example"
   const emptyPasswordAuthUrl = "https://fixture-empty-password-username:@fixture-empty-password.example"
   const slashBearingAuthUrl = "https://fixtureUser:fixture/fixtureTail@fixture.example"
+  const usernameOnlyAuthUrl = "https://fixtureToken@example.test/path"
+  const percentEncodedUserinfoAuthUrl = "https://fixture%54oken%2Dsecret@example.test/path"
   const ftpAuthUrl = "ftp://fixtureUser:fixturePassword@fixture.example"
   const postgresAuthUrl = "postgres://fixtureUser:fixturePassword@fixture.example"
   const escapedQuoteAssignment = 'token="fixture\\" tail" more'
@@ -476,6 +478,8 @@ test("redaction validates and freezes both seams before crossing", async () => {
       `x_${emptyPasswordAuthUrl}`,
       `x_${underscoreAuthUrl}`,
       slashBearingAuthUrl,
+      usernameOnlyAuthUrl,
+      percentEncodedUserinfoAuthUrl,
       ftpAuthUrl,
       postgresAuthUrl,
       "https://fixture.example:8080",
@@ -534,6 +538,8 @@ test("redaction validates and freezes both seams before crossing", async () => {
     emptyUsernameAuthUrl,
     emptyPasswordAuthUrl,
     slashBearingAuthUrl,
+    usernameOnlyAuthUrl,
+    percentEncodedUserinfoAuthUrl,
     ftpAuthUrl,
     postgresAuthUrl,
     escapedQuoteAssignment,
@@ -559,7 +565,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
       order: redactionTrace,
     },
-    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | token=[REDACTED]", incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
+    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | token=[REDACTED]", incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
     "redaction must precede both seams without changing the fixed primary result",
   )
 })

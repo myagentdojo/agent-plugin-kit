@@ -118,11 +118,11 @@ const secretAssignmentPattern = new RegExp(
   "gi",
 )
 const authUrlPattern = new RegExp(
-  `(^|[^A-Za-z0-9])(?=${uriSchemePattern}:\\/\\/[^\\s@]{0,${maximumCredentialMatchLength}}@)${uriSchemePattern}:\\/\\/[^\\s@]{0,${maximumCredentialMatchLength}}:[^\\s@]{0,${maximumCredentialMatchLength}}@[^\\s]+`,
+  `(^|[^A-Za-z0-9])(?=${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@)${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@[^\\s]+`,
   "gi",
 )
 const authUrlDetectPattern = new RegExp(
-  `(?:^|[^A-Za-z0-9])${uriSchemePattern}:\\/\\/[^\\s:@]*:[^\\s@]*@`,
+  `(?:^|[^A-Za-z0-9])${uriSchemePattern}:\\/\\/[^\\s@]+@`,
   "i",
 )
 const incompleteAuthUrlDetectPattern = new RegExp(
