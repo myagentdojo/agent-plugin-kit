@@ -18,7 +18,19 @@ import type {
   TransactionState,
 } from "./interface"
 import { commandVocabulary } from "./command-vocabulary"
-import { resultVocabulary } from "./result-vocabulary"
+import {
+  actionVocabulary,
+  effectClassVocabulary,
+  errorFamilyVocabulary,
+  errorSeverityVocabulary,
+  failureClassPolicy,
+  failureClassVocabulary,
+  recoverabilityVocabulary,
+  resultVocabulary,
+  retrySafetyForEffectClass,
+  retrySafetyVocabulary,
+  transactionStateVocabulary,
+} from "./result-vocabulary"
 
 export type MaintenancePreviewOutcome = MaintenanceOutcome<CommandPreview>
 export type MaintenanceResultOutcome = MaintenanceOutcome<CommandResult>
@@ -43,34 +55,22 @@ const commandIdSchema = z.enum(commandIds)
 const applyCommandIdSchema = z.enum(applyCommandIds)
 const resultCodeSchema = z.enum(resultCodes)
 const stationIdSchema = z.templateLiteral([z.string().min(1), ".", resultCodeSchema])
-const effectClassSchema = z.enum(["inspect", "repository-local", "external"])
-const transactionStateSchema = z.enum([
-  "unchanged",
-  "completed",
-  "partially-completed",
-  "unknown",
-])
-const retrySafetySchema = z.enum(["safe", "unsafe", "requires-fresh-inspection"])
-const maintenanceActionSchema = z.enum([
-  "change_input",
-  "contact_support",
-  "inspect_state",
-  "open_docs",
-  "repair_state",
-  "retry",
-  "run_command",
-  "select_command",
-  "wait",
-])
-const failureClassSchema = z.enum([
-  "usage",
-  "refusal",
-  "transient",
-  "continuation",
-  "recovery",
-  "unexpected",
-  "event_delivery",
-])
+const effectClassSchema = z.enum(effectClassVocabulary)
+const transactionStateSchema = z.enum(transactionStateVocabulary)
+const retrySafetySchema = z.enum(retrySafetyVocabulary)
+const maintenanceActionSchema = z.enum(actionVocabulary)
+const failureClassSchema = z.enum(failureClassVocabulary)
+const errorFamilySchema = z.enum(errorFamilyVocabulary)
+const recoverabilitySchema = z.enum(recoverabilityVocabulary)
+const errorSeveritySchema = z.enum(errorSeverityVocabulary)
+type NonContinuationFailureClass = Exclude<MaintenanceError["failureClass"], "continuation">
+const nonContinuationFailureClassValues = failureClassVocabulary.filter(
+  (failureClass): failureClass is NonContinuationFailureClass =>
+    Object.hasOwn(failureClassPolicy, failureClass) && failureClass !== "continuation",
+) as [NonContinuationFailureClass, ...NonContinuationFailureClass[]]
+const nonContinuationFailureClassSchema = z.enum(nonContinuationFailureClassValues)
+const continuationFailureClass = failureClassVocabulary.find((failureClass) => failureClass === "continuation")
+if (continuationFailureClass === undefined) throw new Error("missing continuation Failure Class vocabulary value")
 
 const jsonPrimitiveSchema = z.union([z.null(), z.boolean(), z.number().finite(), z.string()])
 const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
@@ -97,7 +97,7 @@ const maintenanceErrorSchema = z.discriminatedUnion("failureClass", [
   z.strictObject({
     ...maintenanceErrorCommonShape,
     exitCodeHint: z.literal(20),
-    failureClass: z.literal("continuation"),
+    failureClass: z.literal(continuationFailureClass),
     errorFamily: z.literal("state_conflict"),
     severity: z.literal("error"),
     action: z.literal("inspect_state"),
@@ -118,27 +118,12 @@ const maintenanceErrorSchema = z.discriminatedUnion("failureClass", [
       z.literal(22),
       z.literal(23),
     ]),
-    failureClass: failureClassSchema.exclude(["event_delivery", "continuation"]),
-    errorFamily: z.enum([
-      "input",
-      "state_conflict",
-      "authentication",
-      "authorization_scope",
-      "network",
-      "transient",
-      "runtime",
-    ]),
-    severity: z.enum(["warning", "error", "fatal"]),
+    failureClass: nonContinuationFailureClassSchema,
+    errorFamily: errorFamilySchema,
+    severity: errorSeveritySchema,
     action: maintenanceActionSchema,
     retryable: z.boolean(),
-    recoverability: z.enum([
-      "none",
-      "retry",
-      "change_input",
-      "authenticate",
-      "repair_state",
-      "contact_support",
-    ]),
+    recoverability: recoverabilitySchema,
     retrySafety: retrySafetySchema,
     transactionState: transactionStateSchema,
   }),
@@ -167,6 +152,175 @@ const commandResultSchema = z.strictObject({
   agent: agentPayloadSchema,
   stderr: z.string(),
 })
+const serializedValidationLookups = {
+  commands: Object.fromEntries(
+    commandVocabulary.map((descriptor) => [descriptor.command, descriptor]),
+  ) as Record<MaintenanceCommand["command"], (typeof commandVocabulary)[number]>,
+  commandsBySlug: new Map(
+    commandVocabulary.map((descriptor) => [descriptor.command.replaceAll(":", "-"), descriptor] as const),
+  ),
+  results: Object.fromEntries(
+    resultVocabulary.map((descriptor) => [descriptor.resultCode, descriptor]),
+  ) as Record<ResultCode, (typeof resultVocabulary)[number]>,
+  failureClassPolicy,
+} as const
+
+type OutcomeValidationInput =
+  | {
+      status: "ok"
+      resultCode: ResultCode
+      stationId: StationId
+      value: CommandPreview | CommandResult
+    }
+  | {
+      status: "error"
+      resultCode: ResultCode
+      stationId: StationId
+      error: MaintenanceError
+    }
+
+type OutcomeSchemaKind = "preview" | "result" | "error"
+
+const addOutcomeIssue = (ctx: z.RefinementCtx, path: PropertyKey[]) => {
+  ctx.addIssue({ code: "custom", message: "invalid serialized outcome", path })
+}
+
+type SerializedCommandDescriptor = (typeof commandVocabulary)[number]
+type SerializedResultDescriptor = (typeof resultVocabulary)[number]
+
+type OutcomeValidationContext = {
+  stationSlug: string
+  commandDescriptor: SerializedCommandDescriptor | undefined
+  resultDescriptor: SerializedResultDescriptor
+}
+
+const outcomeValidationContextFor = (outcome: OutcomeValidationInput): OutcomeValidationContext => {
+  const resultDescriptor = serializedValidationLookups.results[outcome.resultCode]
+  const stationSeparator = outcome.stationId.lastIndexOf(".")
+  const stationSlug = outcome.stationId.slice(0, stationSeparator)
+  const commandDescriptor = serializedValidationLookups.commandsBySlug.get(stationSlug)
+  return { stationSlug, commandDescriptor, resultDescriptor }
+}
+
+const refineOutcomeStationAndStatus = (
+  outcome: OutcomeValidationInput,
+  context: OutcomeValidationContext,
+  ctx: z.RefinementCtx,
+) => {
+  const stationResultCode = outcome.stationId.slice(outcome.stationId.lastIndexOf(".") + 1)
+
+  if (stationResultCode !== outcome.resultCode) {
+    addOutcomeIssue(ctx, ["stationId"])
+  }
+  if (context.stationSlug !== "maintenance" && context.commandDescriptor === undefined) {
+    addOutcomeIssue(ctx, ["stationId"])
+  }
+
+  if (outcome.status === "ok") {
+    if (context.resultDescriptor.exitClass !== 0 || context.resultDescriptor.failureClass !== null) {
+      addOutcomeIssue(ctx, ["status", "resultCode"])
+    }
+  } else if (context.resultDescriptor.exitClass === 0 || context.resultDescriptor.failureClass === null) {
+    addOutcomeIssue(ctx, ["status", "resultCode"])
+  }
+}
+
+const refineErrorOutcome = (
+  outcome: Extract<OutcomeValidationInput, { status: "error" }>,
+  context: OutcomeValidationContext,
+  ctx: z.RefinementCtx,
+) => {
+  const { resultDescriptor, commandDescriptor, stationSlug } = context
+  if (resultDescriptor.failureClass === null) return
+  const failurePolicy = serializedValidationLookups.failureClassPolicy[resultDescriptor.failureClass]
+
+  const errorChecks: readonly [boolean, PropertyKey[]][] = [
+    [outcome.error.exitCodeHint === resultDescriptor.exitClass, ["error", "exitCodeHint"]],
+    [outcome.error.failureClass === resultDescriptor.failureClass, ["error", "failureClass"]],
+    [outcome.error.severity === (resultDescriptor.severity === "info" ? "error" : resultDescriptor.severity), ["error", "severity"]],
+    [outcome.error.retrySafety === resultDescriptor.retrySafety, ["error", "retrySafety"]],
+    [outcome.error.transactionState === resultDescriptor.transactionState, ["error", "transactionState"]],
+    [outcome.error.errorFamily === failurePolicy.errorFamily, ["error", "errorFamily"]],
+    [outcome.error.recoverability === failurePolicy.recoverability, ["error", "recoverability"]],
+    [outcome.error.retryable === (resultDescriptor.retrySafety === "safe" && resultDescriptor.exitFamilyId === "transient-retry"), ["error", "retryable"]],
+    [outcome.error.action === resultDescriptor.nextAction.action, ["error", "action"]],
+    [outcome.error.action === outcome.error.nextAction.action, ["error", "nextAction", "action"]],
+    [outcome.error.nextAction.id === resultDescriptor.nextAction.id, ["error", "nextAction", "id"]],
+    [
+      resultDescriptor.failureClass !== "continuation" ||
+        (commandDescriptor !== undefined && commandDescriptor.interfaceCall === "apply"),
+      ["stationId"],
+    ],
+  ]
+  for (const [isValid, path] of errorChecks) {
+    if (!isValid) addOutcomeIssue(ctx, path)
+  }
+}
+
+const refinePreviewOutcome = (
+  outcome: Extract<OutcomeValidationInput, { status: "ok" }>,
+  context: OutcomeValidationContext,
+  ctx: z.RefinementCtx,
+) => {
+  const preview = outcome.value as CommandPreview
+  const valueCommandDescriptor = serializedValidationLookups.commands[preview.command]
+  const expectedCommandSlug = outcome.value.command.replaceAll(":", "-")
+  if (context.stationSlug !== expectedCommandSlug) addOutcomeIssue(ctx, ["stationId"])
+  if (preview.effectClass !== valueCommandDescriptor.effectClass) {
+    addOutcomeIssue(ctx, ["value", "effectClass"])
+  }
+  if (preview.retrySafety !== retrySafetyForEffectClass(valueCommandDescriptor.effectClass)) {
+    addOutcomeIssue(ctx, ["value", "retrySafety"])
+  }
+  if (preview.transactionState !== "unchanged") {
+    addOutcomeIssue(ctx, ["value", "transactionState"])
+  }
+  if (preview.transactionState !== context.resultDescriptor.transactionState) {
+    addOutcomeIssue(ctx, ["value", "transactionState"])
+  }
+}
+
+const refineResultOutcome = (
+  outcome: Extract<OutcomeValidationInput, { status: "ok" }>,
+  context: OutcomeValidationContext,
+  ctx: z.RefinementCtx,
+) => {
+  const result = outcome.value as CommandResult
+  const valueCommandDescriptor = serializedValidationLookups.commands[result.command]
+  const expectedCommandSlug = result.command.replaceAll(":", "-")
+  if (context.stationSlug !== expectedCommandSlug) addOutcomeIssue(ctx, ["stationId"])
+  if (result.retrySafety !== retrySafetyForEffectClass(valueCommandDescriptor.effectClass)) {
+    addOutcomeIssue(ctx, ["value", "retrySafety"])
+  }
+  if (result.transactionState !== context.resultDescriptor.transactionState) {
+    addOutcomeIssue(ctx, ["value", "transactionState"])
+  }
+  if (result.remainingEffectIds.length !== 0) {
+    addOutcomeIssue(ctx, ["value", "remainingEffectIds"])
+  }
+  if (result.transactionState === "unchanged" && result.completedEffectIds.length !== 0) {
+    addOutcomeIssue(ctx, ["value", "completedEffectIds"])
+  }
+}
+
+const refineOutcome = (
+  kind: OutcomeSchemaKind,
+  outcome: OutcomeValidationInput,
+  ctx: z.RefinementCtx,
+) => {
+  const context = outcomeValidationContextFor(outcome)
+  refineOutcomeStationAndStatus(outcome, context, ctx)
+  if (outcome.status === "error") {
+    refineErrorOutcome(outcome, context, ctx)
+    return
+  }
+  if (kind === "preview") {
+    refinePreviewOutcome(outcome, context, ctx)
+    return
+  }
+  refineResultOutcome(outcome, context, ctx)
+}
+
 const previewOutcomeSchema = z.discriminatedUnion("status", [
   z.strictObject({
     status: z.literal("ok"),
@@ -180,7 +334,7 @@ const previewOutcomeSchema = z.discriminatedUnion("status", [
     stationId: stationIdSchema,
     error: maintenanceErrorSchema,
   }),
-])
+]).superRefine((outcome, ctx) => refineOutcome("preview", outcome, ctx))
 const resultOutcomeSchema = z.discriminatedUnion("status", [
   z.strictObject({
     status: z.literal("ok"),
@@ -194,13 +348,13 @@ const resultOutcomeSchema = z.discriminatedUnion("status", [
     stationId: stationIdSchema,
     error: maintenanceErrorSchema,
   }),
-])
+]).superRefine((outcome, ctx) => refineOutcome("result", outcome, ctx))
 const errorOutcomeSchema = z.strictObject({
   status: z.literal("error"),
   resultCode: resultCodeSchema,
   stationId: stationIdSchema,
   error: maintenanceErrorSchema,
-})
+}).superRefine((outcome, ctx) => refineOutcome("error", outcome, ctx))
 
 function isPlainJsonArray(value: unknown[], seen: Set<object>): boolean {
   if (Object.getPrototypeOf(value) !== Array.prototype) return false

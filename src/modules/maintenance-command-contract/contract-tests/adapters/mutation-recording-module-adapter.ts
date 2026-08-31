@@ -33,14 +33,16 @@ import {
 } from "../../implementation/maintenance-commands"
 
 export type MaintenanceContractHarness = {
-  readonly commands: MaintenanceCommands | undefined
+  readonly commands: MaintenanceCommands
   readonly applyLedgers: Readonly<Record<string, MaintenanceApplyRequest[]>>
   readonly runtimeSpawnLedger: RuntimeSpawnRecord[]
+  readonly ownerInspectionLedger: readonly unknown[]
   durableDigest(): string
-  inspect(command: MaintenanceCommand): Promise<MaintenanceOutcome<CommandPreview> | undefined>
-  apply(request: MaintenanceApplyRequest): Promise<MaintenanceOutcome<CommandResult> | undefined>
+  inspect(command: MaintenanceCommand): Promise<MaintenanceOutcome<CommandPreview>>
+  apply(request: MaintenanceApplyRequest): Promise<MaintenanceOutcome<CommandResult>>
 }
 
+// fallow-ignore-next-line unused-type -- exported test collaborator contract is intentionally used by the harness annotation
 export type MaintenanceTestCollaborators = {
   recordApply(owner: string, request: MaintenanceApplyRequest): void
   invokeRuntime(argv: readonly string[]): RuntimeCustodyResult
@@ -80,7 +82,6 @@ export function runtimeControl(
 }
 
 export function createMaintenanceContractHarness(
-  assemble?: (collaborators: MaintenanceTestCollaborators) => MaintenanceCommands,
   options: {
     runtimeResults?: readonly RuntimeCustodyResult[]
     releaseResult?: ReleaseResult
@@ -94,6 +95,7 @@ export function createMaintenanceContractHarness(
     canary: [],
   }
   const runtimeSpawnLedger: RuntimeSpawnRecord[] = []
+  const ownerInspectionLedger: unknown[] = []
   const runtimeResults = [...(options.runtimeResults ?? [
     runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
     runtimeControl("REPAIR_APPLIED", {
@@ -145,6 +147,7 @@ export function createMaintenanceContractHarness(
 
   const release: ReleaseAndGitEngine = {
     async inspect(request) {
+      ownerInspectionLedger.push(request)
       return { candidate: request.candidate, expectedEffectIds: ["effect:release"], approvalDigest: "sha256:fixture" }
     },
     async apply(request, approval) {
@@ -160,6 +163,7 @@ export function createMaintenanceContractHarness(
   function inspectHarness(request: ClaudeRequest): Promise<ClaudeInspection>
   function inspectHarness(request: CodexRequest): Promise<CodexInspection>
   async function inspectHarness(request: ClaudeRequest | CodexRequest): Promise<ClaudeInspection | CodexInspection> {
+    ownerInspectionLedger.push(request)
     return "checkoutIdentity" in request
       ? { candidate: request.identity, profileIdentity: request.profileIdentity, expectedEffectIds: ["effect:codex"], checkoutIdentity: request.checkoutIdentity }
       : { candidate: request.identity, profileIdentity: request.profileIdentity, expectedEffectIds: ["effect:claude"] }
@@ -188,6 +192,7 @@ export function createMaintenanceContractHarness(
 
   const canary: CanaryQualification = {
     async inspect(candidate) {
+      ownerInspectionLedger.push(candidate)
       return { candidate: candidate.identity, target: "fixture", immutableReference: "fixture" }
     },
     async qualify(candidate, _authority) {
@@ -197,18 +202,19 @@ export function createMaintenanceContractHarness(
   }
 
   const assembled: MaintenanceCommandDependencies = { payload, runtime, release, harness, canary }
-  const commands = assemble?.(testCollaborators) ?? createMaintenanceCommands(assembled)
+  const commands = createMaintenanceCommands(assembled)
 
   return {
     commands,
     applyLedgers,
     runtimeSpawnLedger,
+    ownerInspectionLedger,
     durableDigest() {
       return createHash("sha256")
         .update(JSON.stringify(durableTargets))
         .digest("hex")
     },
-    inspect: async (command) => commands?.inspect(command),
-    apply: async (request) => commands?.apply(request),
+    inspect: async (command) => commands.inspect(command),
+    apply: async (request) => commands.apply(request),
   }
 }

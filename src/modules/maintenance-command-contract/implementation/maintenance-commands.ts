@@ -2,7 +2,6 @@ import type {
   AgentPayload,
   CommandPreview,
   CommandResult,
-  EffectClass,
   JsonValue,
   MaintenanceApplyRequest,
   MaintenanceCommand,
@@ -10,7 +9,6 @@ import type {
   MaintenanceError,
   MaintenanceOutcome,
   ResultCode,
-  RetrySafety,
   StationId,
 } from "../interface"
 import type {
@@ -53,6 +51,9 @@ import {
   maintenanceCommandContractId,
   resultSchemaVersion,
   resultVocabulary,
+  retrySafetyForEffectClass,
+  retrySafetyVocabulary,
+  transactionStateVocabulary,
 } from "../result-vocabulary"
 
 const globalOptions = [
@@ -69,6 +70,10 @@ export type RuntimeRepairCommand = Extract<
   readonly ["repair"] | readonly ["repair", "--apply"]
 >
 
+type StripProtectedAuthority<T> = T extends unknown ? Omit<T, "approval" | "authority"> : never
+// fallow-ignore-next-line private-type-leak -- the public inspection input intentionally hides its private distributive helper
+export type MaintenanceInspectionInput = StripProtectedAuthority<MaintenanceCommand>
+
 type RuntimeControlResult = Extract<RuntimeCustodyResult, { kind: "control" }>
 type RuntimeControl = RuntimeControlResult["control"]
 
@@ -83,19 +88,19 @@ export type MaintenanceCommandDependencies = {
 type PayloadRequest = Parameters<PluginPayloadProduction["produce"]>[0]
 type PayloadResult = PayloadProductionResult
 type ReleaseInspectionCommand = Extract<
-  MaintenanceCommand,
+  MaintenanceInspectionInput,
   { command: "release:inspect" | "release:apply" }
 >
 type ClaudeInspectionCommand = Extract<
-  MaintenanceCommand,
+  MaintenanceInspectionInput,
   { command: "harness:claude:inspect" | "harness:claude:apply" }
 >
 type CodexInspectionCommand = Extract<
-  MaintenanceCommand,
+  MaintenanceInspectionInput,
   { command: "harness:codex:inspect" | "harness:codex:apply" }
 >
 type CanaryInspectionCommand = Extract<
-  MaintenanceCommand,
+  MaintenanceInspectionInput,
   { command: "canary:inspect" | "canary:qualify" }
 >
 
@@ -120,6 +125,17 @@ const commandIdFor = (command: MaintenanceCommand["command"]) => {
   return descriptor
 }
 
+const inspectionInputFor = (command: MaintenanceCommand): MaintenanceInspectionInput => {
+  const protectedInput = commandIdFor(command.command).protectedInput
+  if (protectedInput === null) return command
+
+  // TypeScript cannot narrow a discriminated union through this correlated computed key.
+  const inspectionInput: MaintenanceCommand &
+    Partial<Record<"approval" | "authority", unknown>> = { ...command }
+  delete inspectionInput[protectedInput]
+  return inspectionInput as MaintenanceInspectionInput
+}
+
 const resultFor = (resultCode: ResultCode) => {
   const descriptor = resultVocabulary.find((candidate) => candidate.resultCode === resultCode)
   if (!descriptor) throw new Error(`missing Result Vocabulary row ${resultCode}`)
@@ -130,11 +146,6 @@ const stationFor = (command: MaintenanceCommand["command"] | "maintenance", resu
   const commandSlug = command === "maintenance" ? command : command.replaceAll(":", "-")
   return `${commandSlug}.${resultCode}` as StationId
 }
-
-const retrySafetyFor = (effectClass: EffectClass): RetrySafety =>
-  effectClass === "inspect" || effectClass === "repository-local"
-    ? "safe"
-    : "requires-fresh-inspection"
 
 type AgentKind =
   | "previewed"
@@ -313,8 +324,8 @@ const helpAgent = () => ({
     next_action_id: descriptor.nextAction.id,
   })),
   result_semantics: {
-    retry_safety: ["safe", "unsafe", "requires-fresh-inspection"],
-    transaction_state: ["unchanged", "completed", "partially-completed", "unknown"],
+    retry_safety: [...retrySafetyVocabulary],
+    transaction_state: [...transactionStateVocabulary],
     post_dispatch_refusals: [
       "command-refused",
       "retry-deferred",
@@ -392,7 +403,7 @@ const preview = (
       effectClass: descriptor.effectClass,
       expectedEffectIds: [...expectedEffectIds],
       transactionState: "unchanged",
-      retrySafety: retrySafetyFor(descriptor.effectClass),
+      retrySafety: retrySafetyForEffectClass(descriptor.effectClass),
       nextAction: descriptor.nextAction,
       human: "",
       agent,
@@ -436,7 +447,7 @@ const completedResult = (
       schemaVersion: resultSchemaVersion,
       command: request.command,
       transactionState: "completed",
-      retrySafety: retrySafetyFor(descriptor.effectClass),
+      retrySafety: retrySafetyForEffectClass(descriptor.effectClass),
       completedEffectIds: [...completedEffectIds],
       remainingEffectIds: [...remainingEffectIds],
       nextAction: descriptor.nextAction,
@@ -504,7 +515,9 @@ const continuationRequired = (
   })
 }
 
-const freshInspectionKey = (command: MaintenanceCommand): string | null => {
+const freshInspectionKey = (
+  command: MaintenanceInspectionInput | MaintenanceApplyRequest,
+): string | null => {
   switch (command.command) {
     case "release:inspect":
     case "release:apply":
@@ -668,26 +681,44 @@ const runtimeResultCodes: Record<RuntimeControl["code"], ResultCode> = {
   URL_REJECTED: "runtime-url-rejected",
 }
 
-const runtimeResultCode = (result: RuntimeCustodyResult): ResultCode =>
-  result.kind === "control"
-    ? runtimeResultCodes[result.control.code]
-    : "runtime-control-invalid"
+type RuntimeCallPosition = "inspection" | "apply"
 
-const runtimeErrorFor = (
-  command: "runtime:repair" | "runtime:repair-apply",
-  resultCode: ResultCode,
-): MaintenanceOutcome<never> => resultFor(resultCode).exitClass === 0
-  ? errorFor(command, "runtime-control-invalid")
-  : errorFor(command, resultCode)
+const runtimeOutcomeCode = (
+  position: RuntimeCallPosition,
+  result: RuntimeCustodyResult,
+): ResultCode => {
+  if (result.kind !== "control") return "runtime-control-invalid"
+
+  const mapped = runtimeResultCodes[result.control.code]
+  const resultDescriptor = resultFor(mapped)
+  const expectedOk = resultDescriptor.exitClass === 0
+  const isPublishedRuntimeOnly =
+    result.control.sideEffects.length === 1 && result.control.sideEffects[0] === "published-runtime"
+  const mappedApplied = mapped === "runtime-repair-applied"
+  const invalidPosition = position === "inspection"
+    ? mappedApplied
+    : mapped === "runtime-repair-preview" || mapped === "runtime-repair-unneeded"
+
+  const invalidOutcomeChecks = [
+    resultDescriptor.exitClass !== result.exitClass ||
+    result.control.ok !== expectedOk,
+    isPublishedRuntimeOnly !== mappedApplied,
+    invalidPosition,
+  ].some(Boolean)
+
+  if (invalidOutcomeChecks) {
+    return "runtime-control-invalid"
+  }
+  return mapped
+}
 
 const runtimePreview = (
   command: "runtime:repair" | "runtime:repair-apply",
   result: RuntimeCustodyResult,
 ): MaintenanceOutcome<CommandPreview> | MaintenanceOutcome<never> => {
-  if (result.kind !== "control") return errorFor(command, "runtime-control-invalid")
-  const resultCode = runtimeResultCode(result)
+  const resultCode = runtimeOutcomeCode("inspection", result)
   if (resultCode !== "runtime-repair-preview" && resultCode !== "runtime-repair-unneeded") {
-    return runtimeErrorFor(command, resultCode)
+    return errorFor(command, resultCode)
   }
   const commandDescriptor = commandIdFor(command)
   const resultDescriptor = resultFor(resultCode)
@@ -701,7 +732,7 @@ const runtimePreview = (
       effectClass: commandDescriptor.effectClass,
       expectedEffectIds: [],
       transactionState: resultDescriptor.transactionState,
-      retrySafety: retrySafetyFor(commandDescriptor.effectClass),
+      retrySafety: retrySafetyForEffectClass(commandDescriptor.effectClass),
       nextAction: resultDescriptor.nextAction,
       human: resultCode === "runtime-repair-preview"
         ? "Runtime Custody repair preview ready.\n"
@@ -714,13 +745,6 @@ const runtimePreview = (
 
 const isRepairableInspection = (result: RuntimeControlResult): boolean =>
   result.control.state?.before === "missing" || result.control.state?.before === "corrupt"
-
-const isAppliedRuntime = (result: RuntimeCustodyResult): result is RuntimeControlResult =>
-  result.kind === "control" &&
-  result.control.ok &&
-  result.exitClass === 0 &&
-  result.control.sideEffects.length === 1 &&
-  result.control.sideEffects[0] === "published-runtime"
 
 const runtimeCompletedResult = (
   request: Extract<MaintenanceApplyRequest, { command: "runtime:repair-apply" }>,
@@ -738,7 +762,7 @@ const runtimeCompletedResult = (
       schemaVersion: resultSchemaVersion,
       command: request.command,
       transactionState: resultDescriptor.transactionState,
-      retrySafety: retrySafetyFor(commandDescriptor.effectClass),
+      retrySafety: retrySafetyForEffectClass(commandDescriptor.effectClass),
       completedEffectIds: applied ? ["effect:runtime-repair"] : [],
       remainingEffectIds: [],
       nextAction: resultDescriptor.nextAction,
@@ -754,24 +778,24 @@ const applyRuntime = async (
   collaborators: MaintenanceCommandDependencies,
 ): Promise<MaintenanceOutcome<CommandResult>> => {
   const inspection = await collaborators.runtime(["repair"])
-  if (inspection.kind !== "control") {
-    return errorFor(request.command, "runtime-control-invalid")
-  }
-  const resultCode = runtimeResultCode(inspection)
+  const resultCode = runtimeOutcomeCode("inspection", inspection)
   if (resultCode === "runtime-repair-preview") {
-    if (!isRepairableInspection(inspection)) return errorFor(request.command, "runtime-control-invalid")
-    const applied = await collaborators.runtime(["repair", "--apply"])
-    const appliedResultCode = runtimeResultCode(applied)
-    if (appliedResultCode !== "runtime-repair-applied") {
-      return runtimeErrorFor(request.command, appliedResultCode)
+    if (inspection.kind !== "control" || !isRepairableInspection(inspection)) {
+      return errorFor(request.command, "runtime-control-invalid")
     }
-    if (!isAppliedRuntime(applied)) return errorFor(request.command, "runtime-control-invalid")
+    const applied = await collaborators.runtime(["repair", "--apply"])
+    const appliedResultCode = runtimeOutcomeCode("apply", applied)
+    if (appliedResultCode !== "runtime-repair-applied") {
+      return errorFor(request.command, appliedResultCode)
+    }
+    if (applied.kind !== "control") return errorFor(request.command, "runtime-control-invalid")
     return runtimeCompletedResult(request, "runtime-repair-applied", applied)
   }
   if (resultCode === "runtime-repair-unneeded") {
+    if (inspection.kind !== "control") return errorFor(request.command, "runtime-control-invalid")
     return runtimeCompletedResult(request, resultCode, inspection)
   }
-  return runtimeErrorFor(request.command, resultCode)
+  return errorFor(request.command, resultCode)
 }
 
 const applyRelease = async (
@@ -831,7 +855,7 @@ const applyCanary = async (
 }
 
 type InspectionHandler = (
-  command: MaintenanceCommand,
+  command: MaintenanceInspectionInput,
 ) => Promise<MaintenanceOutcome<CommandPreview>>
 
 type ApplyHandler = (
@@ -839,14 +863,14 @@ type ApplyHandler = (
 ) => Promise<MaintenanceOutcome<CommandResult>>
 
 const isCommand = <C extends MaintenanceCommand["command"]>(
-  command: MaintenanceCommand,
+  command: MaintenanceInspectionInput,
   expected: C,
-): command is Extract<MaintenanceCommand, { command: C }> => command.command === expected
+): command is Extract<MaintenanceInspectionInput, { command: C }> => command.command === expected
 
-const inspectionHandlerFor = <C extends MaintenanceCommand["command"]>(
+const inspectionHandlerFor = <C extends MaintenanceInspectionInput["command"]>(
   expected: C,
   handler: (
-    command: Extract<MaintenanceCommand, { command: C }>,
+    command: Extract<MaintenanceInspectionInput, { command: C }>,
   ) => Promise<MaintenanceOutcome<CommandPreview>>,
 ): InspectionHandler => async (command) => {
   if (!isCommand(command, expected)) throw new Error(`unexpected inspection command ${command.command}`)
@@ -891,11 +915,12 @@ export const createMaintenanceCommands = (
     "harness:codex:apply": inspectionHandlerFor("harness:codex:apply", (command) => inspectCodex(command, collaborators)),
     "canary:inspect": inspectionHandlerFor("canary:inspect", (command) => inspectCanary(command, collaborators)),
     "canary:qualify": inspectionHandlerFor("canary:qualify", (command) => inspectCanary(command, collaborators)),
-  } satisfies Record<MaintenanceCommand["command"], InspectionHandler>
+  } satisfies Record<MaintenanceInspectionInput["command"], InspectionHandler>
 
   const inspect = async (command: MaintenanceCommand): Promise<MaintenanceOutcome<CommandPreview>> => {
-    const outcome = await inspectHandlers[command.command](command)
-    const inspectionKey = freshInspectionKey(command)
+    const inspectionInput = inspectionInputFor(command)
+    const outcome = await inspectHandlers[command.command](inspectionInput)
+    const inspectionKey = freshInspectionKey(inspectionInput)
     if (outcome.status === "ok" && inspectionKey !== null) {
       inspected.set(inspectionKey, [...outcome.value.expectedEffectIds])
     }

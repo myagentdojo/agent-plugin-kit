@@ -11,6 +11,11 @@ import type {
   MaintenanceApplyRequest,
   MaintenanceCommand,
 } from "../interface"
+import type { MaintenanceInspectionInput } from "../implementation/maintenance-commands"
+
+type ReleaseApplyInspectionInput = Extract<MaintenanceInspectionInput, { command: "release:apply" }>
+type ProtectedInputIsStripped = "approval" extends keyof ReleaseApplyInspectionInput ? false : true
+const protectedInputIsStripped: ProtectedInputIsStripped = true
 
 const digest = (bytes: string) =>
   `sha256:${createHash("sha256").update(bytes).digest("hex")}`
@@ -71,7 +76,7 @@ async function assertApply(
     key === "materialize" || key === "package" ? "safe" : "requires-fresh-inspection"
   const inspection = canonicalInspectionFor(request)
   const preview = await harness.inspect(inspection)
-  expect(preview, `contract-absent: ${request.command} must classify before apply`).toMatchObject({
+  expect(preview, `implemented: ${request.command} classifies before apply`).toMatchObject({
     status: "ok",
     value: {
       command: inspection.command,
@@ -80,11 +85,11 @@ async function assertApply(
     },
   })
   const actual = await harness.apply(request)
-  expect(actual, `contract-absent: ${request.command} must preserve exact Retry Safety`).toMatchObject({
+  expect(actual, `implemented: ${request.command} preserves exact Retry Safety`).toMatchObject({
     status: "ok",
     value: { command: request.command, retrySafety },
   })
-  if (actual?.status === "ok") {
+  if (actual.status === "ok") {
     expect("resultCode" in actual.value).toBeFalse()
     expect("stationId" in actual.value).toBeFalse()
     expect("exitClass" in actual.value).toBeFalse()
@@ -125,7 +130,7 @@ test("runtime repair apply transports outside approval", () => assertApply("runt
 test("release apply transports only its fixed approval vector", async () => {
   await assertApply("release", "external")
   const request = mutatingRequests.release
-  const partial = createMaintenanceContractHarness(undefined, {
+  const partial = createMaintenanceContractHarness({
     releaseResult: {
       candidate: request.request.candidate,
       completedEffectIds: [],
@@ -176,6 +181,14 @@ test("inspection requests no capability and writes no durable target", async () 
   const harness = createMaintenanceContractHarness()
   const durableBefore = harness.durableDigest()
   const actual = await harness.inspect({ command: "release:inspect", request: { candidate: mutatingRequests.release.request.candidate, intent: "readiness" } })
+  const hostileAuthorityMarker = "hostile-canary-authority-marker"
+  await harness.inspect(mutatingRequests.release)
+  await harness.inspect(mutatingRequests.claude)
+  await harness.inspect(mutatingRequests.codex)
+  await harness.inspect({
+    ...mutatingRequests.canary,
+    authority: { hostileAuthorityMarker } as never,
+  })
 
   expect(harness.applyLedgers).toEqual({
     payload: [],
@@ -186,18 +199,31 @@ test("inspection requests no capability and writes no durable target", async () 
   })
   expect(harness.runtimeSpawnLedger).toEqual([])
   expect(harness.durableDigest()).toBe(durableBefore)
-  expect(actual, "contract-absent: inspection must return an immutable preview").toMatchObject({
+  expect(actual, "implemented: inspection returns an immutable preview").toMatchObject({
     status: "ok",
     resultCode: "previewed",
     stationId: "release-inspect.previewed",
     value: { effectClass: "inspect", transactionState: "unchanged" },
   })
+  expect(protectedInputIsStripped).toBeTrue()
+  const ownerInspectionJson = JSON.stringify(harness.ownerInspectionLedger)
+  expect(ownerInspectionJson).not.toContain(mutatingRequests.release.approval.digest)
+  expect(ownerInspectionJson).not.toContain(mutatingRequests.claude.approval.digest)
+  expect(ownerInspectionJson).not.toContain(mutatingRequests.codex.approval.digest)
+  expect(ownerInspectionJson).not.toContain(hostileAuthorityMarker)
+  expect(harness.ownerInspectionLedger.every((entry) =>
+    typeof entry === "object" &&
+    entry !== null &&
+    !Object.hasOwn(entry, "approval") &&
+    !Object.hasOwn(entry, "authority") &&
+    !Object.hasOwn(entry, "issuer"),
+  )).toBeTrue()
 })
 
 test("runtime repair apply refreshes preview immediately before exact apply argv", async () => {
   expect(Object.keys(mutatingRequests.runtime).sort()).toEqual(["argv", "command"])
   expect(mutatingRequests.runtime.argv).toEqual(["repair", "--apply"])
-  const exactPreview = createMaintenanceContractHarness(undefined, {
+  const exactPreview = createMaintenanceContractHarness({
     runtimeResults: [runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } })],
   })
   expect(await exactPreview.inspect({ command: "runtime:repair", argv: ["repair"] })).toMatchObject({
@@ -212,7 +238,7 @@ test("runtime repair apply refreshes preview immediately before exact apply argv
   })
 
   const hostileSecret = "runtime-private-diagnostic-token"
-  const hostileRuntime = createMaintenanceContractHarness(undefined, {
+  const hostileRuntime = createMaintenanceContractHarness({
     runtimeResults: [
       runtimeControl("REPAIR_PREVIEW", {
         state: { before: "missing" },
@@ -229,9 +255,9 @@ test("runtime repair apply refreshes preview immediately before exact apply argv
     ],
   })
   const hostilePreview = await hostileRuntime.inspect({ command: "runtime:repair", argv: ["repair"] })
-  expect(JSON.stringify(hostilePreview?.status === "ok" ? hostilePreview.value.agent : undefined)).not.toContain(hostileSecret)
+  expect(JSON.stringify(hostilePreview.status === "ok" ? hostilePreview.value.agent : undefined)).not.toContain(hostileSecret)
   const hostileApplied = await hostileRuntime.apply(mutatingRequests.runtime)
-  expect(JSON.stringify(hostileApplied?.status === "ok" ? hostileApplied.value.agent : undefined)).not.toContain(hostileSecret)
+  expect(JSON.stringify(hostileApplied.status === "ok" ? hostileApplied.value.agent : undefined)).not.toContain(hostileSecret)
 
   const scenarios = [
     {
@@ -259,6 +285,34 @@ test("runtime repair apply refreshes preview immediately before exact apply argv
       label: "typed refusal",
       results: [runtimeControl("USAGE", { ok: false, exitClass: 2 })],
       stationId: "runtime-repair-apply.runtime-usage-refused",
+    },
+    {
+      label: "inconsistent ok flag",
+      results: [runtimeControl("REPAIR_PREVIEW", { ok: false, state: { before: "missing" } })],
+      stationId: "runtime-repair-apply.runtime-control-invalid",
+    },
+    {
+      label: "inconsistent exit class",
+      results: [runtimeControl("REPAIR_PREVIEW", { ok: true, exitClass: 20, state: { before: "missing" } })],
+      stationId: "runtime-repair-apply.runtime-control-invalid",
+    },
+    {
+      label: "inspection claiming a published effect",
+      results: [runtimeControl("REPAIR_PREVIEW", { sideEffects: ["published-runtime"], state: { before: "missing" } })],
+      stationId: "runtime-repair-apply.runtime-control-invalid",
+    },
+    {
+      label: "typed refusal with a success ok flag",
+      results: [runtimeControl("USAGE", { ok: true, exitClass: 2 })],
+      stationId: "runtime-repair-apply.runtime-control-invalid",
+    },
+    {
+      label: "applied result without its published effect",
+      results: [
+        runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+        runtimeControl("REPAIR_APPLIED"),
+      ],
+      stationId: "runtime-repair-apply.runtime-control-invalid",
     },
     {
       label: "apply refusal",
@@ -296,16 +350,30 @@ test("runtime repair apply refreshes preview immediately before exact apply argv
     },
   ] as const
   for (const scenario of scenarios) {
-    const harness = createMaintenanceContractHarness(undefined, { runtimeResults: scenario.results })
+    const harness = createMaintenanceContractHarness({ runtimeResults: scenario.results })
     const actual = await harness.apply(mutatingRequests.runtime)
-    expect(actual, `contract-absent: ${scenario.label} must enforce the fresh Runtime apply precondition`).toMatchObject({ stationId: scenario.stationId })
+    expect(actual, `implemented: ${scenario.label} enforces the fresh Runtime apply precondition`).toMatchObject({ stationId: scenario.stationId })
     expect(harness.runtimeSpawnLedger.map(({ argv }) => argv)).toEqual(
       scenario.results.length === 2
         ? [["repair"], ["repair", "--apply"]]
         : [["repair"]],
     )
   }
-  const repeated = createMaintenanceContractHarness(undefined, {
+  const inspectionPositionResults = [
+    runtimeControl("REPAIR_PREVIEW", { ok: false, state: { before: "missing" } }),
+    runtimeControl("REPAIR_PREVIEW", { ok: true, exitClass: 20, state: { before: "missing" } }),
+    runtimeControl("REPAIR_PREVIEW", { sideEffects: ["published-runtime"], state: { before: "missing" } }),
+    runtimeControl("REPAIR_APPLIED", { sideEffects: ["published-runtime"] }),
+  ]
+  for (const result of inspectionPositionResults) {
+    const harness = createMaintenanceContractHarness({ runtimeResults: [result] })
+    expect(await harness.inspect({ command: "runtime:repair", argv: ["repair"] })).toMatchObject({
+      status: "error",
+      resultCode: "runtime-control-invalid",
+      stationId: "runtime-repair.runtime-control-invalid",
+    })
+  }
+  const repeated = createMaintenanceContractHarness({
     runtimeResults: [
       runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
       runtimeControl("REPAIR_APPLIED", { sideEffects: ["published-runtime"] }),

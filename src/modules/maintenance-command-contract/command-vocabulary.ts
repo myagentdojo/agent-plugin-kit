@@ -8,6 +8,7 @@ export type CommandDescriptor = {
   inputs: readonly string[]
   stdin: boolean
   effectClass: CommandPreview["effectClass"]
+  protectedInput: "approval" | "authority" | null
   previewRoute: readonly string[] | null
   example: readonly string[]
   nextAction: CommandPreview["nextAction"]
@@ -25,6 +26,7 @@ export const commandVocabulary = [
     inputs: [],
     stdin: false,
     effectClass: "inspect",
+    protectedInput: null,
     previewRoute: null,
     example: ["maintenance", "--run-id", runId, "help"],
     nextAction: {
@@ -41,6 +43,7 @@ export const commandVocabulary = [
     inputs: ["--request"],
     stdin: true,
     effectClass: "inspect",
+    protectedInput: null,
     previewRoute: null,
     example: ["maintenance", "--run-id", runId, "payload", "check", "--request", "<FILE>"],
     nextAction: {
@@ -57,6 +60,7 @@ export const commandVocabulary = [
     inputs: ["--request"],
     stdin: true,
     effectClass: "repository-local",
+    protectedInput: null,
     previewRoute: ["payload", "check"],
     example: [
       "maintenance",
@@ -81,6 +85,7 @@ export const commandVocabulary = [
     inputs: ["--request"],
     stdin: true,
     effectClass: "repository-local",
+    protectedInput: null,
     previewRoute: ["payload", "check"],
     example: ["maintenance", "--run-id", runId, "payload", "package", "--request", "<FILE>"],
     nextAction: {
@@ -97,6 +102,7 @@ export const commandVocabulary = [
     inputs: [],
     stdin: false,
     effectClass: "inspect",
+    protectedInput: null,
     previewRoute: null,
     example: ["maintenance", "--run-id", runId, "runtime", "repair"],
     nextAction: {
@@ -113,6 +119,7 @@ export const commandVocabulary = [
     inputs: [],
     stdin: false,
     effectClass: "external",
+    protectedInput: null,
     previewRoute: ["runtime", "repair"],
     example: ["maintenance", "--run-id", runId, "runtime", "repair", "--apply"],
     nextAction: {
@@ -129,6 +136,7 @@ export const commandVocabulary = [
     inputs: ["--request"],
     stdin: true,
     effectClass: "inspect",
+    protectedInput: null,
     previewRoute: null,
     example: ["maintenance", "--run-id", runId, "release", "inspect", "--request", "<FILE>"],
     nextAction: {
@@ -145,6 +153,7 @@ export const commandVocabulary = [
     inputs: ["--request", "--approval"],
     stdin: true,
     effectClass: "external",
+    protectedInput: "approval",
     previewRoute: ["release", "inspect"],
     example: [
       "maintenance",
@@ -171,6 +180,7 @@ export const commandVocabulary = [
     inputs: ["--request"],
     stdin: true,
     effectClass: "inspect",
+    protectedInput: null,
     previewRoute: null,
     example: [
       "maintenance",
@@ -196,6 +206,7 @@ export const commandVocabulary = [
     inputs: ["--request", "--approval"],
     stdin: true,
     effectClass: "external",
+    protectedInput: "approval",
     previewRoute: ["harness", "claude", "inspect"],
     example: [
       "maintenance",
@@ -223,6 +234,7 @@ export const commandVocabulary = [
     inputs: ["--request"],
     stdin: true,
     effectClass: "inspect",
+    protectedInput: null,
     previewRoute: null,
     example: [
       "maintenance",
@@ -248,6 +260,7 @@ export const commandVocabulary = [
     inputs: ["--request", "--approval"],
     stdin: true,
     effectClass: "external",
+    protectedInput: "approval",
     previewRoute: ["harness", "codex", "inspect"],
     example: [
       "maintenance",
@@ -275,6 +288,7 @@ export const commandVocabulary = [
     inputs: ["--candidate"],
     stdin: true,
     effectClass: "inspect",
+    protectedInput: null,
     previewRoute: null,
     example: ["maintenance", "--run-id", runId, "canary", "inspect", "--candidate", "<FILE>"],
     nextAction: {
@@ -291,6 +305,7 @@ export const commandVocabulary = [
     inputs: ["--candidate", "--authority"],
     stdin: true,
     effectClass: "external",
+    protectedInput: "authority",
     previewRoute: ["canary", "inspect"],
     example: [
       "maintenance",
@@ -311,3 +326,43 @@ export const commandVocabulary = [
     },
   },
 ] as const satisfies readonly CommandDescriptor[]
+
+type CommandFor<C extends MaintenanceCommand["command"]> = Extract<MaintenanceCommand, { command: C }>
+
+type ProtectedInputFor<C extends MaintenanceCommand["command"]> =
+  "approval" extends keyof CommandFor<C>
+    ? "approval"
+    : "authority" extends keyof CommandFor<C>
+      ? "authority"
+      : null
+
+type DescriptorProtectedInputFor<C extends MaintenanceCommand["command"]> = Extract<
+  (typeof commandVocabulary)[number],
+  { command: C }
+>["protectedInput"]
+
+type ProtectedInputAlignmentFor<C extends MaintenanceCommand["command"]> =
+  [DescriptorProtectedInputFor<C>] extends [ProtectedInputFor<C>]
+    ? [ProtectedInputFor<C>] extends [DescriptorProtectedInputFor<C>]
+      ? true
+      : false
+    : false
+
+const protectedInputAlignmentChecks: [
+  ProtectedInputAlignmentFor<"help">,
+  ProtectedInputAlignmentFor<"payload:check">,
+  ProtectedInputAlignmentFor<"payload:materialize">,
+  ProtectedInputAlignmentFor<"payload:package">,
+  ProtectedInputAlignmentFor<"runtime:repair">,
+  ProtectedInputAlignmentFor<"runtime:repair-apply">,
+  ProtectedInputAlignmentFor<"release:inspect">,
+  ProtectedInputAlignmentFor<"release:apply">,
+  ProtectedInputAlignmentFor<"harness:claude:inspect">,
+  ProtectedInputAlignmentFor<"harness:claude:apply">,
+  ProtectedInputAlignmentFor<"harness:codex:inspect">,
+  ProtectedInputAlignmentFor<"harness:codex:apply">,
+  ProtectedInputAlignmentFor<"canary:inspect">,
+  ProtectedInputAlignmentFor<"canary:qualify">,
+] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true]
+
+void protectedInputAlignmentChecks

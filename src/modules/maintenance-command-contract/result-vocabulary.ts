@@ -1,4 +1,5 @@
 import type {
+  EffectClass,
   FailureClass,
   MaintenanceAction,
   MaintenanceError,
@@ -26,6 +27,73 @@ export const actionVocabulary = [
   "select_command",
   "wait",
 ] as const satisfies readonly MaintenanceError["action"][]
+
+export const effectClassVocabulary = [
+  "inspect",
+  "repository-local",
+  "external",
+] as const satisfies readonly EffectClass[]
+
+export const transactionStateVocabulary = [
+  "unchanged",
+  "completed",
+  "partially-completed",
+  "unknown",
+] as const satisfies readonly TransactionState[]
+
+export const retrySafetyVocabulary = [
+  "safe",
+  "unsafe",
+  "requires-fresh-inspection",
+] as const satisfies readonly RetrySafety[]
+
+export const failureClassVocabulary = [
+  "usage",
+  "refusal",
+  "transient",
+  "continuation",
+  "recovery",
+  "unexpected",
+  "event_delivery",
+] as const satisfies readonly FailureClass[]
+
+export const errorFamilyVocabulary = [
+  "input",
+  "state_conflict",
+  "authentication",
+  "authorization_scope",
+  "network",
+  "transient",
+  "runtime",
+] as const satisfies readonly MaintenanceError["errorFamily"][]
+
+export const recoverabilityVocabulary = [
+  "none",
+  "retry",
+  "change_input",
+  "authenticate",
+  "repair_state",
+  "contact_support",
+] as const satisfies readonly MaintenanceError["recoverability"][]
+
+export const errorSeverityVocabulary = [
+  "warning",
+  "error",
+  "fatal",
+] as const satisfies readonly MaintenanceError["severity"][]
+
+const vocabularyExhaustivenessChecks: [
+  EffectClass extends (typeof effectClassVocabulary)[number] ? true : false,
+  TransactionState extends (typeof transactionStateVocabulary)[number] ? true : false,
+  RetrySafety extends (typeof retrySafetyVocabulary)[number] ? true : false,
+  FailureClass extends (typeof failureClassVocabulary)[number] ? true : false,
+  MaintenanceError["errorFamily"] extends (typeof errorFamilyVocabulary)[number] ? true : false,
+  MaintenanceError["recoverability"] extends (typeof recoverabilityVocabulary)[number] ? true : false,
+  MaintenanceError["severity"] extends (typeof errorSeverityVocabulary)[number] ? true : false,
+  MaintenanceAction extends (typeof actionVocabulary)[number] ? true : false,
+] = [true, true, true, true, true, true, true, true]
+
+void vocabularyExhaustivenessChecks
 
 export type ExitFamilyId =
   | "accepted-success"
@@ -58,6 +126,11 @@ export const failureClassPolicy = {
   MaintenanceErrorFailureClass,
   Pick<MaintenanceError, "errorFamily" | "recoverability">
 >
+
+export const retrySafetyForEffectClass = (effectClass: EffectClass): RetrySafety =>
+  effectClass === "inspect" || effectClass === "repository-local"
+    ? "safe"
+    : "requires-fresh-inspection"
 
 const result = (
   resultCode: ResultCode,
