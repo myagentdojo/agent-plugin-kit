@@ -10,7 +10,10 @@ import type {
   MaintenanceApplyRequest,
   MaintenanceCommand,
   MaintenanceError,
+  MaintenanceErrorEnvelopeData,
+  MaintenanceErrorEnvelopeProjection,
   MaintenanceOutcome,
+  MaintenanceSuccessEnvelopeData,
   NextAction,
   ResultCode,
   RetrySafety,
@@ -32,6 +35,7 @@ import {
   errorSeverityVocabulary,
   failureClassPolicy,
   failureClassVocabulary,
+  maintenanceCommandContractId,
   recoverabilityVocabulary,
   resultVocabulary,
   retrySafetyForEffectClass,
@@ -102,6 +106,10 @@ const errorFamilySchema = z.enum(errorFamilyVocabulary)
 const recoverabilitySchema = z.enum(recoverabilityVocabulary)
 const errorSeveritySchema = z.enum(errorSeverityVocabulary)
 type NonContinuationFailureClass = Exclude<MaintenanceError["failureClass"], "continuation">
+const maintenanceErrorFailureClassValues = failureClassVocabulary.filter(
+  (failureClass): failureClass is MaintenanceError["failureClass"] => failureClass !== "event_delivery",
+) as [MaintenanceError["failureClass"], ...MaintenanceError["failureClass"][]]
+const maintenanceErrorFailureClassSchema = z.enum(maintenanceErrorFailureClassValues)
 const nonContinuationFailureClassValues = failureClassVocabulary.filter(
   (failureClass): failureClass is NonContinuationFailureClass =>
     Object.hasOwn(failureClassPolicy, failureClass) && failureClass !== "continuation",
@@ -116,7 +124,9 @@ const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
   z.array(jsonValueSchema).readonly(),
   z.record(z.string(), jsonValueSchema),
 ]))
-const agentPayloadSchema = z.object({ schemaVersion: z.literal(1) }).catchall(jsonValueSchema)
+const isAgentPayload = (value: Record<string, JsonValue>): value is AgentPayload =>
+  value.schemaVersion === 1
+const agentPayloadSchema = z.record(z.string(), jsonValueSchema).refine(isAgentPayload)
 const nextActionSchema = z.strictObject({
   id: z.string(),
   action: maintenanceActionSchema,
@@ -366,6 +376,100 @@ const commandResultSchema = z.strictObject({
   agent: agentPayloadSchema,
   stderr: z.string(),
 }).superRefine(refineCommandResultValue)
+export const maintenanceSuccessEnvelopeDataSchema = z.union([
+  z.strictObject({
+    contract_id: z.literal(maintenanceCommandContractId),
+    result_schema_version: z.literal(1),
+    command: commandIdSchema,
+    result_code: resultCodeSchema,
+    station_id: stationIdSchema,
+    effect_class: effectClassSchema,
+    transaction_state: transactionStateSchema,
+    retry_safety: retrySafetySchema,
+    expected_effect_ids: z.array(z.string()).readonly(),
+    next_action: nextActionSchema,
+    result: agentPayloadSchema,
+  }),
+  z.strictObject({
+    contract_id: z.literal(maintenanceCommandContractId),
+    result_schema_version: z.literal(1),
+    command: commandIdSchema,
+    result_code: resultCodeSchema,
+    station_id: stationIdSchema,
+    effect_class: effectClassSchema,
+    transaction_state: transactionStateSchema,
+    retry_safety: retrySafetySchema,
+    completed_effect_ids: z.array(z.string()).readonly(),
+    remaining_effect_ids: z.array(z.string()).readonly(),
+    next_action: nextActionSchema,
+    result: agentPayloadSchema,
+  }),
+]).superRefine(refineMaintenanceSuccessEnvelopeData)
+export const maintenanceErrorEnvelopeDataSchema = z.union([
+  z.strictObject({
+    contract_id: z.literal(maintenanceCommandContractId),
+    result_schema_version: z.literal(1),
+    command: z.literal("maintenance"),
+    result_code: resultCodeSchema,
+    station_id: stationIdSchema,
+    transaction_state: transactionStateSchema,
+    retry_safety: retrySafetySchema,
+    next_action: nextActionSchema,
+  }),
+  z.strictObject({
+    contract_id: z.literal(maintenanceCommandContractId),
+    result_schema_version: z.literal(1),
+    command: commandIdSchema,
+    result_code: resultCodeSchema,
+    station_id: stationIdSchema,
+    effect_class: effectClassSchema,
+    transaction_state: transactionStateSchema,
+    retry_safety: retrySafetySchema,
+    next_action: nextActionSchema,
+  }),
+  z.strictObject({
+    contract_id: z.literal(maintenanceCommandContractId),
+    result_schema_version: z.literal(1),
+    command: commandIdSchema,
+    result_code: resultCodeSchema,
+    station_id: stationIdSchema,
+    effect_class: effectClassSchema,
+    transaction_state: transactionStateSchema,
+    retry_safety: retrySafetySchema,
+    completed_effect_ids: z.array(z.string()).readonly(),
+    remaining_effect_ids: z.array(z.string()).readonly(),
+    next_action: nextActionSchema,
+  }),
+]).superRefine(refineMaintenanceErrorEnvelopeData)
+const maintenanceAgentActionSchema = z.strictObject({
+  nextActionId: z.string(),
+  action: maintenanceActionSchema,
+  summary: z.string(),
+  retryAfterMs: z.number().int().nonnegative().exactOptional(),
+  idempotencyKey: z.string().exactOptional(),
+})
+export const maintenanceErrorEnvelopeProjectionSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  name: z.literal("MaintenanceCommandError"),
+  code: resultCodeSchema,
+  action: maintenanceActionSchema,
+  errorFamily: errorFamilySchema,
+  hintVersion: z.literal(1),
+  severity: errorSeveritySchema,
+  recoverability: recoverabilitySchema,
+  retryable: z.boolean(),
+  exitCodeHint: z.union([
+    z.literal(1),
+    z.literal(2),
+    z.literal(20),
+    z.literal(21),
+    z.literal(22),
+    z.literal(23),
+  ]),
+  failureClass: maintenanceErrorFailureClassSchema,
+  stationId: stationIdSchema,
+  agentActions: z.tuple([maintenanceAgentActionSchema]).readonly(),
+}).superRefine(refineMaintenanceErrorEnvelopeProjection)
 const serializedValidationLookups = {
   commands: commandDescriptorsByCommand,
   commandsBySlug: new Map(
@@ -376,6 +480,134 @@ const serializedValidationLookups = {
   ) as Record<ResultCode, (typeof resultVocabulary)[number]>,
   failureClassPolicy,
 } as const
+
+type MaintenanceSuccessEnvelopeDataInput = z.infer<typeof maintenanceSuccessEnvelopeDataSchema>
+type MaintenanceErrorEnvelopeDataInput = z.infer<typeof maintenanceErrorEnvelopeDataSchema>
+type MaintenanceErrorEnvelopeProjectionInput = z.infer<typeof maintenanceErrorEnvelopeProjectionSchema>
+
+const addEnvelopeIssue = (ctx: z.RefinementCtx, path: PropertyKey[]) => {
+  ctx.addIssue({ code: "custom", message: "invalid maintenance envelope projection", path })
+}
+
+const stationForEnvelope = (
+  command: MaintenanceCommand["command"] | "maintenance",
+  resultCode: ResultCode,
+  classification: "success" | "failure",
+): BranchStation | undefined => {
+  const expectedStationId = `${stationSlugFor(command)}.${resultCode}`
+  const station = branchStationCatalog.find(({ stationId }) => stationId === expectedStationId)
+  return station !== undefined &&
+    station.reachability !== "declared-unreachable" &&
+    isDeclaredBranchStation({ commandId: command, resultCode, classification })
+    ? station
+    : undefined
+}
+
+const sameAgentAction = (
+  actual: MaintenanceErrorEnvelopeProjectionInput["agentActions"][number],
+  expected: NextAction,
+): boolean =>
+  actual.nextActionId === expected.id &&
+  actual.action === expected.action &&
+  actual.summary === expected.summary &&
+  actual.retryAfterMs === expected.retryAfterMs &&
+  actual.idempotencyKey === expected.idempotencyKey
+
+function refineMaintenanceSuccessEnvelopeData(
+  data: MaintenanceSuccessEnvelopeDataInput,
+  ctx: z.RefinementCtx,
+) {
+  const command = serializedValidationLookups.commands[data.command]
+  const result = serializedValidationLookups.results[data.result_code]
+  const station = stationForEnvelope(data.command, data.result_code, "success")
+  const canonical = canonicalNextActionFor(data.command, data.result_code)
+  const isPreview = "expected_effect_ids" in data
+  const checks: readonly [boolean, PropertyKey[]][] = [
+    [result.exitClass === 0 && result.failureClass === null, ["result_code"]],
+    [station !== undefined && data.station_id === station.stationId, ["station_id"]],
+    [data.effect_class === command.effectClass, ["effect_class"]],
+    [data.retry_safety === retrySafetyForEffectClass(command.effectClass), ["retry_safety"]],
+    [data.transaction_state === result.transactionState, ["transaction_state"]],
+    [canonical !== undefined && isExactCanonicalNextAction(data.next_action, canonical), ["next_action"]],
+    [isPreview === (command.interfaceCall === "inspect"), ["expected_effect_ids"]],
+  ]
+  for (const [isValid, path] of checks) if (!isValid) addEnvelopeIssue(ctx, path)
+}
+
+function refineMaintenanceErrorEnvelopeData(
+  data: MaintenanceErrorEnvelopeDataInput,
+  ctx: z.RefinementCtx,
+) {
+  const result = serializedValidationLookups.results[data.result_code]
+  const station = stationForEnvelope(data.command, data.result_code, "failure")
+  const canonical = canonicalNextActionFor(data.command, data.result_code)
+  const hasEffects = "completed_effect_ids" in data
+  const effectMatches = data.command === "maintenance" ||
+    data.effect_class === serializedValidationLookups.commands[data.command].effectClass
+  const checks: readonly [boolean, PropertyKey[]][] = [
+    [result.exitClass !== 0 && result.failureClass !== null, ["result_code"]],
+    [station !== undefined && data.station_id === station.stationId, ["station_id"]],
+    [data.retry_safety === result.retrySafety, ["retry_safety"]],
+    [data.transaction_state === result.transactionState, ["transaction_state"]],
+    [canonical !== undefined && hasCanonicalNextActionMeaning(data.next_action, canonical), ["next_action"]],
+    [effectMatches, ["effect_class"]],
+    [hasEffects === (result.failureClass === "continuation"), ["completed_effect_ids"]],
+  ]
+  for (const [isValid, path] of checks) if (!isValid) addEnvelopeIssue(ctx, path)
+}
+
+const errorProjectionContextFor = (error: MaintenanceErrorEnvelopeProjectionInput) => {
+  const result = serializedValidationLookups.results[error.code]
+  const stationSeparator = error.stationId.lastIndexOf(".")
+  const stationSlug = error.stationId.slice(0, stationSeparator)
+  const command = stationSlug === "maintenance"
+    ? "maintenance"
+    : serializedValidationLookups.commandsBySlug.get(stationSlug)?.command
+  const station = command === undefined
+    ? undefined
+    : stationForEnvelope(command, error.code, "failure")
+  const canonical = command === undefined ? undefined : canonicalNextActionFor(command, error.code)
+  const failurePolicy = result.failureClass === null
+    ? undefined
+    : serializedValidationLookups.failureClassPolicy[result.failureClass]
+  return { canonical, failurePolicy, result, station }
+}
+
+const errorProjectionResultChecks = (
+  error: MaintenanceErrorEnvelopeProjectionInput,
+  result: SerializedResultDescriptor,
+  failurePolicy: typeof failureClassPolicy[MaintenanceError["failureClass"]] | undefined,
+): readonly [boolean, PropertyKey[]][] => [
+    [result.exitClass !== 0 && result.failureClass !== null, ["code"]],
+    [error.exitCodeHint === result.exitClass, ["exitCodeHint"]],
+    [error.failureClass === result.failureClass, ["failureClass"]],
+    [error.severity === (result.severity === "info" ? "error" : result.severity), ["severity"]],
+    [error.action === result.nextAction.action, ["action"]],
+    [error.retryable === (result.retrySafety === "safe" && result.exitFamilyId === "transient-retry"), ["retryable"]],
+    [error.errorFamily === failurePolicy?.errorFamily, ["errorFamily"]],
+    [error.recoverability === failurePolicy?.recoverability, ["recoverability"]],
+]
+
+const errorProjectionStationChecks = (
+  error: MaintenanceErrorEnvelopeProjectionInput,
+  station: BranchStation | undefined,
+  canonical: NextAction | undefined,
+): readonly [boolean, PropertyKey[]][] => [
+    [station !== undefined && error.stationId === station.stationId, ["stationId"]],
+    [canonical !== undefined && sameAgentAction(error.agentActions[0], canonical), ["agentActions", 0]],
+]
+
+function refineMaintenanceErrorEnvelopeProjection(
+  error: MaintenanceErrorEnvelopeProjectionInput,
+  ctx: z.RefinementCtx,
+) {
+  const { canonical, failurePolicy, result, station } = errorProjectionContextFor(error)
+  const checks = [
+    ...errorProjectionResultChecks(error, result, failurePolicy),
+    ...errorProjectionStationChecks(error, station, canonical),
+  ]
+  for (const [isValid, path] of checks) if (!isValid) addEnvelopeIssue(ctx, path)
+}
 
 type OutcomeValidationInput =
   | {
@@ -646,7 +878,7 @@ function isPlainJsonRecord(value: object, seen: Set<object>): boolean {
   return true
 }
 
-function isPlainJsonTree(value: unknown, seen = new Set<object>()): boolean {
+export function isPlainJsonTree(value: unknown, seen = new Set<object>()): boolean {
   if (value === null || typeof value === "string" || typeof value === "boolean") return true
   if (typeof value === "number") return Number.isFinite(value)
   if (typeof value !== "object" || seen.has(value)) return false
@@ -732,6 +964,24 @@ export function validateMaintenanceErrorEgress(value: MaintenanceErrorOutcome): 
   return validateEgress(errorOutcomeSchema, value)
 }
 
+export function validateMaintenanceSuccessEnvelopeData(
+  value: MaintenanceSuccessEnvelopeData,
+): MaintenanceSuccessEnvelopeData {
+  return validateEgress(maintenanceSuccessEnvelopeDataSchema, value)
+}
+
+export function validateMaintenanceErrorEnvelopeData(
+  value: MaintenanceErrorEnvelopeData,
+): MaintenanceErrorEnvelopeData {
+  return validateEgress(maintenanceErrorEnvelopeDataSchema, value)
+}
+
+export function validateMaintenanceErrorEnvelopeProjection(
+  value: MaintenanceErrorEnvelopeProjection,
+): MaintenanceErrorEnvelopeProjection {
+  return validateEgress(maintenanceErrorEnvelopeProjectionSchema, value)
+}
+
 type InferredStationId = z.infer<typeof stationIdSchema>
 type InferredEffectClass = z.infer<typeof effectClassSchema>
 type InferredTransactionState = z.infer<typeof transactionStateSchema>
@@ -743,6 +993,9 @@ type InferredAgentPayload = z.infer<typeof agentPayloadSchema>
 type InferredMaintenanceError = z.infer<typeof maintenanceErrorSchema>
 type InferredCommandPreview = z.infer<typeof commandPreviewSchema>
 type InferredCommandResult = z.infer<typeof commandResultSchema>
+type InferredMaintenanceSuccessEnvelopeData = z.infer<typeof maintenanceSuccessEnvelopeDataSchema>
+type InferredMaintenanceErrorEnvelopeData = z.infer<typeof maintenanceErrorEnvelopeDataSchema>
+type InferredMaintenanceErrorEnvelopeProjection = z.infer<typeof maintenanceErrorEnvelopeProjectionSchema>
 type InferredPreviewOutcome = z.infer<typeof previewOutcomeSchema>
 type InferredResultOutcome = z.infer<typeof resultOutcomeSchema>
 
@@ -769,14 +1022,33 @@ const bidirectionalTypeChecks: [
   CommandPreview extends InferredCommandPreview ? true : false,
   InferredCommandResult extends CommandResult ? true : false,
   CommandResult extends InferredCommandResult ? true : false,
+  InferredMaintenanceSuccessEnvelopeData extends MaintenanceSuccessEnvelopeData ? true : false,
+  MaintenanceSuccessEnvelopeData extends InferredMaintenanceSuccessEnvelopeData ? true : false,
+  InferredMaintenanceErrorEnvelopeData extends MaintenanceErrorEnvelopeData ? true : false,
+  MaintenanceErrorEnvelopeData extends InferredMaintenanceErrorEnvelopeData ? true : false,
+  InferredMaintenanceErrorEnvelopeProjection extends MaintenanceErrorEnvelopeProjection ? true : false,
+  MaintenanceErrorEnvelopeProjection extends InferredMaintenanceErrorEnvelopeProjection ? true : false,
   InferredPreviewOutcome extends MaintenancePreviewOutcome ? true : false,
   MaintenancePreviewOutcome extends InferredPreviewOutcome ? true : false,
   InferredResultOutcome extends MaintenanceResultOutcome ? true : false,
   MaintenanceResultOutcome extends InferredResultOutcome ? true : false,
 ] = [
-  true, true, true, true, true, true, true, true, true, true, true, true,
+  true, true, true, true, true, true, true, true, true, true, true,
+  true,
   true, true,
-  true, true, true, true, true, true, true, true, true, true, true, true,
+  true, true, true, true, true, true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
 ]
 
 void bidirectionalTypeChecks

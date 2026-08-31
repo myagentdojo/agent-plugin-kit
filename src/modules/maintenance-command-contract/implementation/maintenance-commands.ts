@@ -7,7 +7,11 @@ import type {
   MaintenanceCommand,
   MaintenanceCommands,
   MaintenanceError,
+  MaintenanceErrorEnvelopeData,
+  MaintenanceErrorEnvelopeProjection,
   MaintenanceOutcome,
+  MaintenanceSuccessEnvelopeData,
+  NextAction,
   ResultCode,
   StationId,
 } from "../interface"
@@ -41,15 +45,20 @@ import { stationSlugFor } from "../branch-stations"
 import { commandVocabulary } from "../command-vocabulary"
 import {
   validateMaintenanceErrorEgress,
+  validateMaintenanceErrorEnvelopeData,
+  validateMaintenanceErrorEnvelopeProjection,
   validateMaintenancePreviewEgress,
   validateMaintenanceResultEgress,
+  validateMaintenanceSuccessEnvelopeData,
 } from "../serialized-values"
 import {
   containmentExit,
+  errorSchemaVersion,
   exitFamilies,
   failureClassPolicy,
   failureNextActionProjection,
   maintenanceCommandContractId,
+  hintVersion,
   resultSchemaVersion,
   resultVocabulary,
   retrySafetyForEffectClass,
@@ -325,7 +334,6 @@ const projectRuntimeResult = (result: RuntimeCustodyResult): JsonValue => {
 }
 
 const helpAgent = () => ({
-  schemaVersion: resultSchemaVersion,
   contract_id: maintenanceCommandContractId,
   package_identity: "agent-plugin-kit",
   package_version: "0.0.0",
@@ -392,6 +400,7 @@ const helpAgent = () => ({
     events: "redacted-best-effort",
     persisted_state: false,
   },
+  schemaVersion: resultSchemaVersion,
 })
 
 const helpPreview = (): MaintenanceOutcome<CommandPreview> => {
@@ -489,13 +498,13 @@ const completedResult = (
 const errorFor = (
   command: MaintenanceCommand["command"] | "maintenance",
   resultCode: ResultCode,
-): MaintenanceOutcome<never> => {
+): Extract<MaintenanceOutcome<never>, { status: "error" }> => {
   const descriptor = resultFor(resultCode)
   if (descriptor.failureClass === null || descriptor.exitClass === 0 || descriptor.failureClass === "continuation") {
     throw new Error(`Result Code requires a dedicated outcome constructor: ${resultCode}`)
   }
   const policy = failureClassPolicy[descriptor.failureClass]
-  return validateMaintenanceErrorEgress({
+  const outcome = {
     status: "error",
     resultCode,
     stationId: stationFor(command, resultCode),
@@ -512,8 +521,120 @@ const errorFor = (
       transactionState: descriptor.transactionState,
       nextAction: descriptor.nextAction,
     },
+  } as const
+  return validateMaintenanceErrorEgress(outcome)
+}
+
+/** Facade-owned process handling reuses Maintenance's result-policy mapping. */
+export const maintenanceUsageRefusalOutcome = (): Extract<MaintenanceOutcome<never>, { status: "error" }> =>
+  errorFor("maintenance", "usage-refused")
+
+const facadeNextAction = (nextAction: NextAction): NextAction => ({
+  id: nextAction.id,
+  action: nextAction.action,
+  summary: nextAction.summary,
+  commandId: nextAction.commandId,
+  ...(nextAction.retryAfterMs === undefined ? {} : { retryAfterMs: nextAction.retryAfterMs }),
+  ...(nextAction.idempotencyKey === undefined ? {} : { idempotencyKey: nextAction.idempotencyKey }),
+})
+
+export const maintenanceSuccessEnvelopeDataFor = (
+  outcome: MaintenanceOutcome<unknown> & { status: "ok" },
+): MaintenanceSuccessEnvelopeData => {
+  const value = outcome.value as CommandPreview | CommandResult
+  const descriptor = commandIdFor(value.command)
+  const common = {
+    contract_id: maintenanceCommandContractId,
+    result_schema_version: resultSchemaVersion,
+    command: value.command,
+    result_code: outcome.resultCode,
+    station_id: outcome.stationId,
+    effect_class: "effectClass" in value ? value.effectClass : descriptor.effectClass,
+    transaction_state: value.transactionState,
+    retry_safety: value.retrySafety,
+    next_action: facadeNextAction(value.nextAction),
+    result: value.agent,
+  }
+  if ("expectedEffectIds" in value) {
+    const { result, ...beforeResult } = common
+    return validateMaintenanceSuccessEnvelopeData({
+      ...beforeResult,
+      expected_effect_ids: [...value.expectedEffectIds],
+      result,
+    })
+  }
+  const { result, ...beforeResult } = common
+  return validateMaintenanceSuccessEnvelopeData({
+    ...beforeResult,
+    completed_effect_ids: [...value.completedEffectIds],
+    remaining_effect_ids: [...value.remainingEffectIds],
+    result,
   })
 }
+
+export const maintenanceErrorEnvelopeDataFor = (
+  requested: MaintenanceCommand["command"] | "maintenance",
+  outcome: MaintenanceOutcome<unknown> & { status: "error" },
+): MaintenanceErrorEnvelopeData => {
+  const common = {
+    contract_id: maintenanceCommandContractId,
+    result_schema_version: resultSchemaVersion,
+    result_code: outcome.resultCode,
+    station_id: outcome.stationId,
+    transaction_state: outcome.error.transactionState,
+    retry_safety: outcome.error.retrySafety,
+    next_action: facadeNextAction(outcome.error.nextAction),
+  }
+  if (requested === "maintenance") {
+    return validateMaintenanceErrorEnvelopeData({
+      ...common,
+      command: "maintenance",
+    })
+  }
+  const descriptor = commandIdFor(requested)
+  if (outcome.error.completedEffectIds === undefined || outcome.error.remainingEffectIds === undefined) {
+    return validateMaintenanceErrorEnvelopeData({
+      ...common,
+      command: requested,
+      effect_class: descriptor.effectClass,
+    })
+  }
+  return validateMaintenanceErrorEnvelopeData({
+    ...common,
+    command: requested,
+    effect_class: descriptor.effectClass,
+    completed_effect_ids: [...outcome.error.completedEffectIds],
+    remaining_effect_ids: [...outcome.error.remainingEffectIds],
+  })
+}
+
+export const maintenanceErrorEnvelopeProjectionFor = (
+  outcome: MaintenanceOutcome<unknown> & { status: "error" },
+): MaintenanceErrorEnvelopeProjection => validateMaintenanceErrorEnvelopeProjection({
+  schemaVersion: errorSchemaVersion,
+  name: outcome.error.name,
+  code: outcome.resultCode,
+  action: outcome.error.action,
+  errorFamily: outcome.error.errorFamily,
+  hintVersion,
+  severity: outcome.error.severity,
+  recoverability: outcome.error.recoverability,
+  retryable: outcome.error.retryable,
+  exitCodeHint: outcome.error.exitCodeHint,
+  failureClass: outcome.error.failureClass,
+  stationId: outcome.stationId,
+  agentActions: [{
+    nextActionId: outcome.error.nextAction.id,
+    action: outcome.error.nextAction.action,
+    summary: outcome.error.nextAction.summary,
+    ...(outcome.error.nextAction.retryAfterMs === undefined
+      ? {}
+      : { retryAfterMs: outcome.error.nextAction.retryAfterMs }),
+    ...(outcome.error.nextAction.idempotencyKey === undefined
+      ? {}
+      : { idempotencyKey: outcome.error.nextAction.idempotencyKey }),
+  }],
+})
 
 const continuationRequired = (
   request: MaintenanceApplyRequest,

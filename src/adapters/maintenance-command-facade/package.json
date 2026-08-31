@@ -6,6 +6,9 @@
   "exports": {
     ".": "./interface.ts"
   },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
   "scripts": {
     "test": "bun test contract-tests/command-surface.test.ts contract-tests/public-process.test.ts contract-tests/observability.test.ts"
   }

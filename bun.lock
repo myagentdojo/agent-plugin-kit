@@ -17,6 +17,9 @@
     "src/adapters/maintenance-command-facade": {
       "name": "@agent-plugin-kit/maintenance-command-facade",
       "version": "0.0.0",
+      "dependencies": {
+        "zod": "4.4.3",
+      },
     },
     "src/adapters/reusable-workflow-adapter": {
       "name": "@agent-plugin-kit/reusable-workflow-adapter",
