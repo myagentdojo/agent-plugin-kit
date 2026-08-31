@@ -26,6 +26,17 @@ test("bare zero argv emits help with one generated run ID excluded from equality
   expect(actualEnvelope).toEqual(expectedEnvelope)
 })
 test("unknown command emits typed usage refusal", () => invokeAndExpect(fixedUsageScenario.argv, fixedUsageScenario.expected, "unknown usage must emit the typed refusal envelope"))
+test("piped stdin reaches the public Facade and invalidates help", async () => {
+  const actual = await invokePublicProcess(
+    ["--run-id", fixedRunId, "help"],
+    {},
+    import.meta.dir,
+    "unexpected",
+  )
+  expect(actual, "contract-absent: nonempty stdin must reach public help parsing").toEqual(
+    fixedUsageScenario.expected,
+  )
+})
 test("root executable has Bun shebang and executable mode", async () => {
   const mode = (await stat(resolve(import.meta.dir, "../maintenance.ts"))).mode & 0o111
   expect(mode).not.toBe(0)

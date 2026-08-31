@@ -187,9 +187,6 @@ const parseCommand = (
   if (!helpAlias(route) || stdin.trim() !== "") {
     return parseFailureFor("Unknown maintenance command.", parsed.runId)
   }
-  if (!parsed.group && !helpAlias(parsed.route)) {
-    return parseFailureFor("Unknown maintenance command.", parsed.runId)
-  }
   return { command: { command: "help" }, runId: parsed.runId }
 }
 
@@ -243,7 +240,12 @@ const observationForOutcome = (
       ? emergencyContainment()
       : { stdout, stderr: "", exitCode: 0 }
   }
-  const stderr = serializeFacadeErrorEgress(errorEnvelope(runId, requested.command, requested.command, outcome))
+  const stderr = serializeFacadeErrorEgress(errorEnvelope(
+    runId,
+    `Maintenance command failed with result code "${outcome.resultCode}".`,
+    requested.command,
+    outcome,
+  ))
   if (stderr === undefined) return emergencyContainment()
   return {
     stdout: "",

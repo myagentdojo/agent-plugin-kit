@@ -12,14 +12,19 @@ export type ProcessCleanupReceipt = {
 
 export async function invokeBoundedProcess(
   command: readonly string[],
-  options: { cwd: string; environment?: Readonly<Record<string, string>>; deadlineMs?: number },
+  options: {
+    cwd: string
+    environment?: Readonly<Record<string, string>>
+    deadlineMs?: number
+    stdin?: string
+  },
 ): Promise<{ observation: ProcessObservation; cleanup: ProcessCleanupReceipt }> {
   const deadlineMs = options.deadlineMs ?? 2_000
   const processResult = Bun.spawn([...command], {
     cwd: options.cwd,
     detached: true,
     env: { ...process.env, ...options.environment },
-    stdin: "ignore",
+    stdin: options.stdin === undefined ? "ignore" : new TextEncoder().encode(options.stdin),
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -68,10 +73,12 @@ export async function invokePublicProcess(
   argv: readonly string[],
   environment: Readonly<Record<string, string>> = {},
   cwd = import.meta.dir,
+  stdin?: string,
 ): Promise<ProcessObservation> {
   const executable = resolve(import.meta.dir, "../../maintenance.ts")
   return (await invokeBoundedProcess([executable, ...argv], {
     cwd,
     environment,
+    ...(stdin === undefined ? {} : { stdin }),
   })).observation
 }

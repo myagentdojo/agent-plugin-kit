@@ -15,13 +15,14 @@ const commands = createMaintenanceCommands({
 })
 
 const facade = createMaintenanceCommandFacade({ commands })
+const stdin = process.stdin.isTTY ? "" : await Bun.stdin.text()
 const observation = await facade.invoke({
   argv: process.argv.slice(2),
   environment: {
     AGENT_PLUGIN_KIT_EVENT_ENDPOINT: process.env.AGENT_PLUGIN_KIT_EVENT_ENDPOINT,
     AGENT_PLUGIN_KIT_EVENT_AUTH: process.env.AGENT_PLUGIN_KIT_EVENT_AUTH,
   },
-  stdin: "",
+  stdin,
 })
 
 if (observation.stdout !== "") process.stdout.write(observation.stdout)
