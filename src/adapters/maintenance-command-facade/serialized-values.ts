@@ -111,23 +111,23 @@ const eventOutcomes = ["previewed", "completed", "refused", "failed"] as const
 const safeIdentifierPattern = /^[A-Za-z0-9._:-]{1,160}$/
 const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
 const secretKeyPattern = /(?:password|passwd|secret|token|authorization|cookie|credential|private[-_]?key|api[-_]?key)/i
-const secretAssignmentPattern = /\b(secret|password|passwd|token|credential|authorization|cookie|private[-_ ]?key|api[-_ ]?key)\s*([:=])\s*("[^"]*"|'[^']*'|[^\s,;]+)/gi
-const authUrlPattern = /\bhttps?:\/\/[^\s/@]+:[^\s/@]+@[^\s]+/gi
-const authUrlDetectPattern = /\bhttps?:\/\/[^\s/@]+:[^\s/@]+@[^\s]+/i
+const secretAssignmentPattern = /(^|[^A-Za-z0-9])(secret|password|passwd|token|credential|authorization|cookie|private[-_ ]?key|api[-_ ]?key)(\s*)([:=])(\s*)("[^"]*"|'[^']*'|[^\s,;]+)/gi
+const authUrlPattern = /(^|[^A-Za-z0-9])https?:\/\/[^\s/@]+:[^\s/@]+@[^\s]+/gi
+const authUrlDetectPattern = /(?:^|[^A-Za-z0-9])https?:\/\/[^\s/@]+:[^\s/@]+@[^\s]+/i
 const privateKeyPattern = /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/gi
 const privateKeyDetectPattern = /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/i
 const maximumCredentialMatchLength = 4096
-const credentialTokenPattern = `[A-Za-z0-9._~+/=-]{1,${maximumCredentialMatchLength}}`
+const credentialCandidatePattern = `[^\\s,;]{1,${maximumCredentialMatchLength}}`
 const bearerCredentialPattern = new RegExp(
-  `\\b(?:bearer|basic)\\s+${credentialTokenPattern}(?![A-Za-z0-9._~+/=-])`,
+  `(^|[^A-Za-z0-9])(?:bearer|basic)\\s+${credentialCandidatePattern}(?![^\\s,;])`,
   "gi",
 )
-const bearerCredentialDetectPattern = /\b(?:bearer|basic)\s+/i
+const bearerCredentialDetectPattern = /(?:^|[^A-Za-z0-9])(?:bearer|basic)\s+/i
 const opReferencePattern = new RegExp(
-  `\\bop:\\/\\/[^\\s"'<>]{1,${maximumCredentialMatchLength}}(?![^\\s"'<>])`,
+  `(^|[^A-Za-z0-9])op:\\/\\/${credentialCandidatePattern}(?![^\\s,;])`,
   "gi",
 )
-const opReferenceDetectPattern = /\bop:\/\//i
+const opReferenceDetectPattern = /(?:^|[^A-Za-z0-9])op:\/\//i
 const redactedDiagnosticValue = "[REDACTED]"
 const maximumDiagnosticNestedDepth = 4
 const maximumDiagnosticArrayEntries = 100
@@ -211,10 +211,11 @@ const replaceConfiguredSecrets = (value: string, secrets: readonly string[]): st
 const redactString = (value: string, secrets: readonly string[]): string => {
   const configured = replaceConfiguredSecrets(value, secrets)
   const privateKeyRedacted = configured.replace(privateKeyPattern, redactedDiagnosticValue)
-  const urlRedacted = privateKeyRedacted.replace(authUrlPattern, redactedDiagnosticValue)
-  const bearerRedacted = urlRedacted.replace(bearerCredentialPattern, redactedDiagnosticValue)
-  const opReferenceRedacted = bearerRedacted.replace(opReferencePattern, redactedDiagnosticValue)
-  return opReferenceRedacted.replace(secretAssignmentPattern, (_match, key: string, separator: string) => `${key}${separator}${redactedDiagnosticValue}`)
+  const preserveBoundaryAndRedact = (_match: string, boundary: string): string => `${boundary}${redactedDiagnosticValue}`
+  const urlRedacted = privateKeyRedacted.replace(authUrlPattern, preserveBoundaryAndRedact)
+  const bearerRedacted = urlRedacted.replace(bearerCredentialPattern, preserveBoundaryAndRedact)
+  const opReferenceRedacted = bearerRedacted.replace(opReferencePattern, preserveBoundaryAndRedact)
+  return opReferenceRedacted.replace(secretAssignmentPattern, (_match, boundary: string, key: string, beforeSeparator: string, separator: string, afterSeparator: string) => `${boundary}${key}${beforeSeparator}${separator}${afterSeparator}${redactedDiagnosticValue}`)
 }
 
 const isRedactionBlocked = (key: string, depth: number): boolean =>

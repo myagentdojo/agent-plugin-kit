@@ -431,12 +431,36 @@ test("redaction validates and freezes both seams before crossing", async () => {
   const embeddedBearerCredential = "fixture-embedded-bearer-credential"
   const embeddedBasicCredential = "fixture-embedded-basic-credential"
   const embeddedOpReference = "op://fixture-vault/fixture-item/fixture-field"
+  const underscoreBearerCredential = "fixture-underscore-bearer-credential"
+  const underscoreBasicCredential = "fixture-underscore-basic-credential"
+  const underscoreOpReference = "op://fixture-underscore-vault/fixture-item/fixture-field"
+  const malformedCredentialTail = "fixture-raw-secret-tail"
+  const malformedBearerCredential = `fixture-malformed-bearer!$<${malformedCredentialTail}`
+  const malformedBasicCredential = `fixture-malformed-basic!$<${malformedCredentialTail}`
+  const malformedOpReference = `op://fixture-malformed-vault/malformed!$<${malformedCredentialTail}`
+  const underscoreAuthUsername = "fixture-auth-user"
+  const underscoreAuthPassword = "fixture-auth-password"
+  const underscoreAuthUrl = `https://${underscoreAuthUsername}:${underscoreAuthPassword}@fixture-auth-host`
+  const underscoreAssignment = "fixture-underscore-assignment-secret"
   const diagnostic = diagnosticHarness("debug", {
     redactionTrace: (step) => redactionTrace.push(step),
   })
   diagnostic?.pipeline.record({
     ...diagnosticRecord(1, "error", "fixture.hostile-redaction"),
-    message: `context before Bearer ${embeddedBearerCredential}; Basic ${embeddedBasicCredential}; ${embeddedOpReference}; token=fixture-diagnostic-secret`,
+    message: [
+      `context before Bearer ${embeddedBearerCredential}`,
+      `Basic ${embeddedBasicCredential}`,
+      embeddedOpReference,
+      `x_Bearer ${underscoreBearerCredential}`,
+      `x_Basic ${underscoreBasicCredential}`,
+      `x_${underscoreOpReference}`,
+      `Bearer ${malformedBearerCredential}`,
+      `Basic ${malformedBasicCredential}`,
+      malformedOpReference,
+      `x_token=${underscoreAssignment}`,
+      "token=fixture-diagnostic-secret",
+      `x_${underscoreAuthUrl}`,
+    ].join("; "),
     secret_token: "fixture-diagnostic-secret",
   } as DiagnosticRecord)
   const harness = await facadeHarness({ eventAcceptance: "refused" })
@@ -448,6 +472,17 @@ test("redaction validates and freezes both seams before crossing", async () => {
     embeddedBearerCredential,
     embeddedBasicCredential,
     embeddedOpReference,
+    underscoreBearerCredential,
+    underscoreBasicCredential,
+    underscoreOpReference,
+    malformedCredentialTail,
+    malformedBearerCredential,
+    malformedBasicCredential,
+    malformedOpReference,
+    underscoreAuthUsername,
+    underscoreAuthPassword,
+    underscoreAuthUrl,
+    underscoreAssignment,
   ]
   absent(
     harness && {
@@ -457,7 +492,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
       order: redactionTrace,
     },
-    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED]; [REDACTED]; [REDACTED] token=[REDACTED]", primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
+    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED]; [REDACTED]; [REDACTED]; x_[REDACTED]; x_[REDACTED]; x_[REDACTED]; [REDACTED]; [REDACTED]; [REDACTED]; x_token=[REDACTED]; token=[REDACTED]; x_[REDACTED]", primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
     "redaction must precede both seams without changing the fixed primary result",
   )
 })
