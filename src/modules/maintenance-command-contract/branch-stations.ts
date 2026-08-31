@@ -248,64 +248,6 @@ const repairRouteFor = (
     ? input.repairRouteCommandId ?? null
     : descriptor.nextAction.commandId
 
-/**
- * Which command may carry which Result Code. Station IDs are derived from the
- * Maintenance command slug and the Result Code, so this relation, never catalog
- * data, decides membership. Every Branch Station row is admitted by it, and the
- * colocated Contract Test proves that agreement row by row.
- */
-type StationScope =
-  | "maintenance-facade"
-  | "runtime-owned"
-  | "preview"
-  | "apply-completion"
-  | "post-dispatch-refusal"
-  | "typed-unexpected"
-
-const stationScopes = {
-  previewed: "preview",
-  completed: "apply-completion",
-  "continuation-required": "apply-completion",
-  "command-refused": "post-dispatch-refusal",
-  "recovery-required": "post-dispatch-refusal",
-  "retry-deferred": "post-dispatch-refusal",
-  "runtime-failed": "typed-unexpected",
-  "usage-refused": "maintenance-facade",
-  "runtime-repair-preview": "runtime-owned",
-  "runtime-repair-unneeded": "runtime-owned",
-  "runtime-repair-applied": "runtime-owned",
-  "runtime-control-invalid": "runtime-owned",
-  "runtime-usage-refused": "runtime-owned",
-  "runtime-bun-missing": "runtime-owned",
-  "runtime-cache-root-unsafe": "runtime-owned",
-  "runtime-repair-required": "runtime-owned",
-  "runtime-host-tool-missing": "runtime-owned",
-  "runtime-not-executable": "runtime-owned",
-  "runtime-unsupported-platform": "runtime-owned",
-  "runtime-download-failed": "runtime-owned",
-  "runtime-lock-held": "runtime-owned",
-  "runtime-archive-hash-mismatch": "runtime-owned",
-  "runtime-archive-member-ambiguous": "runtime-owned",
-  "runtime-archive-member-missing": "runtime-owned",
-  "runtime-archive-size-mismatch": "runtime-owned",
-  "runtime-bundle-mismatch": "runtime-owned",
-  "runtime-bundle-unmapped": "runtime-owned",
-  "runtime-executable-hash-mismatch": "runtime-owned",
-  "runtime-executable-size-mismatch": "runtime-owned",
-  "runtime-executable-version-mismatch": "runtime-owned",
-  "runtime-lock-invalid": "runtime-owned",
-  "runtime-skill-unknown": "runtime-owned",
-  "runtime-url-rejected": "runtime-owned",
-} as const satisfies Record<ResultCode, StationScope>
-
-const runtimeStationCommands: readonly BranchStation["commandId"][] = [
-  "runtime:repair",
-  "runtime:repair-apply",
-]
-
-const isRuntimeStationCommand = (commandId: BranchStation["commandId"]): boolean =>
-  runtimeStationCommands.includes(commandId)
-
 const commandDescriptorFor = (commandId: BranchStation["commandId"]) =>
   commandId === "maintenance"
     ? undefined
@@ -317,29 +259,13 @@ export type BranchStationMembership = {
   classification: BranchStation["classification"]
 }
 
-export const isDeclaredBranchStation = (membership: BranchStationMembership): boolean => {
-  const descriptor = descriptorFor(membership.resultCode)
-  if (membership.classification !== (descriptor.exitClass === 0 ? "success" : "failure")) return false
-
-  const commandDescriptor = commandDescriptorFor(membership.commandId)
-  if (membership.commandId !== "maintenance" && commandDescriptor === undefined) return false
-  const runtimeCommand = isRuntimeStationCommand(membership.commandId)
-
-  switch (stationScopes[membership.resultCode]) {
-    case "maintenance-facade":
-      return membership.commandId === "maintenance"
-    case "runtime-owned":
-      return runtimeCommand
-    case "preview":
-      return commandDescriptor !== undefined
-    case "apply-completion":
-      return !runtimeCommand && commandDescriptor?.interfaceCall === "apply"
-    case "post-dispatch-refusal":
-      return !runtimeCommand && commandDescriptor !== undefined
-    case "typed-unexpected":
-      return !runtimeCommand
-  }
-}
+/** The frozen Branch Station catalog is the sole serialized-membership owner. */
+export const isDeclaredBranchStation = (membership: BranchStationMembership): boolean =>
+  branchStationCatalog.some(({ commandId, expectedResultCode, classification }) =>
+    commandId === membership.commandId &&
+    expectedResultCode === membership.resultCode &&
+    classification === membership.classification
+  )
 
 /**
  * The one Next Action a declared Branch Station may carry. A command-specific

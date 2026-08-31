@@ -1,11 +1,14 @@
 import { expect, test } from "bun:test"
 import {
   branchStationCatalog,
+  type BranchStationMembership,
   canonicalNextActionFor,
   deferredOwnerProofs,
   isDeclaredBranchStation,
   projectStationMap,
 } from "../branch-stations"
+import { commandVocabulary } from "../command-vocabulary"
+import { resultVocabulary } from "../result-vocabulary"
 import { literalBranchKinds, literalBranchStationIds, literalDeclaredUnreachableRationales, literalDeferredOwnerProofs, literalExitByResultCode, literalImplementationDeferredCounts, literalRepairRouteByResultCode, literalRepairRouteByStationId, literalRequiredStationIds } from "./fixtures/literal-branch-stations"
 
 const implemented = (claim: string) => expect(projectStationMap, `implemented: ${claim}`).toBeFunction()
@@ -16,6 +19,22 @@ test("catalog declares exactly 118 deterministic station rows", () => {
   expect(branchStationCatalog.every(({ commandId, expectedResultCode, classification }) =>
     isDeclaredBranchStation({ commandId, resultCode: expectedResultCode, classification }),
   )).toBe(true)
+  const candidateCommandIds: readonly BranchStationMembership["commandId"][] = [
+    "maintenance",
+    ...commandVocabulary.map(({ command }) => command),
+  ]
+  const declaredByMembership = candidateCommandIds
+    .flatMap((commandId) => resultVocabulary
+      .filter(({ resultCode, exitClass }) => isDeclaredBranchStation({
+        commandId,
+        resultCode,
+        classification: exitClass === 0 ? "success" : "failure",
+      }))
+      .map(({ resultCode }) => `${commandId.replaceAll(":", "-")}.${resultCode}`))
+    .sort()
+  expect(declaredByMembership).toEqual(
+    branchStationCatalog.map(({ stationId }) => String(stationId)).sort(),
+  )
   expect(branchStationCatalog.every(({ commandId, expectedResultCode, expectedNextActionId }) =>
     canonicalNextActionFor(commandId, expectedResultCode)?.id === expectedNextActionId,
   )).toBe(true)
@@ -23,6 +42,8 @@ test("catalog declares exactly 118 deterministic station rows", () => {
   expect(isDeclaredBranchStation({ commandId: "payload:materialize", resultCode: "runtime-repair-applied", classification: "success" })).toBe(false)
   expect(isDeclaredBranchStation({ commandId: "help", resultCode: "completed", classification: "success" })).toBe(false)
   expect(isDeclaredBranchStation({ commandId: "payload:check", resultCode: "usage-refused", classification: "failure" })).toBe(false)
+  expect(isDeclaredBranchStation({ commandId: "release:apply", resultCode: "previewed", classification: "success" })).toBe(false)
+  expect(isDeclaredBranchStation({ commandId: "runtime:repair-apply", resultCode: "previewed", classification: "success" })).toBe(false)
   expect(canonicalNextActionFor("help", "runtime-repair-unneeded")).toBeUndefined()
   implemented("Station Map projection consumes the closed catalog")
 })

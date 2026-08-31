@@ -22,6 +22,11 @@ const digest = (bytes: string) =>
 
 const canonicalInspectionFor = (request: MaintenanceApplyRequest): MaintenanceCommand => {
   switch (request.command) {
+    case "payload:materialize":
+    case "payload:package":
+      return { command: "payload:check", request: { ...request.request, mode: "check" } }
+    case "runtime:repair-apply":
+      return { command: "runtime:repair", argv: ["repair"] }
     case "release:apply":
       return {
         command: "release:inspect",
@@ -57,7 +62,15 @@ async function assertApply(
   key: keyof typeof mutatingRequests,
   effectClass: CommandPreview["effectClass"],
 ) {
-  const harness = createMaintenanceContractHarness()
+  const harness = key === "runtime"
+    ? createMaintenanceContractHarness({
+        runtimeResults: [
+          runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+          runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+          runtimeControl("REPAIR_APPLIED", { sideEffects: ["published-runtime"] }),
+        ],
+      })
+    : createMaintenanceContractHarness()
   const request = mutatingRequests[key]
   const vector =
     key === "release" ? approvalDigestVectors[0]
@@ -96,6 +109,10 @@ async function assertApply(
   }
   if (key === "runtime") {
     expect(harness.runtimeSpawnLedger).toEqual([
+      {
+        argv: ["repair"],
+        result: runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+      },
       {
         argv: ["repair"],
         result: runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
@@ -254,10 +271,10 @@ test("inspection requests no capability and writes no durable target", async () 
   const observedInputs = harness.inspectionInputLedger
   expect(observedInputs.map(({ command }) => command)).toEqual([
     "release:inspect",
-    "release:apply",
-    "harness:claude:apply",
-    "harness:codex:apply",
-    "canary:qualify",
+    "release:inspect",
+    "harness:claude:inspect",
+    "harness:codex:inspect",
+    "canary:inspect",
   ])
   expect(observedInputs.every((observed) =>
     !Object.hasOwn(observed, "approval") && !Object.hasOwn(observed, "authority"),

@@ -127,14 +127,41 @@ const commandIdFor = (command: MaintenanceCommand["command"]) => {
 }
 
 const inspectionInputFor = (command: MaintenanceCommand): MaintenanceInspectionInput => {
-  const protectedInput = commandIdFor(command.command).protectedInput
-  if (protectedInput === null) return command
-
-  // TypeScript cannot narrow a discriminated union through this correlated computed key.
-  const inspectionInput: MaintenanceCommand &
-    Partial<Record<"approval" | "authority", unknown>> = { ...command }
-  delete inspectionInput[protectedInput]
-  return inspectionInput as MaintenanceInspectionInput
+  switch (command.command) {
+    case "payload:materialize":
+    case "payload:package":
+      return { command: "payload:check", request: { ...command.request, mode: "check" } }
+    case "runtime:repair-apply":
+      return { command: "runtime:repair", argv: ["repair"] }
+    case "release:apply":
+      return {
+        command: "release:inspect",
+        request: { candidate: command.request.candidate, intent: command.request.intent },
+      }
+    case "harness:claude:apply":
+      return {
+        command: "harness:claude:inspect",
+        request: {
+          identity: command.request.identity,
+          payload: command.request.payload,
+          profileIdentity: command.request.profileIdentity,
+        },
+      }
+    case "harness:codex:apply":
+      return {
+        command: "harness:codex:inspect",
+        request: {
+          identity: command.request.identity,
+          payload: command.request.payload,
+          profileIdentity: command.request.profileIdentity,
+          checkoutIdentity: command.request.checkoutIdentity,
+        },
+      }
+    case "canary:qualify":
+      return { command: "canary:inspect", candidate: command.candidate }
+    default:
+      return command
+  }
 }
 
 const resultFor = (resultCode: ResultCode) => {
@@ -964,7 +991,7 @@ export const createMaintenanceCommands = (
   const inspect = async (command: MaintenanceCommand): Promise<MaintenanceOutcome<CommandPreview>> => {
     const inspectionInput = inspectionInputFor(command)
     observeInspectionInput?.(inspectionInput)
-    const outcome = await inspectHandlers[command.command](inspectionInput)
+    const outcome = await inspectHandlers[inspectionInput.command](inspectionInput)
     const inspectionKey = freshInspectionKey(inspectionInput)
     if (outcome.status === "ok" && inspectionKey !== null) {
       inspected.set(inspectionKey, [...outcome.value.expectedEffectIds])
