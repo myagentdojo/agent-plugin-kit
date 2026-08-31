@@ -348,21 +348,18 @@ type ProtectedInputAlignmentFor<C extends MaintenanceCommand["command"]> =
       : false
     : false
 
-const protectedInputAlignmentChecks: [
-  ProtectedInputAlignmentFor<"help">,
-  ProtectedInputAlignmentFor<"payload:check">,
-  ProtectedInputAlignmentFor<"payload:materialize">,
-  ProtectedInputAlignmentFor<"payload:package">,
-  ProtectedInputAlignmentFor<"runtime:repair">,
-  ProtectedInputAlignmentFor<"runtime:repair-apply">,
-  ProtectedInputAlignmentFor<"release:inspect">,
-  ProtectedInputAlignmentFor<"release:apply">,
-  ProtectedInputAlignmentFor<"harness:claude:inspect">,
-  ProtectedInputAlignmentFor<"harness:claude:apply">,
-  ProtectedInputAlignmentFor<"harness:codex:inspect">,
-  ProtectedInputAlignmentFor<"harness:codex:apply">,
-  ProtectedInputAlignmentFor<"canary:inspect">,
-  ProtectedInputAlignmentFor<"canary:qualify">,
-] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true]
+/**
+ * Every command whose descriptor `protectedInput` disagrees with its declared
+ * command shape, including a command the vocabulary no longer declares. The
+ * assertion is derived from the command union, so a new or removed command is
+ * covered without restating a per-command list.
+ */
+type MisalignedProtectedInputCommands = {
+  [C in MaintenanceCommand["command"]]: ProtectedInputAlignmentFor<C> extends true ? never : C
+}[MaintenanceCommand["command"]]
 
-void protectedInputAlignmentChecks
+const protectedInputAlignmentCheck: [MisalignedProtectedInputCommands] extends [never]
+  ? true
+  : MisalignedProtectedInputCommands = true
+
+void protectedInputAlignmentCheck

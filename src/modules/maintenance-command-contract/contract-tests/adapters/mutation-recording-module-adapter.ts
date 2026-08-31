@@ -30,6 +30,7 @@ import type { RuntimeCustodyResult } from "../../../runtime-custody/interface"
 import {
   createMaintenanceCommands,
   type MaintenanceCommandDependencies,
+  type MaintenanceInspectionInput,
 } from "../../implementation/maintenance-commands"
 
 export type MaintenanceContractHarness = {
@@ -37,6 +38,13 @@ export type MaintenanceContractHarness = {
   readonly applyLedgers: Readonly<Record<string, MaintenanceApplyRequest[]>>
   readonly runtimeSpawnLedger: RuntimeSpawnRecord[]
   readonly ownerInspectionLedger: readonly unknown[]
+  /**
+   * Every object the Implementation handed to an inspection handler, observed
+   * through the owner-local pre-handler seam. It is the stripped object itself,
+   * not a collaborator's view of it, so protected-input stripping is observable
+   * even for a command whose owner never sees the outer request.
+   */
+  readonly inspectionInputLedger: readonly MaintenanceInspectionInput[]
   durableDigest(): string
   inspect(command: MaintenanceCommand): Promise<MaintenanceOutcome<CommandPreview>>
   apply(request: MaintenanceApplyRequest): Promise<MaintenanceOutcome<CommandResult>>
@@ -96,6 +104,7 @@ export function createMaintenanceContractHarness(
   }
   const runtimeSpawnLedger: RuntimeSpawnRecord[] = []
   const ownerInspectionLedger: unknown[] = []
+  const inspectionInputLedger: MaintenanceInspectionInput[] = []
   const runtimeResults = [...(options.runtimeResults ?? [
     runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
     runtimeControl("REPAIR_APPLIED", {
@@ -202,13 +211,16 @@ export function createMaintenanceContractHarness(
   }
 
   const assembled: MaintenanceCommandDependencies = { payload, runtime, release, harness, canary }
-  const commands = createMaintenanceCommands(assembled)
+  const commands = createMaintenanceCommands(assembled, (input) => {
+    inspectionInputLedger.push(input)
+  })
 
   return {
     commands,
     applyLedgers,
     runtimeSpawnLedger,
     ownerInspectionLedger,
+    inspectionInputLedger,
     durableDigest() {
       return createHash("sha256")
         .update(JSON.stringify(durableTargets))

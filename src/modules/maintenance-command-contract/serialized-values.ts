@@ -17,6 +17,12 @@ import type {
   StationId,
   TransactionState,
 } from "./interface"
+import type { BranchStationMembership } from "./branch-stations"
+import {
+  canonicalNextActionFor,
+  isDeclaredBranchStation,
+  stationSlugFor,
+} from "./branch-stations"
 import { commandVocabulary } from "./command-vocabulary"
 import {
   actionVocabulary,
@@ -36,19 +42,50 @@ export type MaintenancePreviewOutcome = MaintenanceOutcome<CommandPreview>
 export type MaintenanceResultOutcome = MaintenanceOutcome<CommandResult>
 export type MaintenanceErrorOutcome = Extract<MaintenanceOutcome<never>, { status: "error" }>
 
-const commandIds = commandVocabulary.map(({ command }) => command) as [
+type CommandCatalogRow = (typeof commandVocabulary)[number]
+type CatalogCommandId = CommandCatalogRow["command"]
+type CatalogApplyCommandId = Extract<CommandCatalogRow, { interfaceCall: "apply" }>["command"]
+type CatalogInspectCommandId = Extract<CommandCatalogRow, { interfaceCall: "inspect" }>["command"]
+type CatalogResultCode = (typeof resultVocabulary)[number]["resultCode"]
+type DeclaredInspectCommandId = Exclude<
   MaintenanceCommand["command"],
-  ...MaintenanceCommand["command"][],
+  MaintenanceApplyRequest["command"]
+>
+
+/**
+ * The sealed catalogs and the declared unions must denote the same commands and
+ * Result Codes in both directions. A removed catalog row, an added declared
+ * member, or a changed `interfaceCall` partition fails this assertion at
+ * compile time, before any enum tuple is built from catalog data.
+ */
+const catalogEquivalenceChecks: [
+  CatalogCommandId extends MaintenanceCommand["command"] ? true : false,
+  MaintenanceCommand["command"] extends CatalogCommandId ? true : false,
+  CatalogApplyCommandId extends MaintenanceApplyRequest["command"] ? true : false,
+  MaintenanceApplyRequest["command"] extends CatalogApplyCommandId ? true : false,
+  CatalogInspectCommandId extends DeclaredInspectCommandId ? true : false,
+  DeclaredInspectCommandId extends CatalogInspectCommandId ? true : false,
+  CatalogResultCode extends ResultCode ? true : false,
+  ResultCode extends CatalogResultCode ? true : false,
+] = [true, true, true, true, true, true, true, true]
+
+void catalogEquivalenceChecks
+
+const isApplyCatalogRow = (
+  descriptor: CommandCatalogRow,
+): descriptor is Extract<CommandCatalogRow, { interfaceCall: "apply" }> =>
+  descriptor.interfaceCall === "apply"
+
+const commandIds = commandVocabulary.map(({ command }) => command) as [
+  CatalogCommandId,
+  ...CatalogCommandId[],
 ]
 const applyCommandIds = commandVocabulary
-  .filter(({ interfaceCall }) => interfaceCall === "apply")
-  .map(({ command }) => command) as [
-    MaintenanceApplyRequest["command"],
-    ...MaintenanceApplyRequest["command"][],
-  ]
+  .filter(isApplyCatalogRow)
+  .map(({ command }) => command) as [CatalogApplyCommandId, ...CatalogApplyCommandId[]]
 const resultCodes = resultVocabulary.map(({ resultCode }) => resultCode) as [
-  ResultCode,
-  ...ResultCode[],
+  CatalogResultCode,
+  ...CatalogResultCode[],
 ]
 
 const commandIdSchema = z.enum(commandIds)
@@ -87,6 +124,182 @@ const nextActionSchema = z.strictObject({
   retryAfterMs: z.number().int().nonnegative().exactOptional(),
   idempotencyKey: z.string().exactOptional(),
 })
+const commandDescriptorsByCommand = Object.fromEntries(
+  commandVocabulary.map((descriptor) => [descriptor.command, descriptor]),
+) as Record<CatalogCommandId, CommandCatalogRow>
+
+const addValueIssue = (ctx: z.RefinementCtx, path: PropertyKey[]) => {
+  ctx.addIssue({ code: "custom", message: "invalid serialized value", path })
+}
+
+/** Canonical meaning shared by fixed and retry-enriched Next Actions. */
+const hasCanonicalNextActionMeaning = (actual: NextAction, canonical: NextAction): boolean =>
+  actual.id === canonical.id &&
+  actual.action === canonical.action &&
+  actual.summary === canonical.summary &&
+  actual.commandId === canonical.commandId
+
+/** Success values cannot add retry metadata to their fixed canonical Next Action. */
+const isExactCanonicalNextAction = (actual: NextAction, canonical: NextAction): boolean =>
+  hasCanonicalNextActionMeaning(actual, canonical) &&
+  actual.retryAfterMs === canonical.retryAfterMs &&
+  actual.idempotencyKey === canonical.idempotencyKey
+
+type SuccessValueKind = "preview" | "result"
+
+/** The result-agnostic success Result Code the opposite value kind owns. */
+const foreignSuccessResultCode = { preview: "completed", result: "previewed" } as const
+
+const canonicalSuccessNextActions = new Map<string, readonly NextAction[]>()
+for (const descriptor of commandVocabulary) {
+  for (const kind of ["preview", "result"] as const) {
+    for (const transactionState of transactionStateVocabulary) {
+      const actions = resultVocabulary
+        .filter((candidate) =>
+          candidate.exitClass === 0 &&
+          candidate.transactionState === transactionState &&
+          candidate.resultCode !== foreignSuccessResultCode[kind] &&
+          isDeclaredBranchStation({
+            commandId: descriptor.command,
+            resultCode: candidate.resultCode,
+            classification: "success",
+          }))
+        .flatMap((candidate) => {
+          const canonical = canonicalNextActionFor(descriptor.command, candidate.resultCode)
+          return canonical === undefined ? [] : [canonical]
+        })
+      canonicalSuccessNextActions.set(`${descriptor.command}|${kind}|${transactionState}`, actions)
+    }
+  }
+}
+
+const canonicalSuccessNextActionsFor = (
+  command: CatalogCommandId,
+  kind: SuccessValueKind,
+  transactionState: TransactionState,
+): readonly NextAction[] => canonicalSuccessNextActions.get(`${command}|${kind}|${transactionState}`) ?? []
+
+type MaintenanceFailureProjection = {
+  exitCodeHint: MaintenanceError["exitCodeHint"]
+  failureClass: MaintenanceError["failureClass"]
+  severity: MaintenanceError["severity"]
+  action: MaintenanceAction
+  retryable: boolean
+  retrySafety: RetrySafety
+  transactionState: TransactionState
+  errorFamily: MaintenanceError["errorFamily"]
+  recoverability: MaintenanceError["recoverability"]
+  nextAction: NextAction
+}
+
+/**
+ * Every failure meaning a Next Action identity can carry. Result Codes that
+ * share one Next Action must project the same failure meaning, so this map is a
+ * function and a Maintenance Error can be checked without its Result Code.
+ */
+const failureProjectionsByNextActionId = new Map<string, MaintenanceFailureProjection>()
+for (const descriptor of resultVocabulary) {
+  const exitCodeHint = descriptor.exitClass
+  const failureClass = descriptor.failureClass
+  if (exitCodeHint === 0 || failureClass === null) continue
+  const policy = failureClassPolicy[failureClass]
+  const projection: MaintenanceFailureProjection = {
+    exitCodeHint,
+    failureClass,
+    severity: descriptor.severity === "info" ? "error" : descriptor.severity,
+    action: descriptor.nextAction.action,
+    retryable: descriptor.retrySafety === "safe" && descriptor.exitFamilyId === "transient-retry",
+    retrySafety: descriptor.retrySafety,
+    transactionState: descriptor.transactionState,
+    errorFamily: policy.errorFamily,
+    recoverability: policy.recoverability,
+    nextAction: descriptor.nextAction,
+  }
+  const earlier = failureProjectionsByNextActionId.get(descriptor.nextAction.id)
+  if (earlier === undefined) {
+    failureProjectionsByNextActionId.set(descriptor.nextAction.id, projection)
+    continue
+  }
+  if (JSON.stringify(earlier) !== JSON.stringify(projection)) {
+    throw new Error(`conflicting Maintenance failure projection: ${descriptor.nextAction.id}`)
+  }
+}
+
+/**
+ * Owner-local semantic refinement shared by the direct public parsers and the
+ * composed outcome parsers. These three functions reject only the relationships
+ * a value carries enough of itself to decide: a Command Preview and a Command
+ * Result know their command, and a Maintenance Error knows its Next Action.
+ * Relationships that need the Result Code or the Station ID stay with the
+ * composed outcome refinement, which owns the rest of the contract.
+ */
+const refineCommandPreviewValue = (preview: CommandPreview, ctx: z.RefinementCtx) => {
+  const descriptor = commandDescriptorsByCommand[preview.command]
+  if (preview.effectClass !== descriptor.effectClass) addValueIssue(ctx, ["effectClass"])
+  if (preview.retrySafety !== retrySafetyForEffectClass(descriptor.effectClass)) {
+    addValueIssue(ctx, ["retrySafety"])
+  }
+  if (preview.transactionState !== "unchanged") addValueIssue(ctx, ["transactionState"])
+  const canonical = canonicalSuccessNextActionsFor(
+    preview.command,
+    "preview",
+    preview.transactionState,
+  )
+  if (!canonical.some((candidate) => isExactCanonicalNextAction(preview.nextAction, candidate))) {
+    addValueIssue(ctx, ["nextAction"])
+  }
+}
+
+const refineCommandResultValue = (result: CommandResult, ctx: z.RefinementCtx) => {
+  const descriptor = commandDescriptorsByCommand[result.command]
+  if (result.retrySafety !== retrySafetyForEffectClass(descriptor.effectClass)) {
+    addValueIssue(ctx, ["retrySafety"])
+  }
+  if (result.remainingEffectIds.length !== 0) addValueIssue(ctx, ["remainingEffectIds"])
+  if (result.transactionState === "unchanged" && result.completedEffectIds.length !== 0) {
+    addValueIssue(ctx, ["completedEffectIds"])
+  }
+  const canonical = canonicalSuccessNextActionsFor(result.command, "result", result.transactionState)
+  if (canonical.length === 0) addValueIssue(ctx, ["transactionState"])
+  if (!canonical.some((candidate) => isExactCanonicalNextAction(result.nextAction, candidate))) {
+    addValueIssue(ctx, ["nextAction"])
+  }
+}
+
+const retryMetadataIsValid = (error: MaintenanceError): boolean => {
+  const copiesAgree =
+    error.retryAfterMs === error.nextAction.retryAfterMs &&
+    error.idempotencyKey === error.nextAction.idempotencyKey
+  if (!copiesAgree) return false
+  return error.retryable ||
+    (error.retryAfterMs === undefined && error.idempotencyKey === undefined)
+}
+
+const refineMaintenanceErrorValue = (error: MaintenanceError, ctx: z.RefinementCtx) => {
+  const projection = failureProjectionsByNextActionId.get(error.nextAction.id)
+  if (projection === undefined) {
+    addValueIssue(ctx, ["nextAction", "id"])
+    return
+  }
+  const projectionChecks: readonly [boolean, PropertyKey[]][] = [
+    [error.exitCodeHint === projection.exitCodeHint, ["exitCodeHint"]],
+    [error.failureClass === projection.failureClass, ["failureClass"]],
+    [error.severity === projection.severity, ["severity"]],
+    [error.action === projection.action, ["action"]],
+    [error.action === error.nextAction.action, ["action"]],
+    [error.retryable === projection.retryable, ["retryable"]],
+    [error.retrySafety === projection.retrySafety, ["retrySafety"]],
+    [error.transactionState === projection.transactionState, ["transactionState"]],
+    [error.errorFamily === projection.errorFamily, ["errorFamily"]],
+    [error.recoverability === projection.recoverability, ["recoverability"]],
+    [hasCanonicalNextActionMeaning(error.nextAction, projection.nextAction), ["nextAction"]],
+    [retryMetadataIsValid(error), ["nextAction"]],
+  ]
+  for (const [isValid, path] of projectionChecks) {
+    if (!isValid) addValueIssue(ctx, path)
+  }
+}
+
 const maintenanceErrorCommonShape = {
   name: z.literal("MaintenanceCommandError"),
   nextAction: nextActionSchema,
@@ -127,7 +340,7 @@ const maintenanceErrorSchema = z.discriminatedUnion("failureClass", [
     retrySafety: retrySafetySchema,
     transactionState: transactionStateSchema,
   }),
-])
+]).superRefine(refineMaintenanceErrorValue)
 const commandPreviewSchema = z.strictObject({
   schemaVersion: z.literal(1),
   command: commandIdSchema,
@@ -139,7 +352,7 @@ const commandPreviewSchema = z.strictObject({
   human: z.string(),
   agent: agentPayloadSchema,
   stderr: z.string(),
-})
+}).superRefine(refineCommandPreviewValue)
 const commandResultSchema = z.strictObject({
   schemaVersion: z.literal(1),
   command: applyCommandIdSchema,
@@ -151,13 +364,11 @@ const commandResultSchema = z.strictObject({
   human: z.string(),
   agent: agentPayloadSchema,
   stderr: z.string(),
-})
+}).superRefine(refineCommandResultValue)
 const serializedValidationLookups = {
-  commands: Object.fromEntries(
-    commandVocabulary.map((descriptor) => [descriptor.command, descriptor]),
-  ) as Record<MaintenanceCommand["command"], (typeof commandVocabulary)[number]>,
+  commands: commandDescriptorsByCommand,
   commandsBySlug: new Map(
-    commandVocabulary.map((descriptor) => [descriptor.command.replaceAll(":", "-"), descriptor] as const),
+    commandVocabulary.map((descriptor) => [stationSlugFor(descriptor.command), descriptor] as const),
   ),
   results: Object.fromEntries(
     resultVocabulary.map((descriptor) => [descriptor.resultCode, descriptor]),
@@ -223,6 +434,54 @@ const refineOutcomeStationAndStatus = (
   } else if (context.resultDescriptor.exitClass === 0 || context.resultDescriptor.failureClass === null) {
     addOutcomeIssue(ctx, ["status", "resultCode"])
   }
+
+  refineOutcomeStationMembership(outcome, context, ctx)
+}
+
+const outcomeCommandIdFor = (
+  context: OutcomeValidationContext,
+): BranchStationMembership["commandId"] | undefined =>
+  context.stationSlug === "maintenance" ? "maintenance" : context.commandDescriptor?.command
+
+const outcomeNextActionSideFor = (
+  outcome: OutcomeValidationInput,
+): { nextAction: NextAction; path: "value" | "error" } =>
+  outcome.status === "ok"
+    ? { nextAction: outcome.value.nextAction, path: "value" }
+    : { nextAction: outcome.error.nextAction, path: "error" }
+
+/**
+ * The command, Result Code, and envelope status must name a declared Branch
+ * Station, and the outcome must carry that station's one canonical Next Action.
+ * A command that cannot reach a Result Code, and a Next Action that no station
+ * declares, are both refused here rather than at the value schema, because only
+ * the outcome carries the Station ID.
+ */
+const refineOutcomeStationMembership = (
+  outcome: OutcomeValidationInput,
+  context: OutcomeValidationContext,
+  ctx: z.RefinementCtx,
+) => {
+  const commandId = outcomeCommandIdFor(context)
+  const classification = outcome.status === "ok" ? "success" : "failure"
+  if (
+    commandId === undefined ||
+    !isDeclaredBranchStation({ commandId, resultCode: outcome.resultCode, classification })
+  ) {
+    addOutcomeIssue(ctx, ["stationId"])
+    return
+  }
+
+  const canonical = canonicalNextActionFor(commandId, outcome.resultCode)
+  const side = outcomeNextActionSideFor(outcome)
+  const nextActionMatches = canonical !== undefined && (
+    outcome.status === "ok"
+      ? isExactCanonicalNextAction(side.nextAction, canonical)
+      : hasCanonicalNextActionMeaning(side.nextAction, canonical)
+  )
+  if (!nextActionMatches) {
+    addOutcomeIssue(ctx, [side.path, "nextAction"])
+  }
 }
 
 const refineErrorOutcome = (
@@ -230,7 +489,7 @@ const refineErrorOutcome = (
   context: OutcomeValidationContext,
   ctx: z.RefinementCtx,
 ) => {
-  const { resultDescriptor, commandDescriptor, stationSlug } = context
+  const { resultDescriptor, commandDescriptor } = context
   if (resultDescriptor.failureClass === null) return
   const failurePolicy = serializedValidationLookups.failureClassPolicy[resultDescriptor.failureClass]
 
@@ -263,18 +522,8 @@ const refinePreviewOutcome = (
   ctx: z.RefinementCtx,
 ) => {
   const preview = outcome.value as CommandPreview
-  const valueCommandDescriptor = serializedValidationLookups.commands[preview.command]
-  const expectedCommandSlug = outcome.value.command.replaceAll(":", "-")
+  const expectedCommandSlug = stationSlugFor(outcome.value.command)
   if (context.stationSlug !== expectedCommandSlug) addOutcomeIssue(ctx, ["stationId"])
-  if (preview.effectClass !== valueCommandDescriptor.effectClass) {
-    addOutcomeIssue(ctx, ["value", "effectClass"])
-  }
-  if (preview.retrySafety !== retrySafetyForEffectClass(valueCommandDescriptor.effectClass)) {
-    addOutcomeIssue(ctx, ["value", "retrySafety"])
-  }
-  if (preview.transactionState !== "unchanged") {
-    addOutcomeIssue(ctx, ["value", "transactionState"])
-  }
   if (preview.transactionState !== context.resultDescriptor.transactionState) {
     addOutcomeIssue(ctx, ["value", "transactionState"])
   }
@@ -286,20 +535,10 @@ const refineResultOutcome = (
   ctx: z.RefinementCtx,
 ) => {
   const result = outcome.value as CommandResult
-  const valueCommandDescriptor = serializedValidationLookups.commands[result.command]
-  const expectedCommandSlug = result.command.replaceAll(":", "-")
+  const expectedCommandSlug = stationSlugFor(result.command)
   if (context.stationSlug !== expectedCommandSlug) addOutcomeIssue(ctx, ["stationId"])
-  if (result.retrySafety !== retrySafetyForEffectClass(valueCommandDescriptor.effectClass)) {
-    addOutcomeIssue(ctx, ["value", "retrySafety"])
-  }
   if (result.transactionState !== context.resultDescriptor.transactionState) {
     addOutcomeIssue(ctx, ["value", "transactionState"])
-  }
-  if (result.remainingEffectIds.length !== 0) {
-    addOutcomeIssue(ctx, ["value", "remainingEffectIds"])
-  }
-  if (result.transactionState === "unchanged" && result.completedEffectIds.length !== 0) {
-    addOutcomeIssue(ctx, ["value", "completedEffectIds"])
   }
 }
 

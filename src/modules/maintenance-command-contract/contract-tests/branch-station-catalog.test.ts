@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test"
-import { branchStationCatalog, projectStationMap, deferredOwnerProofs } from "../branch-stations"
+import {
+  branchStationCatalog,
+  canonicalNextActionFor,
+  deferredOwnerProofs,
+  isDeclaredBranchStation,
+  projectStationMap,
+} from "../branch-stations"
 import { literalBranchKinds, literalBranchStationIds, literalDeclaredUnreachableRationales, literalDeferredOwnerProofs, literalExitByResultCode, literalImplementationDeferredCounts, literalRepairRouteByResultCode, literalRepairRouteByStationId, literalRequiredStationIds } from "./fixtures/literal-branch-stations"
 
 const implemented = (claim: string) => expect(projectStationMap, `implemented: ${claim}`).toBeFunction()
@@ -7,6 +13,17 @@ const implemented = (claim: string) => expect(projectStationMap, `implemented: $
 test("catalog declares exactly 118 deterministic station rows", () => {
   expect(branchStationCatalog).toHaveLength(118)
   expect(branchStationCatalog.map(({ stationId }) => String(stationId))).toEqual([...literalBranchStationIds])
+  expect(branchStationCatalog.every(({ commandId, expectedResultCode, classification }) =>
+    isDeclaredBranchStation({ commandId, resultCode: expectedResultCode, classification }),
+  )).toBe(true)
+  expect(branchStationCatalog.every(({ commandId, expectedResultCode, expectedNextActionId }) =>
+    canonicalNextActionFor(commandId, expectedResultCode)?.id === expectedNextActionId,
+  )).toBe(true)
+  expect(isDeclaredBranchStation({ commandId: "help", resultCode: "runtime-repair-unneeded", classification: "success" })).toBe(false)
+  expect(isDeclaredBranchStation({ commandId: "payload:materialize", resultCode: "runtime-repair-applied", classification: "success" })).toBe(false)
+  expect(isDeclaredBranchStation({ commandId: "help", resultCode: "completed", classification: "success" })).toBe(false)
+  expect(isDeclaredBranchStation({ commandId: "payload:check", resultCode: "usage-refused", classification: "failure" })).toBe(false)
+  expect(canonicalNextActionFor("help", "runtime-repair-unneeded")).toBeUndefined()
   implemented("Station Map projection consumes the closed catalog")
 })
 test("required Intentional RED scenarios are exactly help and usage", () => {

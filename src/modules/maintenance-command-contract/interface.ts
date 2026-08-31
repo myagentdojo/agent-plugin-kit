@@ -249,23 +249,35 @@ export type CommandResult = {
 /**
  * The Maintenance Command Contract boundary for inspection and application.
  *
- * A successful inspection of an external command binds its expected effect IDs
- * to the inspected request and authorizes exactly one matching apply. The
- * implementation consumes that authorization before delegating to an owner;
- * a missing inspection or a changed request or effect binding returns the
- * Maintenance-owned recovery refusal instead of delegating.
+ * A successful inspection of an external command that delegates to another
+ * owner binds its expected effect IDs to the inspected request and authorizes
+ * exactly one matching apply. The implementation consumes that authorization
+ * before delegating; a missing inspection or a changed request or effect
+ * binding returns the Maintenance-owned recovery refusal instead of delegating.
+ * This one-use binding governs `release:apply`, `harness:claude:apply`,
+ * `harness:codex:apply`, and `canary:qualify`.
+ *
+ * `runtime:repair-apply` is the one bounded exception. Runtime Custody state can
+ * change between any two calls, so a caller-held prior binding would authorize
+ * an apply against state that no longer exists. `apply` therefore inspects
+ * Runtime itself, inside the same call and immediately before the repair, and
+ * requires no prior `inspect`. A stale, absent, or non-repairable Runtime
+ * inspection refuses there rather than at a caller-held binding. Every other
+ * command keeps the one-use binding above.
  */
 export interface MaintenanceCommands {
   /**
    * Inspect current state without acquiring a capability or causing an
-   * effect. For an external command, the returned expected effect IDs are the
-   * binding consumed by the matching `apply` call.
+   * effect. For a delegating external command, the returned expected effect IDs
+   * are the binding consumed by the matching `apply` call.
    */
   inspect(command: MaintenanceCommand): Promise<MaintenanceOutcome<CommandPreview>>
 
   /**
-   * Apply one admitted request only after its matching inspection binding is
-   * present and unchanged. The binding is consumed before owner delegation.
+   * Apply one admitted request. For a delegating external command the matching
+   * inspection binding must be present and unchanged, and is consumed before
+   * owner delegation. For `runtime:repair-apply` the Runtime inspection happens
+   * inside this call instead, immediately before the repair.
    */
   apply(request: MaintenanceApplyRequest): Promise<MaintenanceOutcome<CommandResult>>
 }

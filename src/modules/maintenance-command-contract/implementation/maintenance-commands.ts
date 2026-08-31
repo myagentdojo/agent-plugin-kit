@@ -37,6 +37,7 @@ import type {
   RuntimeCustodyCommand,
   RuntimeCustodyResult,
 } from "../../runtime-custody/interface"
+import { stationSlugFor } from "../branch-stations"
 import { commandVocabulary } from "../command-vocabulary"
 import {
   validateMaintenanceErrorEgress,
@@ -143,7 +144,7 @@ const resultFor = (resultCode: ResultCode) => {
 }
 
 const stationFor = (command: MaintenanceCommand["command"] | "maintenance", resultCode: ResultCode): StationId => {
-  const commandSlug = command === "maintenance" ? command : command.replaceAll(":", "-")
+  const commandSlug = stationSlugFor(command)
   return `${commandSlug}.${resultCode}` as StationId
 }
 
@@ -515,19 +516,51 @@ const continuationRequired = (
   })
 }
 
+const compareBindingKeys = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0
+
+/** `-0` and `0` are different scalars, and a non-finite number keeps its name. */
+const canonicalNumberKey = (value: number): string =>
+  Object.is(value, -0) ? "number:-0" : `number:${String(value)}`
+
+const canonicalRecordKey = (value: object): string => {
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, entryValue]) => entryValue !== undefined)
+    .sort(([left], [right]) => compareBindingKeys(left, right))
+    .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalBindingKey(entryValue)}`)
+  return `{${entries.join(",")}}`
+}
+
+/**
+ * One deterministic key for a Candidate Identity binding. Object keys are sorted
+ * so two semantically equal requests bind to the same key whatever order their
+ * properties were written in. Array order and exact scalar values are preserved
+ * because both carry binding meaning: a reordered effect list and a changed
+ * number are different requests, a reordered object is the same request.
+ */
+const canonicalBindingKey = (value: unknown): string => {
+  if (value === null) return "null"
+  if (typeof value === "number") return canonicalNumberKey(value)
+  if (typeof value === "string" || typeof value === "boolean") return JSON.stringify(value)
+  if (typeof value !== "object") return `${typeof value}:${String(value)}`
+  return Array.isArray(value)
+    ? `[${value.map(canonicalBindingKey).join(",")}]`
+    : canonicalRecordKey(value)
+}
+
 const freshInspectionKey = (
   command: MaintenanceInspectionInput | MaintenanceApplyRequest,
 ): string | null => {
   switch (command.command) {
     case "release:inspect":
     case "release:apply":
-      return JSON.stringify({
+      return canonicalBindingKey({
         owner: "release-and-git-engine",
         request: { candidate: command.request.candidate, intent: command.request.intent },
       })
     case "harness:claude:inspect":
     case "harness:claude:apply":
-      return JSON.stringify({
+      return canonicalBindingKey({
         owner: "harness-journeys:claude",
         request: {
           identity: command.request.identity,
@@ -537,7 +570,7 @@ const freshInspectionKey = (
       })
     case "harness:codex:inspect":
     case "harness:codex:apply":
-      return JSON.stringify({
+      return canonicalBindingKey({
         owner: "harness-journeys:codex",
         request: {
           identity: command.request.identity,
@@ -548,7 +581,7 @@ const freshInspectionKey = (
       })
     case "canary:inspect":
     case "canary:qualify":
-      return JSON.stringify({ owner: "canary-qualification", candidate: command.candidate })
+      return canonicalBindingKey({ owner: "canary-qualification", candidate: command.candidate })
     default:
       return null
   }
@@ -892,8 +925,19 @@ const applyHandlerFor = <C extends MaintenanceApplyRequest["command"]>(
   return handler(request)
 }
 
+/**
+ * Owner-local observation of the exact inspection input a handler receives:
+ * after protected-input stripping and before delegation. It exists so the
+ * colocated Contract Tests can observe the stripped object itself rather than
+ * infer stripping from what a collaborator happened to be handed. It stays
+ * private to this Implementation: it is absent from the public Module
+ * Interface, from every package export, and from every production caller.
+ */
+export type MaintenanceInspectionInputObserver = (input: MaintenanceInspectionInput) => void
+
 export const createMaintenanceCommands = (
   collaborators: MaintenanceCommandDependencies,
+  observeInspectionInput?: MaintenanceInspectionInputObserver,
 ): MaintenanceCommands => {
   const inspected = new Map<string, readonly string[]>()
 
@@ -919,6 +963,7 @@ export const createMaintenanceCommands = (
 
   const inspect = async (command: MaintenanceCommand): Promise<MaintenanceOutcome<CommandPreview>> => {
     const inspectionInput = inspectionInputFor(command)
+    observeInspectionInput?.(inspectionInput)
     const outcome = await inspectHandlers[command.command](inspectionInput)
     const inspectionKey = freshInspectionKey(inspectionInput)
     if (outcome.status === "ok" && inspectionKey !== null) {

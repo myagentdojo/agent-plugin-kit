@@ -2,6 +2,7 @@ import type {
   EffectClass,
   MaintenanceCommand,
   MaintenanceErrorFailureClass,
+  NextAction,
   RetrySafety,
   ResultCode,
   StationId,
@@ -11,8 +12,18 @@ import {
   maintenanceCommandContractId,
   resultSchemaVersion,
   resultVocabulary,
+  retrySafetyForEffectClass,
 } from "./result-vocabulary"
 import { commandVocabulary } from "./command-vocabulary"
+
+/**
+ * The Station ID command half. Every Station ID is derived from this slug and a
+ * Result Code, so the rule stays with the Station owner. The facade's
+ * `maintenance` pseudo-command carries no separator and is returned unchanged.
+ */
+export const stationSlugFor = (
+  command: MaintenanceCommand["command"] | "maintenance",
+): string => command.replaceAll(":", "-")
 
 export type BranchKind =
   | "execution"
@@ -215,12 +226,18 @@ const mutationExpectationFor = (
   return { kind: "result", completedEffectIds: [], remainingEffectIds: [] }
 }
 
+/**
+ * A success Branch Station takes its Retry Safety from the one Effect Class
+ * policy owner in Result Vocabulary. A failure Branch Station keeps the Result
+ * Descriptor policy, because a failure's retry meaning belongs to the Result
+ * Code rather than to the command's Effect Class.
+ */
 const expectedRetrySafetyFor = (
   classification: BranchStation["classification"],
   effectClass: EffectClass | undefined,
   declared: RetrySafety,
-): RetrySafety => classification === "success" && effectClass === "external"
-  ? "requires-fresh-inspection"
+): RetrySafety => classification === "success" && effectClass !== undefined
+  ? retrySafetyForEffectClass(effectClass)
   : declared
 
 const repairRouteFor = (
@@ -230,6 +247,117 @@ const repairRouteFor = (
   Object.hasOwn(input, "repairRouteCommandId")
     ? input.repairRouteCommandId ?? null
     : descriptor.nextAction.commandId
+
+/**
+ * Which command may carry which Result Code. Station IDs are derived from the
+ * Maintenance command slug and the Result Code, so this relation, never catalog
+ * data, decides membership. Every Branch Station row is admitted by it, and the
+ * colocated Contract Test proves that agreement row by row.
+ */
+type StationScope =
+  | "maintenance-facade"
+  | "runtime-owned"
+  | "preview"
+  | "apply-completion"
+  | "post-dispatch-refusal"
+  | "typed-unexpected"
+
+const stationScopes = {
+  previewed: "preview",
+  completed: "apply-completion",
+  "continuation-required": "apply-completion",
+  "command-refused": "post-dispatch-refusal",
+  "recovery-required": "post-dispatch-refusal",
+  "retry-deferred": "post-dispatch-refusal",
+  "runtime-failed": "typed-unexpected",
+  "usage-refused": "maintenance-facade",
+  "runtime-repair-preview": "runtime-owned",
+  "runtime-repair-unneeded": "runtime-owned",
+  "runtime-repair-applied": "runtime-owned",
+  "runtime-control-invalid": "runtime-owned",
+  "runtime-usage-refused": "runtime-owned",
+  "runtime-bun-missing": "runtime-owned",
+  "runtime-cache-root-unsafe": "runtime-owned",
+  "runtime-repair-required": "runtime-owned",
+  "runtime-host-tool-missing": "runtime-owned",
+  "runtime-not-executable": "runtime-owned",
+  "runtime-unsupported-platform": "runtime-owned",
+  "runtime-download-failed": "runtime-owned",
+  "runtime-lock-held": "runtime-owned",
+  "runtime-archive-hash-mismatch": "runtime-owned",
+  "runtime-archive-member-ambiguous": "runtime-owned",
+  "runtime-archive-member-missing": "runtime-owned",
+  "runtime-archive-size-mismatch": "runtime-owned",
+  "runtime-bundle-mismatch": "runtime-owned",
+  "runtime-bundle-unmapped": "runtime-owned",
+  "runtime-executable-hash-mismatch": "runtime-owned",
+  "runtime-executable-size-mismatch": "runtime-owned",
+  "runtime-executable-version-mismatch": "runtime-owned",
+  "runtime-lock-invalid": "runtime-owned",
+  "runtime-skill-unknown": "runtime-owned",
+  "runtime-url-rejected": "runtime-owned",
+} as const satisfies Record<ResultCode, StationScope>
+
+const runtimeStationCommands: readonly BranchStation["commandId"][] = [
+  "runtime:repair",
+  "runtime:repair-apply",
+]
+
+const isRuntimeStationCommand = (commandId: BranchStation["commandId"]): boolean =>
+  runtimeStationCommands.includes(commandId)
+
+const commandDescriptorFor = (commandId: BranchStation["commandId"]) =>
+  commandId === "maintenance"
+    ? undefined
+    : commandVocabulary.find(({ command }) => command === commandId)
+
+export type BranchStationMembership = {
+  commandId: BranchStation["commandId"]
+  resultCode: ResultCode
+  classification: BranchStation["classification"]
+}
+
+export const isDeclaredBranchStation = (membership: BranchStationMembership): boolean => {
+  const descriptor = descriptorFor(membership.resultCode)
+  if (membership.classification !== (descriptor.exitClass === 0 ? "success" : "failure")) return false
+
+  const commandDescriptor = commandDescriptorFor(membership.commandId)
+  if (membership.commandId !== "maintenance" && commandDescriptor === undefined) return false
+  const runtimeCommand = isRuntimeStationCommand(membership.commandId)
+
+  switch (stationScopes[membership.resultCode]) {
+    case "maintenance-facade":
+      return membership.commandId === "maintenance"
+    case "runtime-owned":
+      return runtimeCommand
+    case "preview":
+      return commandDescriptor !== undefined
+    case "apply-completion":
+      return !runtimeCommand && commandDescriptor?.interfaceCall === "apply"
+    case "post-dispatch-refusal":
+      return !runtimeCommand && commandDescriptor !== undefined
+    case "typed-unexpected":
+      return !runtimeCommand
+  }
+}
+
+/**
+ * The one Next Action a declared Branch Station may carry. A command-specific
+ * Next Action replaces the generic Result Descriptor Next Action for the two
+ * result-agnostic success codes; every other Result Code keeps its own.
+ */
+export const canonicalNextActionFor = (
+  commandId: BranchStation["commandId"],
+  resultCode: ResultCode,
+): NextAction | undefined => {
+  const descriptor = descriptorFor(resultCode)
+  const classification = descriptor.exitClass === 0 ? "success" : "failure"
+  if (!isDeclaredBranchStation({ commandId, resultCode, classification })) return undefined
+  const commandDescriptor = commandDescriptorFor(commandId)
+  return commandDescriptor !== undefined && (resultCode === "previewed" || resultCode === "completed")
+    ? commandDescriptor.nextAction
+    : descriptor.nextAction
+}
 
 const station = (input: {
   commandId: BranchStation["commandId"]
@@ -243,7 +371,7 @@ const station = (input: {
   precondition?: string
 }): BranchStation => {
   const descriptor = descriptorFor(input.resultCode)
-  const commandSlug = input.commandId === "maintenance" ? "maintenance" : input.commandId.replaceAll(":", "-")
+  const commandSlug = stationSlugFor(input.commandId)
   const stationId = `${commandSlug}.${input.resultCode}` as StationId
   const classification = descriptor.exitClass === 0 ? "success" : "failure"
   const commandDescriptor = input.commandId === "maintenance"

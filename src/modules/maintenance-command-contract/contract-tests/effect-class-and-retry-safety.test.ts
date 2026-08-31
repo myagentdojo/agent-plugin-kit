@@ -172,6 +172,38 @@ test("release apply transports only its fixed approval vector", async () => {
     status: "error",
     resultCode: "recovery-required",
   })
+
+  const candidate = request.request.candidate
+  const reorderedInspection: MaintenanceCommand = {
+    command: "release:inspect",
+    request: {
+      intent: request.request.intent,
+      candidate: {
+        workflow: candidate.workflow,
+        package: candidate.package,
+        release: { commit: candidate.release.commit, reference: candidate.release.reference },
+        source: { commit: candidate.source.commit, repository: candidate.source.repository },
+      },
+    },
+  }
+  const canonicalInspection = canonicalInspectionFor(request)
+  if (canonicalInspection.command !== "release:inspect") throw new Error("expected a release inspection")
+  expect(Object.keys(reorderedInspection.request)).not.toEqual(Object.keys(canonicalInspection.request))
+  expect(Object.keys(reorderedInspection.request.candidate.source)).not.toEqual(
+    Object.keys(canonicalInspection.request.candidate.source),
+  )
+  expect(JSON.stringify(reorderedInspection.request)).not.toBe(
+    JSON.stringify(canonicalInspection.request),
+  )
+  const reordered = createMaintenanceContractHarness()
+  await reordered.inspect(reorderedInspection)
+  expect(await reordered.apply(request)).toMatchObject({ status: "ok" })
+  expect(reordered.applyLedgers.release).toEqual([request])
+  expect(await reordered.apply(request)).toMatchObject({
+    status: "error",
+    resultCode: "recovery-required",
+  })
+  expect(reordered.applyLedgers.release).toEqual([request])
 })
 test("Claude apply transports only its fixed approval vector", () => assertApply("claude", "external"))
 test("Codex apply transports only its fixed approval vector", () => assertApply("codex", "external"))
@@ -218,6 +250,25 @@ test("inspection requests no capability and writes no durable target", async () 
     !Object.hasOwn(entry, "authority") &&
     !Object.hasOwn(entry, "issuer"),
   )).toBeTrue()
+
+  const observedInputs = harness.inspectionInputLedger
+  expect(observedInputs.map(({ command }) => command)).toEqual([
+    "release:inspect",
+    "release:apply",
+    "harness:claude:apply",
+    "harness:codex:apply",
+    "canary:qualify",
+  ])
+  expect(observedInputs.every((observed) =>
+    !Object.hasOwn(observed, "approval") && !Object.hasOwn(observed, "authority"),
+  )).toBeTrue()
+  const observedInputJson = JSON.stringify(observedInputs)
+  expect(observedInputJson).not.toContain(mutatingRequests.release.approval.digest)
+  expect(observedInputJson).not.toContain(mutatingRequests.claude.approval.digest)
+  expect(observedInputJson).not.toContain(mutatingRequests.codex.approval.digest)
+  expect(observedInputJson).not.toContain(hostileAuthorityMarker)
+  expect(Object.hasOwn(mutatingRequests.release, "approval")).toBeTrue()
+  expect(Object.hasOwn(mutatingRequests.canary, "authority")).toBeTrue()
 })
 
 test("runtime repair apply refreshes preview immediately before exact apply argv", async () => {

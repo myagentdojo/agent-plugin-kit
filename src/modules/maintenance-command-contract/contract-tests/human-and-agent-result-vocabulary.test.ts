@@ -9,6 +9,7 @@ import {
   serializeMaintenanceResultOutcome,
 } from "../serialized-values"
 import type { MaintenanceResultOutcome } from "../serialized-values"
+import type { MaintenanceError } from "../interface"
 import { createMaintenanceContractHarness } from "./adapters/mutation-recording-module-adapter"
 import {
   literalHelpPreview,
@@ -48,6 +49,89 @@ function hostileAgentValues(): readonly Record<PropertyKey, unknown>[] {
 function assertHostileAgentValuesAreRejected() {
   for (const agent of hostileAgentValues()) {
     expect(parseCommandResult({ ...literalPayloadResult, agent })).toBeUndefined()
+  }
+}
+
+/**
+ * The direct public parsers see no Result Code and no Station ID, so they own
+ * only the relationships a Command Preview, a Command Result, or a Maintenance
+ * Error carries enough of itself to decide.
+ */
+function assertDirectValueRelationshipsAreRejected() {
+  if (literalHelpPreview.status !== "ok") throw new Error("expected literal help preview")
+  const preview = literalHelpPreview.value
+  expect(parseCommandPreview(preview)).toEqual(preview)
+  const invalidPreviews: readonly unknown[] = [
+    { ...preview, effectClass: "external" },
+    { ...preview, effectClass: "repository-local" },
+    { ...preview, retrySafety: "requires-fresh-inspection" },
+    { ...preview, transactionState: "completed" },
+    { ...preview, nextAction: { ...preview.nextAction, id: "runtime.continue" } },
+    { ...preview, nextAction: { ...preview.nextAction, summary: "Forged preview summary." } },
+    { ...preview, nextAction: { ...preview.nextAction, commandId: "help" } },
+    { ...preview, nextAction: { ...preview.nextAction, action: "retry" } },
+    { ...preview, nextAction: { ...preview.nextAction, retryAfterMs: 10 } },
+    { ...preview, nextAction: { ...preview.nextAction, idempotencyKey: "forged" } },
+  ]
+  for (const candidate of invalidPreviews) {
+    expect(parseCommandPreview(candidate)).toBeUndefined()
+  }
+
+  expect(parseCommandResult(literalPayloadResult)).toEqual(literalPayloadResult)
+  const invalidResults: readonly unknown[] = [
+    { ...literalPayloadResult, retrySafety: "requires-fresh-inspection" },
+    { ...literalPayloadResult, remainingEffectIds: ["effect:pending"] },
+    { ...literalPayloadResult, transactionState: "unchanged", completedEffectIds: [] },
+    { ...literalPayloadResult, transactionState: "unknown" },
+    {
+      ...literalPayloadResult,
+      nextAction: { ...literalPayloadResult.nextAction, id: "maintenance.inspect-result" },
+    },
+    {
+      ...literalPayloadResult,
+      nextAction: { ...literalPayloadResult.nextAction, summary: "Forged result summary." },
+    },
+    {
+      ...literalPayloadResult,
+      nextAction: { ...literalPayloadResult.nextAction, commandId: "payload:materialize" },
+    },
+    {
+      ...literalPayloadResult,
+      nextAction: { ...literalPayloadResult.nextAction, retryAfterMs: 10 },
+    },
+    {
+      ...literalPayloadResult,
+      nextAction: { ...literalPayloadResult.nextAction, idempotencyKey: "forged" },
+    },
+  ]
+  for (const candidate of invalidResults) {
+    expect(parseCommandResult(candidate)).toBeUndefined()
+  }
+}
+
+function assertDirectErrorRelationshipsAreRejected(error: MaintenanceError) {
+  expect(parseMaintenanceError(error)).toEqual(error)
+  const invalidErrors: readonly unknown[] = [
+    { ...error, action: "retry" },
+    { ...error, severity: "fatal" },
+    { ...error, retryable: true },
+    { ...error, exitCodeHint: 21 },
+    { ...error, errorFamily: "input" },
+    { ...error, recoverability: "retry" },
+    { ...error, retrySafety: "safe" },
+    { ...error, transactionState: "completed" },
+    { ...error, nextAction: { ...error.nextAction, id: "forged.next-action" } },
+    { ...error, nextAction: { ...error.nextAction, summary: "Forged refusal summary." } },
+    { ...error, nextAction: { ...error.nextAction, commandId: "help" } },
+    { ...error, retryAfterMs: 10, nextAction: { ...error.nextAction, retryAfterMs: 20 } },
+    { ...error, idempotencyKey: "left", nextAction: { ...error.nextAction, idempotencyKey: "right" } },
+    { ...error, retryAfterMs: 10 },
+    { ...error, nextAction: { ...error.nextAction, idempotencyKey: "one-sided" } },
+    { ...error, retryAfterMs: 10, nextAction: { ...error.nextAction, retryAfterMs: 10 } },
+    { ...error, idempotencyKey: "same", nextAction: { ...error.nextAction, idempotencyKey: "same" } },
+  ]
+  for (const candidate of invalidErrors) {
+    expect(parseMaintenanceError(candidate)).toBeUndefined()
   }
 }
 
@@ -108,6 +192,23 @@ async function assertHostileOutcomeRelationshipsAreRejected() {
       ...literalPayloadOutcome,
       value: { ...literalPayloadOutcome.value, transactionState: "unchanged", completedEffectIds: [] },
     },
+    {
+      ...literalPayloadOutcome,
+      resultCode: "runtime-repair-applied",
+      stationId: "payload-materialize.runtime-repair-applied",
+    },
+    {
+      ...literalPayloadOutcome,
+      value: {
+        ...literalPayloadOutcome.value,
+        nextAction: {
+          id: "maintenance.inspect-result",
+          action: "inspect_state",
+          summary: "Inspect the completed result.",
+          commandId: null,
+        },
+      },
+    },
   ]
   for (const outcome of invalidResultOutcomes) {
     expect(parseMaintenanceResultOutcome(outcome)).toBeUndefined()
@@ -127,6 +228,28 @@ async function assertHostileOutcomeRelationshipsAreRejected() {
       stationId: "help.completed",
       value: { ...literalHelpPreview.value, transactionState: "completed" },
     },
+    {
+      ...literalHelpPreview,
+      resultCode: "runtime-repair-unneeded",
+      stationId: "help.runtime-repair-unneeded",
+    },
+    {
+      ...literalHelpPreview,
+      resultCode: "runtime-repair-preview",
+      stationId: "help.runtime-repair-preview",
+    },
+    {
+      ...literalHelpPreview,
+      value: {
+        ...literalHelpPreview.value,
+        nextAction: {
+          id: "maintenance.review-preview",
+          action: "open_docs",
+          summary: "Review the preview before apply.",
+          commandId: null,
+        },
+      },
+    },
   ]
   for (const outcome of invalidPreviewOutcomes) {
     expect(parseMaintenancePreviewOutcome(outcome)).toBeUndefined()
@@ -143,10 +266,23 @@ async function assertHostileOutcomeRelationshipsAreRejected() {
     { ...recoveryOutcome, error: { ...recoveryOutcome.error, retrySafety: "safe" } },
     { ...recoveryOutcome, error: { ...recoveryOutcome.error, transactionState: "completed" } },
     { ...recoveryOutcome, stationId: "not-a-real-command.recovery-required" },
+    {
+      ...recoveryOutcome,
+      error: {
+        ...recoveryOutcome.error,
+        nextAction: {
+          id: "maintenance.inspect-refusal",
+          action: "inspect_state",
+          summary: "Inspect the governing owner refusal.",
+          commandId: null,
+        },
+      },
+    },
   ]
   for (const outcome of invalidErrorOutcomes) {
     expect(parseMaintenanceResultOutcome(outcome)).toBeUndefined()
   }
+  assertDirectErrorRelationshipsAreRejected(recoveryOutcome.error)
 }
 
 test("help returns the canonical tagged preview", async () => {
@@ -216,7 +352,7 @@ test("unknown Transaction State never exits zero", async () => {
   expect(parseMaintenanceResultOutcome(JSON.parse(serializeMaintenanceResultOutcome(actual)))).toEqual(actual)
 })
 
-test("governing result status and effects pass through unchanged", async () => {
+test("governing result and its serialized public contract stay sealed", async () => {
   const harness = createMaintenanceContractHarness()
   const actual = await harness.apply(mutatingRequests.materialize)
   expect(actual.status === "ok" ? actual.value : actual, "implemented: the governing result passes through unchanged").toEqual(literalPayloadResult)
@@ -227,6 +363,7 @@ test("governing result status and effects pass through unchanged", async () => {
   expect(parseCommandResult({ ...literalPayloadResult, agent: { schemaVersion: 1, invalid: () => undefined } })).toBeUndefined()
   assertFrozenResult(actual)
   assertHostileAgentValuesAreRejected()
+  assertDirectValueRelationshipsAreRejected()
   expect(parseMaintenanceResultOutcome(literalPayloadOutcome)).toEqual(literalPayloadOutcome)
   expect(parseMaintenancePreviewOutcome(literalHelpPreview)).toEqual(literalHelpPreview)
   await assertHostileOutcomeRelationshipsAreRejected()
