@@ -96,12 +96,16 @@ export interface MaintenanceCommandFacade {
   dispatch(command: MaintenanceCommand): Promise<MaintenanceOutcome<unknown>>
 }
 
+export type FacadeCorrelationSources = {
+  now: () => string
+  eventId: () => string
+}
+
 export type MaintenanceCommandFacadeAssembly = {
   commands: MaintenanceCommands
-  diagnostics?: DiagnosticAdapter
-  diagnosticFactory?: () => Promise<DiagnosticAdapter>
-  events?: EventAdapter
-  eventFactory?: () => EventAdapter | undefined
+  diagnosticFactory?: () => Promise<DiagnosticAdapter | undefined>
+  eventFactory?: () => Promise<EventAdapter | undefined>
+  correlation?: FacadeCorrelationSources
 }
 
 export type DiagnosticMode = "quiet" | "default" | "verbose" | "debug"
@@ -112,12 +116,20 @@ export interface DiagnosticPipeline {
   dispose(): void
 }
 
+export type DiagnosticRedactionStep =
+  | "build-allowlist"
+  | "redact"
+  | "validate"
+  | "freeze"
+  | "cross-seam"
+
 export type DiagnosticPipelineAssembly = {
   mode: DiagnosticMode
   maximumBufferedRecords: 250
   diagnostics: DiagnosticAdapter
   secretValues?: readonly string[]
   nextSequence?: () => number
+  redactionTrace?: (step: DiagnosticRedactionStep) => void
 }
 
 export interface EventDeliveryClock {

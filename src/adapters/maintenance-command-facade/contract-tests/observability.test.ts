@@ -3,7 +3,14 @@ import { literalHelpProcess, literalUsageProcess } from "../../../modules/mainte
 import { createDiagnosticPipeline } from "../implementation/logtape-diagnostic-adapter"
 import { createEventDelivery } from "../implementation/maintenance-event-adapter"
 import { createMaintenanceCommandFacade } from "../implementation/maintenance-command-facade"
-import type { DiagnosticMode, DiagnosticRecord, EventRecord } from "../interface"
+import type {
+  DiagnosticMode,
+  DiagnosticRecord,
+  DiagnosticRedactionStep,
+  EventRecord,
+  FacadeCorrelationSources,
+} from "../interface"
+import { invokePublicProcess } from "./adapters/public-process-adapter"
 import { createDiagnosticRecordingAdapter } from "./adapters/diagnostic-recording-adapter"
 import {
   createEventRecordingAdapter,
@@ -13,11 +20,10 @@ import {
 import { createMaintenanceCommandsRecordingAdapter } from "./adapters/maintenance-commands-recording-adapter"
 import {
   bufferedSequence,
-  correlationContract,
-  deliveryContract,
   diagnosticModeContract,
   diagnosticModes,
   fixedEventFailure,
+  hostileColorEnvironment,
   lifecycleContract,
   redactionContract,
 } from "./fixtures/literal-observability-cases"
@@ -48,7 +54,7 @@ const diagnosticRecord = (
 
 const eventRecord: EventRecord = Object.freeze({
   schema_version: 1,
-  event_id: "contract-help-literal.2",
+  event_id: "opaque-event-id",
   occurred_at: "2026-08-27T00:00:00.000Z",
   sequence: 2,
   run_id: "contract-help-literal",
@@ -61,11 +67,24 @@ const eventRecord: EventRecord = Object.freeze({
   next_action_id: "help.choose-command",
 })
 
-function diagnosticHarness(mode: DiagnosticMode) {
+const fixedCorrelation: FacadeCorrelationSources = {
+  now: () => "2026-08-27T00:00:00.000Z",
+  eventId: () => "opaque-event-id",
+}
+
+function diagnosticHarness(
+  mode: DiagnosticMode,
+  options: { redactionTrace?: (step: DiagnosticRedactionStep) => void } = {},
+) {
   const recording = createDiagnosticRecordingAdapter()
   return {
     ...recording,
-    pipeline: createDiagnosticPipeline({ mode, maximumBufferedRecords: 250, diagnostics: recording.adapter }),
+    pipeline: createDiagnosticPipeline({
+      mode,
+      maximumBufferedRecords: 250,
+      diagnostics: recording.adapter,
+      ...(options.redactionTrace === undefined ? {} : { redactionTrace: options.redactionTrace }),
+    }),
   }
 }
 
@@ -77,8 +96,9 @@ async function facadeHarness(options: { eventAcceptance?: "accepted" | "refused"
   const events = createEventRecordingAdapter({ status: options.eventAcceptance ?? "accepted" })
   const facade = createMaintenanceCommandFacade({
     commands: commands.commands,
-    diagnostics: diagnostics.adapter,
-    events: events.adapter,
+    diagnosticFactory: async () => diagnostics.adapter,
+    eventFactory: async () => events.adapter,
+    correlation: fixedCorrelation,
   })
   const observation = await facade.invoke({
     argv: options.argv ?? ["--run-id", "contract-help-literal", "help"],
@@ -91,8 +111,27 @@ async function facadeHarness(options: { eventAcceptance?: "accepted" | "refused"
   return { commands, diagnostics, events, observation }
 }
 
+const overflowSummaryFor = (records: readonly DiagnosticRecord[]) => {
+  const sequences = records.map(({ sequence }) => sequence)
+  return {
+    firstEvent: records[0]?.event,
+    truncationSequence: records.find(({ event }) => event === "diagnostic.buffer-truncated")?.sequence,
+    firstRetained: records.find(({ event }) => event !== "diagnostic.buffer-truncated")?.sequence,
+    lastRetained: records.at(-2)?.sequence,
+    triggerEvent: records.at(-1)?.event,
+    triggerSequence: records.at(-1)?.sequence,
+    recordCount: records.length,
+    truncationRecords: records.filter(({ event }) => event === "diagnostic.buffer-truncated").length,
+    uniqueSequences: new Set(sequences).size === sequences.length,
+  }
+}
+
 test("machine stdout contains only the primary success envelope", async () => {
-  absent((await facadeHarness())?.observation, literalHelpProcess, "success output must remain machine-only")
+  absent(
+    await invokePublicProcess(["--run-id", "contract-help-literal", "help"], hostileColorEnvironment),
+    literalHelpProcess,
+    "success output must remain machine-only and color-independent",
+  )
 })
 test("quiet mode discards debug info and warning before buffering", () => {
   const harness = diagnosticHarness("quiet")
@@ -119,29 +158,22 @@ test("fingers-crossed buffer is bounded at 250 records", () => {
 })
 test("buffer overflow drops oldest and emits one truncation record", () => {
   const harness = diagnosticHarness("default")
-  for (let sequence = 1; sequence <= 251; sequence += 1) harness?.pipeline.record(diagnosticRecord(sequence, "info"))
-  harness?.pipeline.record(diagnosticRecord(252, "error"))
-  const sequences = harness?.records.map(({ sequence }) => sequence) ?? []
+  for (let sequence = 1; sequence <= 251; sequence += 1) harness.pipeline.record(diagnosticRecord(sequence, "info"))
+  harness.pipeline.record(diagnosticRecord(252, "error"))
   absent(
-    harness && {
-      firstRetained: harness.records.find(({ event }) => event !== "diagnostic.buffer-truncated")?.sequence,
-      truncationSequence: harness.records.find(({ event }) => event === "diagnostic.buffer-truncated")?.sequence,
-      triggerSequence: harness.records.at(-1)?.sequence,
-      recordCount: harness.records.length,
-      truncationRecords: harness.records.filter(({ event }) => event === "diagnostic.buffer-truncated").length,
-      uniqueSequences: new Set(sequences).size === sequences.length,
-      monotonicSequences: sequences.every((sequence, index) => index === 0 || sequence > (sequences[index - 1] ?? 0)),
-    },
+    overflowSummaryFor(harness.records),
     {
+      firstEvent: "diagnostic.buffer-truncated",
       firstRetained: 2,
       truncationSequence: 253,
-      triggerSequence: 254,
+      lastRetained: 251,
+      triggerEvent: "fixture.error",
+      triggerSequence: 252,
       recordCount: 252,
       truncationRecords: 1,
       uniqueSequences: true,
-      monotonicSequences: true,
     },
-    "diagnostic truncation must be observable",
+    "diagnostic truncation must preserve unique assigned identities while emitting truncation first",
   )
 })
 test("buffered context precedes trigger and primary error envelope is last", async () => {
@@ -167,7 +199,10 @@ test("reset configure and dispose are idempotent and throwing close preserves pr
   const successful = diagnosticHarness("default")
   successful?.pipeline.record(diagnosticRecord(1, "info", "fixture.discard-on-success"))
   successful?.pipeline.dispose()
-  const throwingFacade = await facadeHarness({ throwOnDispose: true })
+  const throwingFacade = await facadeHarness({
+    throwOnDispose: true,
+    argv: ["--run-id", "contract-help-literal", "unknown"],
+  })
   absent(
     {
       resetSequences: harness?.records.map(({ sequence }) => sequence),
@@ -182,8 +217,8 @@ test("reset configure and dispose are idempotent and throwing close preserves pr
       pipelineLifecycle: ["flush", "dispose"],
       successfulRecords: [],
       successfulLifecycle: ["dispose"],
-      facadeLifecycle: ["dispose"],
-      primary: literalHelpProcess,
+      facadeLifecycle: ["flush", "dispose"],
+      primary: literalUsageProcess,
     },
     "diagnostic lifecycle must reset between cases and contain close failure without replacing the primary result",
   )
@@ -205,7 +240,21 @@ test("event refusal retains run sequence event ID result and station correlation
       correlation: { runIds: [recordedEvent?.run_id, harness.diagnostics.records.at(-1)?.run_id], sequences: [recordedEvent?.sequence, harness.diagnostics.records.at(-1)?.sequence], eventId: recordedEvent?.event_id },
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
     },
-    { failure: { event: fixedEventFailure.event, stationId: fixedEventFailure.stationId, resultCode: fixedEventFailure.resultCode, failureClass: fixedEventFailure.failureClass, nextActionId: fixedEventFailure.nextActionId }, correlation: correlationContract, primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode } },
+    {
+      failure: {
+        event: fixedEventFailure.event,
+        stationId: fixedEventFailure.stationId,
+        resultCode: fixedEventFailure.resultCode,
+        failureClass: fixedEventFailure.failureClass,
+        nextActionId: fixedEventFailure.nextActionId,
+      },
+      correlation: {
+        runIds: ["contract-help-literal", "contract-help-literal"],
+        sequences: [1, 2],
+        eventId: "opaque-event-id",
+      },
+      primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode },
+    },
     "event refusal must retain original result and monotonic correlation",
   )
 })
@@ -227,7 +276,7 @@ test("fake-clock delivery owns two bounded attempts and all settlement cases", a
   absent(
     { eventId: eventRecord.event_id, scenarios },
     {
-      eventId: deliveryContract.eventId,
+      eventId: "opaque-event-id",
       scenarios: [
         { label: "success", result: { status: "delivered", attempts: 1 }, attempts: 1, sleeps: [250] },
         { label: "timeout", result: { status: "delivered", attempts: 2 }, attempts: 2, sleeps: [250, 250] },
@@ -239,7 +288,10 @@ test("fake-clock delivery owns two bounded attempts and all settlement cases", a
   )
 })
 test("redaction validates and freezes both seams before crossing", async () => {
-  const diagnostic = diagnosticHarness("debug")
+  const redactionTrace: DiagnosticRedactionStep[] = []
+  const diagnostic = diagnosticHarness("debug", {
+    redactionTrace: (step) => redactionTrace.push(step),
+  })
   diagnostic?.pipeline.record({
     ...diagnosticRecord(1, "error", "fixture.hostile-redaction"),
     message: "token=fixture-diagnostic-secret",
@@ -252,7 +304,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
       recordsFrozen: [...(diagnostic?.records ?? []), ...harness.diagnostics.records, ...harness.events.records].every(Object.isFrozen),
       leakedSecret: serialized.includes("fixture-secret-must-not-cross") || serialized.includes("fixture-diagnostic-secret") || serialized.includes("secret_token"),
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
-      order: redactionContract.order,
+      order: redactionTrace,
     },
     { recordsFrozen: true, leakedSecret: false, primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
     "redaction must precede both seams without changing the fixed primary result",

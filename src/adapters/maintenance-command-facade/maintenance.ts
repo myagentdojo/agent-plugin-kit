@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 import { createMaintenanceCommands } from "../../modules/maintenance-command-contract/implementation/maintenance-commands"
 import { createMaintenanceCommandFacade } from "./implementation/maintenance-command-facade"
-import { createMaintenanceEventAdapter } from "./implementation/maintenance-event-adapter"
 
 const unavailable = async (..._arguments: unknown[]): Promise<never> => {
   throw new Error("later Maintenance owner is not admitted in this process")
@@ -16,18 +15,20 @@ const commands = createMaintenanceCommands({
 })
 
 const eventEndpoint = process.env.AGENT_PLUGIN_KIT_EVENT_ENDPOINT
-const diagnosticRequested = eventEndpoint !== undefined || process.argv.slice(2).some((argument) =>
-  argument === "--quiet" || argument === "--verbose" || argument === "--debug",
-)
 const facade = createMaintenanceCommandFacade({
   commands,
   diagnosticFactory: async () => {
     const { createLogTapeDiagnosticAdapter } = await import("./implementation/logtape-diagnostic-adapter")
-    return createLogTapeDiagnosticAdapter(diagnosticRequested ? {} : { write: () => undefined })
+    return createLogTapeDiagnosticAdapter()
   },
   ...(eventEndpoint === undefined
     ? {}
-    : { eventFactory: () => createMaintenanceEventAdapter({ endpoint: eventEndpoint }) }),
+    : {
+        eventFactory: async () => {
+          const { createMaintenanceEventAdapter } = await import("./implementation/maintenance-event-adapter")
+          return createMaintenanceEventAdapter({ endpoint: eventEndpoint })
+        },
+      }),
 })
 const detectStdin = async (): Promise<string> => {
   if (process.stdin.isTTY) return ""

@@ -91,6 +91,7 @@ export const expectedInstalledFiles = [
   "src/modules/qualification-evidence/implementation/qualification-evidence.ts",
   "src/adapters/reusable-workflow-adapter/interface.ts",
   "src/adapters/maintenance-command-facade/interface.ts",
+  "src/adapters/maintenance-command-facade/serialized-values.ts",
   "src/adapters/maintenance-command-facade/maintenance.ts",
   "src/adapters/maintenance-command-facade/implementation/maintenance-command-facade.ts",
   "src/adapters/maintenance-command-facade/implementation/logtape-diagnostic-adapter.ts",

@@ -12,6 +12,7 @@ import type {
   DiagnosticPipelineAssembly,
   DiagnosticPipelineFactory,
   DiagnosticRecord,
+  DiagnosticRedactionStep,
 } from "../interface"
 import { sanitizeDiagnosticRecord } from "../serialized-values"
 
@@ -49,6 +50,8 @@ const truncationRecordFor = (
   trigger: DiagnosticRecord,
   droppedRecordCount: number,
   sequence: number,
+  secrets: readonly string[],
+  trace?: (step: DiagnosticRedactionStep) => void,
 ): DiagnosticRecord | undefined =>
   sanitizeDiagnosticRecord({
     ...trigger,
@@ -56,12 +59,7 @@ const truncationRecordFor = (
     level: "warning",
     event: "diagnostic.buffer-truncated",
     message: `Diagnostic buffer dropped ${droppedRecordCount} oldest record${droppedRecordCount === 1 ? "" : "s"}.`,
-  })
-
-const sequenceRecordFor = (
-  record: DiagnosticRecord,
-  sequence: number,
-): DiagnosticRecord | undefined => sanitizeDiagnosticRecord({ ...record, sequence })
+  }, secrets, trace)
 
 export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
   assembly: DiagnosticPipelineAssembly,
@@ -74,6 +72,7 @@ export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
   let droppedRecordCount = 0
   let highestSequence = 0
   let disposed = false
+  const trace = assembly.redactionTrace
 
   const nextSequence = (minimum: number): number => {
     let allocated: number
@@ -89,19 +88,19 @@ export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
     return sequence
   }
 
-  const write = (record: DiagnosticRecord): void => writeRecord(diagnostics, record)
+  const write = (record: DiagnosticRecord): void => {
+    trace?.("cross-seam")
+    writeRecord(diagnostics, record)
+  }
   const trigger = (record: DiagnosticRecord): void => {
     if (droppedRecordCount > 0) {
       const truncationSequence = nextSequence(highestSequence + 1)
-      const triggerSequence = nextSequence(truncationSequence + 1)
-      const truncation = truncationRecordFor(record, droppedRecordCount, truncationSequence)
-      const resequencedTrigger = sequenceRecordFor(record, triggerSequence)
+      const truncation = truncationRecordFor(record, droppedRecordCount, truncationSequence, secrets, trace)
+      if (truncation !== undefined) write(truncation)
       for (const bufferedRecord of buffered) write(bufferedRecord)
       buffered = []
       droppedRecordCount = 0
-      if (truncation !== undefined) write(truncation)
-      if (resequencedTrigger !== undefined) write(resequencedTrigger)
-      else write(record)
+      write(record)
     } else {
       for (const bufferedRecord of buffered) write(bufferedRecord)
       buffered = []
@@ -117,7 +116,7 @@ export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
   return {
     record(value): void {
       if (disposed) return
-      const record = sanitizeDiagnosticRecord(value, secrets)
+      const record = sanitizeDiagnosticRecord(value, secrets, trace)
       if (record === undefined) return
       highestSequence = Math.max(highestSequence, record.sequence)
       if (isSuppressedByMode(mode, record.level)) return
@@ -191,7 +190,7 @@ export const createLogTapeDiagnosticAdapter = (
   const configure = (): void => {
     if (logger !== undefined || disposed) return
     const sink: Sink = (logRecord) => {
-      const record = sanitizeDiagnosticRecord(logRecord.properties[logTapeRecordProperty])
+      const record = logRecord.properties[logTapeRecordProperty] as DiagnosticRecord | undefined
       if (record === undefined) return
       try {
         write(`${JSON.stringify(record)}\n`)

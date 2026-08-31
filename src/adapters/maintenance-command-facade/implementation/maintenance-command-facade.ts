@@ -8,6 +8,7 @@ import type {
   EventAcceptance,
   EventAdapter,
   EventRecord,
+  FacadeCorrelationSources,
   MaintenanceCommandFacade,
   MaintenanceCommandFacadeAssembly,
   MaintenanceCommandFacadeFactory,
@@ -66,6 +67,27 @@ type ArgumentState = {
 }
 
 const generatedRunId = (): string => randomUUID()
+
+const defaultCorrelationSources: FacadeCorrelationSources = {
+  now: () => new Date().toISOString(),
+  eventId: () => randomUUID(),
+}
+
+const timestampFor = (correlation: FacadeCorrelationSources): string => {
+  try {
+    return correlation.now()
+  } catch {
+    return defaultCorrelationSources.now()
+  }
+}
+
+const eventIdFor = (correlation: FacadeCorrelationSources): string => {
+  try {
+    return correlation.eventId()
+  } catch {
+    return defaultCorrelationSources.eventId()
+  }
+}
 
 const parseFailureFor = (
   message: string,
@@ -323,6 +345,7 @@ const outcomeValueMetadata = (outcome: MaintenanceOutcome<unknown>): OutcomeValu
 }
 
 const diagnosticWithoutSequenceFor = (
+  timestamp: string,
   runId: string,
   event: string,
   level: DiagnosticRecord["level"],
@@ -331,7 +354,7 @@ const diagnosticWithoutSequenceFor = (
 ): Omit<DiagnosticRecord, "sequence"> => ({
   schema_version: 1,
   record_type: "diagnostic",
-  timestamp: new Date().toISOString(),
+  timestamp,
   level,
   category: ["agent-plugin-kit", "maintenance"],
   event,
@@ -354,6 +377,7 @@ const eventFailureNextAction: DiagnosticNextAction = {
 }
 
 const eventFailureDiagnosticFor = (
+  timestamp: string,
   runId: string,
   outcome: MaintenanceOutcome<unknown>,
   command: MaintenanceCommand["command"],
@@ -362,7 +386,7 @@ const eventFailureDiagnosticFor = (
   return {
     schema_version: 1,
     record_type: "diagnostic",
-    timestamp: new Date().toISOString(),
+    timestamp,
     level: "error",
     category: ["agent-plugin-kit", "maintenance"],
     event: "event.delivery-failed",
@@ -389,14 +413,13 @@ const eventRecordFor = (
   command: MaintenanceCommand,
   outcome: MaintenanceOutcome<unknown>,
   secrets: readonly string[],
+  correlation: FacadeCorrelationSources,
 ): EventRecord | undefined => {
   const metadata = outcomeValueMetadata(outcome)
   const candidate: Record<string, unknown> = {
     schema_version: 1,
-    // The event ID is an opaque value to consumers. This stable owner-local
-    // value is retained for the accepted correlation fixture.
-    event_id: `${runId}.${sequence + 1}`,
-    occurred_at: new Date().toISOString(),
+    event_id: eventIdFor(correlation),
+    occurred_at: timestampFor(correlation),
     sequence,
     run_id: runId,
     command: command.command,
@@ -445,7 +468,14 @@ const createDiagnosticPipelineFor = async (
   nextSequence: () => number,
 ): Promise<DiagnosticPipeline | undefined> => {
   const factory = await loadDiagnosticPipelineFactory()
-  if (factory === undefined) return undefined
+  if (factory === undefined) {
+    try {
+      adapter.dispose()
+    } catch {
+      // A failed diagnostic construction cannot replace the primary result.
+    }
+    return undefined
+  }
   try {
     return factory({
       mode,
@@ -455,6 +485,11 @@ const createDiagnosticPipelineFor = async (
       nextSequence,
     })
   } catch {
+    try {
+      adapter.dispose()
+    } catch {
+      // A failed diagnostic construction cannot replace the primary result.
+    }
     return undefined
   }
 }
@@ -464,16 +499,15 @@ type EventResolution = {
   invalidConfiguration: boolean
 }
 
-const resolveEvent = (
+const resolveEvent = async (
   assembly: MaintenanceCommandFacadeAssembly,
   mode: EventMode,
-): EventResolution => {
-  if (mode === "off" || assembly.events !== undefined) {
-    return { adapter: mode === "off" ? undefined : assembly.events, invalidConfiguration: false }
+): Promise<EventResolution> => {
+  if (mode === "off" || assembly.eventFactory === undefined) {
+    return { adapter: undefined, invalidConfiguration: false }
   }
-  if (assembly.eventFactory === undefined) return { adapter: undefined, invalidConfiguration: false }
   try {
-    const adapter = assembly.eventFactory()
+    const adapter = await assembly.eventFactory()
     return { adapter, invalidConfiguration: adapter === undefined }
   } catch {
     return { adapter: undefined, invalidConfiguration: true }
@@ -481,7 +515,6 @@ const resolveEvent = (
 }
 
 type DiagnosticRuntime = {
-  initialize(): Promise<void>
   record(record: Omit<DiagnosticRecord, "sequence">): Promise<void>
   dispose(): void
 }
@@ -489,7 +522,6 @@ type DiagnosticRuntime = {
 const diagnosticAdapterFor = async (
   assembly: MaintenanceCommandFacadeAssembly,
 ): Promise<DiagnosticAdapter | undefined> => {
-  if (assembly.diagnostics !== undefined) return assembly.diagnostics
   if (assembly.diagnosticFactory === undefined) return undefined
   try {
     return await assembly.diagnosticFactory()
@@ -520,12 +552,14 @@ const createDiagnosticRuntime = (
     return diagnostics
   }
   return {
-    async initialize(): Promise<void> {
-      if (assembly.diagnostics !== undefined) await ensure()
-    },
     async record(record): Promise<void> {
       const pipeline = await ensure()
-      pipeline?.record({ ...record, sequence: nextSequence() })
+      if (pipeline === undefined) return
+      try {
+        pipeline.record({ ...record, sequence: nextSequence() })
+      } catch {
+        // A diagnostic pipeline failure cannot replace the primary result.
+      }
     },
     dispose(): void {
       try {
@@ -539,11 +573,13 @@ const createDiagnosticRuntime = (
 
 const usageRefusalFor = async (
   runtime: DiagnosticRuntime,
+  correlation: FacadeCorrelationSources,
   runId: string,
   message: string,
 ): Promise<ProcessObservation> => {
   const usage = maintenanceUsageRefusalOutcome()
   await runtime.record(diagnosticWithoutSequenceFor(
+    timestampFor(correlation),
     runId,
     "maintenance.usage-refused",
     "error",
@@ -554,12 +590,14 @@ const usageRefusalFor = async (
 
 const recordOutcomeDiagnostic = async (
   runtime: DiagnosticRuntime,
+  correlation: FacadeCorrelationSources,
   runId: string,
   command: MaintenanceCommand,
   outcome: MaintenanceOutcome<unknown>,
 ): Promise<void> => {
   if (outcome.status !== "error") return
   await runtime.record(diagnosticWithoutSequenceFor(
+    timestampFor(correlation),
     runId,
     outcome.stationId,
     outcome.error.severity === "fatal" ? "fatal" : outcome.error.severity === "warning" ? "warning" : "error",
@@ -570,6 +608,7 @@ const recordOutcomeDiagnostic = async (
 
 const acceptEventFor = async (
   runtime: DiagnosticRuntime,
+  correlation: FacadeCorrelationSources,
   eventAdapter: EventAdapter | undefined,
   runId: string,
   nextSequence: () => number,
@@ -578,7 +617,12 @@ const acceptEventFor = async (
   outcome: MaintenanceOutcome<unknown>,
 ): Promise<void> => {
   if (eventAdapter === undefined) return
-  const event = eventRecordFor(runId, nextSequence(), command, outcome, secrets)
+  let event: EventRecord | undefined
+  try {
+    event = eventRecordFor(runId, nextSequence(), command, outcome, secrets, correlation)
+  } catch {
+    return
+  }
   if (event === undefined) return
   let acceptance: EventAcceptance | undefined
   try {
@@ -587,7 +631,12 @@ const acceptEventFor = async (
     acceptance = undefined
   }
   if (acceptance?.status !== "accepted") {
-    await runtime.record(eventFailureDiagnosticFor(runId, outcome, command.command))
+    await runtime.record(eventFailureDiagnosticFor(
+      timestampFor(correlation),
+      runId,
+      outcome,
+      command.command,
+    ))
   }
 }
 
@@ -595,17 +644,18 @@ const runParsedInvocation = async (
   assembly: MaintenanceCommandFacadeAssembly,
   parsed: ReturnType<typeof parseCommand>,
   runtime: DiagnosticRuntime,
+  correlation: FacadeCorrelationSources,
   runId: string,
   nextSequence: () => number,
   secrets: readonly string[],
 ): Promise<ProcessObservation> => {
-  if ("message" in parsed) return usageRefusalFor(runtime, runId, parsed.message)
-  const eventResolution = resolveEvent(assembly, parsed.eventMode)
-  if (eventResolution.invalidConfiguration) return usageRefusalFor(runtime, runId, "Invalid event endpoint.")
+  if ("message" in parsed) return usageRefusalFor(runtime, correlation, runId, parsed.message)
+  const eventResolution = await resolveEvent(assembly, parsed.eventMode)
+  if (eventResolution.invalidConfiguration) return usageRefusalFor(runtime, correlation, runId, "Invalid event endpoint.")
   const outcome = await dispatchFor(assembly.commands, parsed.command)
-  await recordOutcomeDiagnostic(runtime, runId, parsed.command, outcome)
+  await recordOutcomeDiagnostic(runtime, correlation, runId, parsed.command, outcome)
   const observation = observationForOutcome(runId, parsed.command, outcome)
-  await acceptEventFor(runtime, eventResolution.adapter, runId, nextSequence, secrets, parsed.command, outcome)
+  await acceptEventFor(runtime, correlation, eventResolution.adapter, runId, nextSequence, secrets, parsed.command, outcome)
   return observation
 }
 
@@ -621,11 +671,11 @@ export const createMaintenanceCommandFacade: MaintenanceCommandFacadeFactory = (
       return sequence
     }
     const secrets = secretValuesFor(invocation.environment)
+    const correlation = assembly.correlation ?? defaultCorrelationSources
     const runtime = createDiagnosticRuntime(assembly, parsed, secrets, nextSequence)
 
     try {
-      await runtime.initialize()
-      return await runParsedInvocation(assembly, parsed, runtime, runId, nextSequence, secrets)
+      return await runParsedInvocation(assembly, parsed, runtime, correlation, runId, nextSequence, secrets)
     } catch {
       return emergencyContainment()
     } finally {

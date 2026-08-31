@@ -7,7 +7,6 @@ import type {
   EventDeliveryResult,
   EventRecord,
 } from "../interface"
-import { sanitizeEventRecord } from "../serialized-values"
 
 const loopbackHosts = new Set(["127.0.0.1", "::1", "localhost"])
 
@@ -56,10 +55,8 @@ export const createEventDelivery: EventDeliveryFactory = (
   assembly: EventDeliveryAssembly,
 ): EventDelivery => ({
   async deliver(value: EventRecord): Promise<EventDeliveryResult> {
-    const record = sanitizeEventRecord(value)
-    if (record === undefined) return { status: "failed", attempts: 2 }
     for (let attemptNumber = 1; attemptNumber <= assembly.maximumAttempts; attemptNumber += 1) {
-      const result = await attempt(assembly, record)
+      const result = await attempt(assembly, value)
       if (result === "success") return { status: "delivered", attempts: attemptNumber as 1 | 2 }
     }
     return { status: "failed", attempts: 2 }

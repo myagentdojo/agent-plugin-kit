@@ -2,6 +2,7 @@ import { z } from "zod"
 import type {
   FacadeErrorEnvelope,
   FacadeSuccessEnvelope,
+  DiagnosticRedactionStep,
 } from "./interface"
 import type {
   FailureClass,
@@ -302,29 +303,58 @@ const observabilityTypeChecks: [
 
 void observabilityTypeChecks
 
+const allowlistedRecordFor = (
+  value: unknown,
+  allowlist: (value: unknown) => DiagnosticRecordInput | undefined,
+  trace?: (step: DiagnosticRedactionStep) => void,
+): DiagnosticRecordInput | undefined => {
+  const allowed = allowlist(value)
+  if (allowed === undefined || !isPlainJsonTree(allowed)) return undefined
+  trace?.("build-allowlist")
+  return allowed
+}
+
+const redactedRecordFor = (
+  allowed: DiagnosticRecordInput,
+  timestampKey: "timestamp" | "occurred_at",
+  secrets: readonly string[],
+  trace?: (step: DiagnosticRedactionStep) => void,
+): DiagnosticRecordInput | undefined => {
+  const redacted = redactRecord(allowed, secrets)
+  const timestamp = canonicalTimestamp(redacted[timestampKey])
+  if (timestamp === undefined) return undefined
+  redacted[timestampKey] = timestamp
+  trace?.("redact")
+  return redacted
+}
+
 const sanitizeRecord = <T>(
   schema: z.ZodType<T>,
   value: unknown,
   allowlist: (value: unknown) => DiagnosticRecordInput | undefined,
   timestampKey: "timestamp" | "occurred_at",
   secrets: readonly string[],
+  trace?: (step: DiagnosticRedactionStep) => void,
 ): T | undefined => {
-  const allowed = allowlist(value)
-  if (allowed === undefined || !isPlainJsonTree(allowed)) return undefined
-  const redacted = redactRecord(allowed, secrets)
-  const timestamp = canonicalTimestamp(redacted[timestampKey])
-  if (timestamp === undefined) return undefined
-  redacted[timestampKey] = timestamp
+  const allowed = allowlistedRecordFor(value, allowlist, trace)
+  if (allowed === undefined) return undefined
+  const redacted = redactedRecordFor(allowed, timestampKey, secrets, trace)
+  if (redacted === undefined) return undefined
   if (!isPlainJsonTree(redacted) || hasUnredactedSecret(redacted, secrets)) return undefined
   const parsed = schema.safeParse(redacted)
-  return parsed.success ? deepFreeze(parsed.data) : undefined
+  if (!parsed.success) return undefined
+  trace?.("validate")
+  const frozen = deepFreeze(parsed.data)
+  trace?.("freeze")
+  return frozen
 }
 
 export const sanitizeDiagnosticRecord = (
   value: unknown,
   secrets: readonly string[] = [],
+  trace?: (step: DiagnosticRedactionStep) => void,
 ): import("./interface").DiagnosticRecord | undefined =>
-  sanitizeRecord(diagnosticRecordSchema, value, buildDiagnosticAllowlist, "timestamp", secrets)
+  sanitizeRecord(diagnosticRecordSchema, value, buildDiagnosticAllowlist, "timestamp", secrets, trace)
 
 export const sanitizeEventRecord = (
   value: unknown,
