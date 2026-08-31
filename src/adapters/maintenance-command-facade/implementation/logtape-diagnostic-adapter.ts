@@ -70,6 +70,7 @@ export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
   const allocate = assembly.nextSequence ?? localSequenceAllocator()
   let buffered: DiagnosticRecord[] = []
   let droppedRecordCount = 0
+  let pendingTruncationSequence: number | undefined
   let highestSequence = 0
   let disposed = false
   const trace = assembly.redactionTrace
@@ -94,12 +95,14 @@ export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
   }
   const trigger = (record: DiagnosticRecord): void => {
     if (droppedRecordCount > 0) {
-      const truncationSequence = nextSequence(highestSequence + 1)
-      const truncation = truncationRecordFor(record, droppedRecordCount, truncationSequence, secrets, trace)
-      if (truncation !== undefined) write(truncation)
+      const truncation = pendingTruncationSequence === undefined
+        ? undefined
+        : truncationRecordFor(record, droppedRecordCount, pendingTruncationSequence, secrets, trace)
       for (const bufferedRecord of buffered) write(bufferedRecord)
+      if (truncation !== undefined) write(truncation)
       buffered = []
       droppedRecordCount = 0
+      pendingTruncationSequence = undefined
       write(record)
     } else {
       for (const bufferedRecord of buffered) write(bufferedRecord)
@@ -131,6 +134,9 @@ export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
       if (buffered.length >= assembly.maximumBufferedRecords) {
         buffered.shift()
         droppedRecordCount += 1
+        if (pendingTruncationSequence === undefined) {
+          pendingTruncationSequence = nextSequence(highestSequence + 1)
+        }
       }
       buffered.push(record)
     },
@@ -138,6 +144,7 @@ export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
     reset(): void {
       buffered = []
       droppedRecordCount = 0
+      pendingTruncationSequence = undefined
     },
 
     dispose(): void {
@@ -145,6 +152,7 @@ export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
       disposed = true
       buffered = []
       droppedRecordCount = 0
+      pendingTruncationSequence = undefined
       try {
         diagnostics.dispose()
       } catch {
