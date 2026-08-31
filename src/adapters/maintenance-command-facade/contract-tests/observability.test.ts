@@ -447,9 +447,13 @@ test("redaction validates and freezes both seams before crossing", async () => {
   const emptyUsernameAuthUrl = "https://:fixture-empty-username-password@fixture-empty-username.example"
   const emptyPasswordAuthUrl = "https://fixture-empty-password-username:@fixture-empty-password.example"
   const slashBearingAuthUrl = "https://fixtureUser:fixture/fixtureTail@fixture.example"
+  const ftpAuthUrl = "ftp://fixtureUser:fixturePassword@fixture.example"
+  const postgresAuthUrl = "postgres://fixtureUser:fixturePassword@fixture.example"
+  const escapedQuoteAssignment = 'token="fixture\\" tail" more'
   const quotedAssignmentWithSuffix = 'token="fixture head";fixtureTail'
   const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
   const incompleteAuthUrl = "https://fixtureUser:fixtureSecret@"
+  const incompleteNoAtAuthUrl = "https://fixtureUser:fixtureSecret"
   const diagnostic = diagnosticHarness("debug", {
     redactionTrace: (step) => redactionTrace.push(step),
   })
@@ -472,10 +476,13 @@ test("redaction validates and freezes both seams before crossing", async () => {
       `x_${emptyPasswordAuthUrl}`,
       `x_${underscoreAuthUrl}`,
       slashBearingAuthUrl,
+      ftpAuthUrl,
+      postgresAuthUrl,
       "https://fixture.example:8080",
       "Bearer fixtureHead;fixtureTail",
       "Basic fixtureHead,fixtureTail",
       "op://fixture/head;fixtureTail",
+      escapedQuoteAssignment,
       quotedAssignmentWithSuffix,
       'token="fixtureHead;fixtureTail',
     ].join(" | "),
@@ -496,8 +503,13 @@ test("redaction validates and freezes both seams before crossing", async () => {
     ...diagnosticRecord(4, "error", "fixture.incomplete-auth-url"),
     message: incompleteAuthUrl,
   })
+  const incompleteNoAtAuthDiagnostic = diagnosticHarness("debug")
+  incompleteNoAtAuthDiagnostic.pipeline.record({
+    ...diagnosticRecord(5, "error", "fixture.incomplete-no-at-auth-url"),
+    message: incompleteNoAtAuthUrl,
+  })
   const harness = await facadeHarness({ eventAcceptance: "refused" })
-  const serialized = JSON.stringify({ injectedDiagnostics: diagnostic?.records, incompletePrivateKeyDiagnostics: incompletePrivateKeyDiagnostic.records, overlongAuthDiagnostics: overlongAuthDiagnostic.records, incompleteAuthDiagnostics: incompleteAuthDiagnostic.records, diagnostics: harness?.diagnostics.records, events: harness?.events.records })
+  const serialized = JSON.stringify({ injectedDiagnostics: diagnostic?.records, incompletePrivateKeyDiagnostics: incompletePrivateKeyDiagnostic.records, overlongAuthDiagnostics: overlongAuthDiagnostic.records, incompleteAuthDiagnostics: incompleteAuthDiagnostic.records, incompleteNoAtAuthDiagnostics: incompleteNoAtAuthDiagnostic.records, diagnostics: harness?.diagnostics.records, events: harness?.events.records })
   const redactionSecrets = [
     "fixture-secret-must-not-cross",
     "fixture-diagnostic-secret",
@@ -522,6 +534,10 @@ test("redaction validates and freezes both seams before crossing", async () => {
     emptyUsernameAuthUrl,
     emptyPasswordAuthUrl,
     slashBearingAuthUrl,
+    ftpAuthUrl,
+    postgresAuthUrl,
+    escapedQuoteAssignment,
+    'fixture\\" tail',
     quotedAssignmentWithSuffix,
     "fixture head",
     overlongAuthUrl,
@@ -539,10 +555,11 @@ test("redaction validates and freezes both seams before crossing", async () => {
       incompletePrivateKeyRecords: incompletePrivateKeyDiagnostic.records,
       overlongAuthRecords: overlongAuthDiagnostic.records,
       incompleteAuthRecords: incompleteAuthDiagnostic.records,
+      incompleteNoAtAuthRecords: incompleteNoAtAuthDiagnostic.records,
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
       order: redactionTrace,
     },
-    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | https://fixture.example:8080 | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] | token=[REDACTED]", incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
+    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | token=[REDACTED]", incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
     "redaction must precede both seams without changing the fixed primary result",
   )
 })

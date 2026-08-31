@@ -84,6 +84,8 @@ export const expectedInstalledFiles = [
   "src/modules/release-and-git-engine/interface.ts",
   "src/modules/release-and-git-engine/serialized-values.ts",
   "src/modules/maintenance-command-contract/interface.ts",
+  "src/modules/maintenance-command-contract/implementation/maintenance-commands.ts",
+  "src/modules/maintenance-command-contract/serialized-values.ts",
   "src/modules/harness-journeys/interface.ts",
   "src/modules/canary-qualification/interface.ts",
   "src/modules/qualification-evidence/interface.ts",

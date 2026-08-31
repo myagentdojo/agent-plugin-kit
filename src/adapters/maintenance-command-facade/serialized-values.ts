@@ -112,12 +112,23 @@ const safeIdentifierPattern = /^[A-Za-z0-9._:-]{1,160}$/
 const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
 const maximumCredentialMatchLength = 4096
 const secretKeyPattern = /(?:password|passwd|secret|token|authorization|cookie|credential|private[-_]?key|api[-_]?key)/i
-const secretAssignmentPattern = /(^|[^A-Za-z0-9])(secret|password|passwd|token|credential|authorization|cookie|private[-_ ]?key|api[-_ ]?key)(\s*)([:=])(\s*)("[^"]*"[^\s]*|'[^']*'[^\s]*|"[^"]*$|'[^']*$|[^\s]+)/gi
-const authUrlPattern = new RegExp(
-  `(^|[^A-Za-z0-9])(?=https?:\\/\\/[^\\s@]{0,${maximumCredentialMatchLength}}@)https?:\\/\\/[^\\s@]{0,${maximumCredentialMatchLength}}:[^\\s@]{0,${maximumCredentialMatchLength}}@[^\\s]+`,
+const uriSchemePattern = "[A-Za-z][A-Za-z0-9+.-]*"
+const secretAssignmentPattern = new RegExp(
+  String.raw`(^|[^A-Za-z0-9])(secret|password|passwd|token|credential|authorization|cookie|private[-_ ]?key|api[-_ ]?key)(\s*)([:=])(\s*)("(?:\\.|[^"\\])*"[^\s]*|'(?:\\.|[^'\\])*'[^\s]*|"(?:(?:\\.|[^"\\])*)$|'(?:(?:\\.|[^'\\])*)$|[^\s]+)`,
   "gi",
 )
-const authUrlDetectPattern = /(?:^|[^A-Za-z0-9])https?:\/\/[^\s:@]*:[^\s@]*@/i
+const authUrlPattern = new RegExp(
+  `(^|[^A-Za-z0-9])(?=${uriSchemePattern}:\\/\\/[^\\s@]{0,${maximumCredentialMatchLength}}@)${uriSchemePattern}:\\/\\/[^\\s@]{0,${maximumCredentialMatchLength}}:[^\\s@]{0,${maximumCredentialMatchLength}}@[^\\s]+`,
+  "gi",
+)
+const authUrlDetectPattern = new RegExp(
+  `(?:^|[^A-Za-z0-9])${uriSchemePattern}:\\/\\/[^\\s:@]*:[^\\s@]*@`,
+  "i",
+)
+const incompleteAuthUrlDetectPattern = new RegExp(
+  `(?:^|[^A-Za-z0-9])${uriSchemePattern}:\\/\\/[^\\s/:@?#]*:(?![0-9]+(?:[/?#]|$|[\\s,;]))[^\\s@,;]*(?=$|[\\s,;])`,
+  "i",
+)
 const privateKeyPattern = /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/gi
 const privateKeyDetectPattern = /-----BEGIN [^-]*PRIVATE KEY-----/i
 const credentialCandidatePattern = `[^\\s]{1,${maximumCredentialMatchLength}}`
@@ -299,6 +310,7 @@ const isSecretValue = (value: string): boolean =>
   bearerCredentialDetectPattern.test(value) ||
   opReferenceDetectPattern.test(value) ||
   authUrlDetectPattern.test(value) ||
+  incompleteAuthUrlDetectPattern.test(value) ||
   privateKeyDetectPattern.test(value)
 
 const hasUnredactedSecret = (value: unknown, secrets: readonly string[], depth = 0): boolean => {
