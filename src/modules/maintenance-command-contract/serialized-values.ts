@@ -17,8 +17,9 @@ import type {
   StationId,
   TransactionState,
 } from "./interface"
-import type { BranchStationMembership } from "./branch-stations"
+import type { BranchStation, BranchStationMembership } from "./branch-stations"
 import {
+  branchStationCatalog,
   canonicalNextActionFor,
   isDeclaredBranchStation,
   stationSlugFor,
@@ -403,6 +404,7 @@ type OutcomeValidationContext = {
   stationSlug: string
   commandDescriptor: SerializedCommandDescriptor | undefined
   resultDescriptor: SerializedResultDescriptor
+  station: BranchStation | undefined
 }
 
 const outcomeValidationContextFor = (outcome: OutcomeValidationInput): OutcomeValidationContext => {
@@ -410,7 +412,8 @@ const outcomeValidationContextFor = (outcome: OutcomeValidationInput): OutcomeVa
   const stationSeparator = outcome.stationId.lastIndexOf(".")
   const stationSlug = outcome.stationId.slice(0, stationSeparator)
   const commandDescriptor = serializedValidationLookups.commandsBySlug.get(stationSlug)
-  return { stationSlug, commandDescriptor, resultDescriptor }
+  const station = branchStationCatalog.find(({ stationId }) => stationId === outcome.stationId)
+  return { stationSlug, commandDescriptor, resultDescriptor, station }
 }
 
 const refineOutcomeStationAndStatus = (
@@ -434,8 +437,6 @@ const refineOutcomeStationAndStatus = (
   } else if (context.resultDescriptor.exitClass === 0 || context.resultDescriptor.failureClass === null) {
     addOutcomeIssue(ctx, ["status", "resultCode"])
   }
-
-  refineOutcomeStationMembership(outcome, context, ctx)
 }
 
 const outcomeCommandIdFor = (
@@ -450,36 +451,63 @@ const outcomeNextActionSideFor = (
     ? { nextAction: outcome.value.nextAction, path: "value" }
     : { nextAction: outcome.error.nextAction, path: "error" }
 
-/**
- * The command, Result Code, and envelope status must name a declared Branch
- * Station, and the outcome must carry that station's one canonical Next Action.
- * A command that cannot reach a Result Code, and a Next Action that no station
- * declares, are both refused here rather than at the value schema, because only
- * the outcome carries the Station ID.
- */
-const refineOutcomeStationMembership = (
+const declaredStationFor = (
   outcome: OutcomeValidationInput,
   context: OutcomeValidationContext,
-  ctx: z.RefinementCtx,
-) => {
+): BranchStation | undefined => {
   const commandId = outcomeCommandIdFor(context)
   const classification = outcome.status === "ok" ? "success" : "failure"
   if (
     commandId === undefined ||
     !isDeclaredBranchStation({ commandId, resultCode: outcome.resultCode, classification })
-  ) {
+  ) return undefined
+  return context.station
+}
+
+const stationAcceptsOutcomeKind = (
+  kind: OutcomeSchemaKind,
+  station: BranchStation,
+): boolean =>
+  station.reachability !== "declared-unreachable" &&
+  (kind === "error" || station.mutationExpectation.kind === kind)
+
+const outcomeHasCanonicalNextAction = (
+  outcome: OutcomeValidationInput,
+  canonical: NextAction | undefined,
+): boolean => {
+  if (canonical === undefined) return false
+  const { nextAction } = outcomeNextActionSideFor(outcome)
+  return outcome.status === "ok"
+    ? isExactCanonicalNextAction(nextAction, canonical)
+    : hasCanonicalNextActionMeaning(nextAction, canonical)
+}
+
+/**
+ * The command, Result Code, envelope status, value kind, and reachability must
+ * name one usable Branch Station, and the outcome must carry that station's one
+ * canonical Next Action. An impossible row, wrong value shape, or undeclared
+ * Next Action is refused here because only the outcome carries the Station ID.
+ */
+const refineOutcomeStationMembership = (
+  kind: OutcomeSchemaKind,
+  outcome: OutcomeValidationInput,
+  context: OutcomeValidationContext,
+  ctx: z.RefinementCtx,
+) => {
+  const commandId = outcomeCommandIdFor(context)
+  const station = declaredStationFor(outcome, context)
+  if (commandId === undefined || station === undefined) {
     addOutcomeIssue(ctx, ["stationId"])
     return
   }
 
+  if (!stationAcceptsOutcomeKind(kind, station)) {
+    addOutcomeIssue(ctx, ["stationId"])
+  }
+
   const canonical = canonicalNextActionFor(commandId, outcome.resultCode)
   const side = outcomeNextActionSideFor(outcome)
-  const nextActionMatches = canonical !== undefined && (
-    outcome.status === "ok"
-      ? isExactCanonicalNextAction(side.nextAction, canonical)
-      : hasCanonicalNextActionMeaning(side.nextAction, canonical)
-  )
-  if (!nextActionMatches) {
+  if (!outcomeHasCanonicalNextAction(outcome, canonical)) {
     addOutcomeIssue(ctx, [side.path, "nextAction"])
   }
 }
@@ -549,6 +577,7 @@ const refineOutcome = (
 ) => {
   const context = outcomeValidationContextFor(outcome)
   refineOutcomeStationAndStatus(outcome, context, ctx)
+  refineOutcomeStationMembership(kind, outcome, context, ctx)
   if (outcome.status === "error") {
     refineErrorOutcome(outcome, context, ctx)
     return

@@ -199,6 +199,24 @@ async function assertHostileOutcomeRelationshipsAreRejected() {
     },
     {
       ...literalPayloadOutcome,
+      resultCode: "runtime-repair-preview",
+      stationId: "runtime-repair-apply.runtime-repair-preview",
+      value: {
+        ...literalPayloadOutcome.value,
+        command: "runtime:repair-apply",
+        transactionState: "unchanged",
+        retrySafety: "requires-fresh-inspection",
+        completedEffectIds: [],
+        nextAction: {
+          id: "runtime.review-repair-preview",
+          action: "open_docs",
+          summary: "Review the Runtime Custody repair preview.",
+          commandId: null,
+        },
+      },
+    },
+    {
+      ...literalPayloadOutcome,
       value: {
         ...literalPayloadOutcome.value,
         nextAction: {
@@ -237,6 +255,23 @@ async function assertHostileOutcomeRelationshipsAreRejected() {
       ...literalHelpPreview,
       resultCode: "runtime-repair-preview",
       stationId: "help.runtime-repair-preview",
+    },
+    {
+      ...literalHelpPreview,
+      resultCode: "runtime-repair-unneeded",
+      stationId: "runtime-repair-apply.runtime-repair-unneeded",
+      value: {
+        ...literalHelpPreview.value,
+        command: "runtime:repair-apply",
+        effectClass: "external",
+        retrySafety: "requires-fresh-inspection",
+        nextAction: {
+          id: "runtime.continue",
+          action: "select_command",
+          summary: "Continue with another maintenance command.",
+          commandId: null,
+        },
+      },
     },
     {
       ...literalHelpPreview,
