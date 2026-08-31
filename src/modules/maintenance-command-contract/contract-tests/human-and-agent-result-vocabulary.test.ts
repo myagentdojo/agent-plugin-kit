@@ -1,28 +1,36 @@
 import { expect, test } from "bun:test"
 import { failureNextActionProjection, resultVocabulary } from "../result-vocabulary"
 import { createMaintenanceContractHarness } from "./adapters/mutation-recording-module-adapter"
-import { createPublicProcessAdapter } from "./adapters/public-process-adapter"
 import {
-  literalHelpProcess,
   literalHelpPreview,
   literalPayloadResult,
-  literalUsageProcess,
   mutatingRequests,
 } from "./fixtures/literal-command-results"
 
-test("help preserves runtime --help discovery and exits zero", async () => {
-  const facadeHelp = ["--run-id", "contract-help-literal", "--help"] as const
-  const actual = await createPublicProcessAdapter().invoke(facadeHelp)
+test("help returns the canonical tagged preview", async () => {
+  const actual = await createMaintenanceContractHarness().inspect({ command: "help" })
 
-  expect(facadeHelp).toEqual(["--run-id", "contract-help-literal", "--help"])
-  expect(resultVocabulary.find(({ resultCode }) => resultCode === literalHelpPreview.resultCode)?.exitClass).toBe(0)
-  expect(actual, "contract-absent: help must preserve public process streams").toEqual(literalHelpProcess)
+  expect(actual, "contract-absent: help must return the canonical tagged preview").toEqual(literalHelpPreview)
 })
 
-test("unknown usage is a typed exit-two refusal", async () => {
-  const actual = await createPublicProcessAdapter().invoke(["--run-id", "contract-help-literal", "unknown"])
+test("usage refusal retains sealed Result Vocabulary meaning", () => {
+  const actual = resultVocabulary.find(({ resultCode }) => resultCode === "usage-refused")
 
-  expect(actual, "contract-absent: unknown usage must refuse through the public process").toEqual(literalUsageProcess)
+  expect(actual, "contract-absent: usage refusal must remain a sealed Result Vocabulary row").toEqual({
+    resultCode: "usage-refused",
+    exitFamilyId: "usage-refusal",
+    exitClass: 2,
+    failureClass: "usage",
+    severity: "error",
+    retrySafety: "safe",
+    transactionState: "unchanged",
+    nextAction: {
+      id: "maintenance.show-help",
+      action: "change_input",
+      summary: "Choose a command from machine discovery.",
+      commandId: "help",
+    },
+  })
 })
 
 test("human output remains deterministic", async () => {

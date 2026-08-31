@@ -1,13 +1,16 @@
 import type {
-  CommandPreview,
   MaintenanceCommand,
-  MaintenanceError,
+  MaintenanceErrorFailureClass,
+  RetrySafety,
   ResultCode,
   StationId,
+  TransactionState,
 } from "./interface"
-import { resultVocabulary } from "./result-vocabulary"
-
-type FailureClass = MaintenanceError["failureClass"]
+import {
+  maintenanceCommandContractId,
+  resultSchemaVersion,
+  resultVocabulary,
+} from "./result-vocabulary"
 
 export type BranchKind =
   | "execution"
@@ -44,8 +47,8 @@ export type BranchStation = {
   expectedResultCode: ResultCode
   expectedExitClass: 0 | 1 | 2 | 20 | 21 | 22 | 23
   expectedEnvelopeStatus: "ok" | "error"
-  expectedRetrySafety: CommandPreview["retrySafety"]
-  expectedTransactionState: CommandPreview["transactionState"]
+  expectedRetrySafety: RetrySafety
+  expectedTransactionState: TransactionState
   controllingOwnerId: ControllingOwnerId
   reachability: StationReachability
   skipRationale: string | null
@@ -96,7 +99,52 @@ export type StationMapProjector = (
   evidence: readonly BranchStationEvidence[],
 ) => StationMap
 
-export const projectStationMap: StationMapProjector | undefined = undefined
+const evidenceForStation = (
+  station: BranchStation,
+  evidence: readonly BranchStationEvidence[],
+): BranchStationEvidence => {
+  const matches = evidence.filter(({ stationId }) => stationId === station.stationId)
+  const observed = matches[0]
+  if (observed === undefined) {
+    const skipped: BranchStationEvidence = {
+      stationId: station.stationId,
+      status: station.reachability === "required" ? "missing" : "skipped",
+      provenance: "synthetic",
+    }
+    if (station.skipRationale !== null) skipped.skipRationale = station.skipRationale
+    return skipped
+  }
+
+  if (matches.length > 1 ||
+    (observed.status === "covered" && observed.provenance === "real_process" &&
+      (observed.observedResultCode !== station.expectedResultCode ||
+        observed.observedExitClass !== station.expectedExitClass))) {
+    return { ...observed, status: "drifted" }
+  }
+  return observed
+}
+
+export const projectStationMap: StationMapProjector = (catalog, evidence) => {
+  const stations = catalog.map((station) => evidenceForStation(station, evidence))
+  const required = catalog.filter(({ reachability }) => reachability === "required").length
+  const observed = stations.filter(
+    ({ status, provenance }) => status === "covered" && provenance === "real_process",
+  ).length
+  return {
+    commandContractId: maintenanceCommandContractId,
+    commandContractSchemaVersion: resultSchemaVersion,
+    declaredBranchCoverage: catalog.length,
+    implementationDeferredBranchCoverage: catalog.filter(
+      ({ reachability }) => reachability === "implementation-deferred",
+    ).length,
+    declaredUnreachableBranchCoverage: catalog.filter(
+      ({ reachability }) => reachability === "declared-unreachable",
+    ).length,
+    requiredObservedBranchTotal: required,
+    observedBranchCoverage: observed,
+    stations,
+  }
+}
 
 const inspectFailures = [
   "command-refused",
@@ -144,7 +192,7 @@ const descriptorFor = (resultCode: ResultCode) => {
   return descriptor
 }
 
-const branchKindFor = (failureClass: FailureClass | null): BranchKind => {
+const branchKindFor = (failureClass: MaintenanceErrorFailureClass | null): BranchKind => {
   if (failureClass === null) return "execution"
   if (failureClass === "transient") return "retry"
   return failureClass

@@ -1,4 +1,13 @@
-import type { CommandPreview, MaintenanceError, ResultCode } from "./interface"
+import type {
+  FailureClass,
+  MaintenanceAction,
+  MaintenanceError,
+  MaintenanceErrorFailureClass,
+  NextAction,
+  ResultCode,
+  RetrySafety,
+  TransactionState,
+} from "./interface"
 
 export const maintenanceCommandContractId =
   "agent-plugin-kit.maintenance-command-result" as const
@@ -31,22 +40,20 @@ export type ResultDescriptor = {
   resultCode: ResultCode
   exitFamilyId: ExitFamilyId
   exitClass: 0 | 1 | 2 | 20 | 21 | 22 | 23
-  failureClass: MaintenanceError["failureClass"] | null
+  failureClass: MaintenanceErrorFailureClass | null
   severity: "info" | "warning" | "error" | "fatal"
-  retrySafety: CommandPreview["retrySafety"]
-  transactionState: CommandPreview["transactionState"]
-  nextAction: CommandPreview["nextAction"]
+  retrySafety: RetrySafety
+  transactionState: TransactionState
+  nextAction: NextAction
 }
 
 const result = (
   resultCode: ResultCode,
   exitFamilyId: ExitFamilyId,
   exitClass: ResultDescriptor["exitClass"],
-  failureClass: MaintenanceError["failureClass"] | null,
-  nextAction: CommandPreview["nextAction"],
-  options: Partial<
-    Pick<ResultDescriptor, "severity" | "retrySafety" | "transactionState">
-  > = {},
+  failureClass: MaintenanceErrorFailureClass | null,
+  nextAction: NextAction,
+  options: Partial<Pick<ResultDescriptor, "severity" | "retrySafety" | "transactionState">> = {},
 ): ResultDescriptor => ({
   resultCode,
   exitFamilyId,
@@ -60,10 +67,10 @@ const result = (
 
 const action = (
   id: string,
-  nextAction: MaintenanceError["action"],
+  nextAction: MaintenanceAction,
   summary: string,
-  commandId: CommandPreview["nextAction"]["commandId"] = null,
-): CommandPreview["nextAction"] => ({ id, action: nextAction, summary, commandId })
+  commandId: NextAction["commandId"] = null,
+): NextAction => ({ id, action: nextAction, summary, commandId })
 
 const contactSupport = action(
   "maintenance.contact-support",
@@ -440,8 +447,13 @@ export const containmentExit = {
   meaning: "last-resort process containment",
 } as const
 
+const isFailureDescriptor = (
+  descriptor: ResultDescriptor,
+): descriptor is ResultDescriptor & { failureClass: MaintenanceErrorFailureClass } =>
+  descriptor.exitClass !== 0 && descriptor.failureClass !== null
+
 const failureActions = resultVocabulary
-  .filter((descriptor) => descriptor.exitClass !== 0)
+  .filter(isFailureDescriptor)
   .map((descriptor) => ({
     id: descriptor.nextAction.id,
     action: descriptor.nextAction.action,
@@ -456,6 +468,13 @@ for (const [index, candidate] of failureActions.entries()) {
   }
 }
 
+type FailureNextAction = {
+  id: string
+  action: MaintenanceAction
+  commandId: NextAction["commandId"]
+  failureClass: FailureClass
+}
+
 export const failureNextActionProjection = [
   ...failureActions.filter(
     (candidate, index, all) => all.findIndex((row) => row.id === candidate.id) === index,
@@ -466,4 +485,4 @@ export const failureNextActionProjection = [
     commandId: null,
     failureClass: "event_delivery",
   },
-] as const
+] as const satisfies readonly FailureNextAction[]
