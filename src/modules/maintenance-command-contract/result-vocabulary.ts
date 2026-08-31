@@ -1,4 +1,14 @@
-import type { CommandPreview, MaintenanceError, ResultCode } from "./interface"
+import type {
+  EffectClass,
+  FailureClass,
+  MaintenanceAction,
+  MaintenanceError,
+  MaintenanceErrorFailureClass,
+  NextAction,
+  ResultCode,
+  RetrySafety,
+  TransactionState,
+} from "./interface"
 
 export const maintenanceCommandContractId =
   "agent-plugin-kit.maintenance-command-result" as const
@@ -18,6 +28,73 @@ export const actionVocabulary = [
   "wait",
 ] as const satisfies readonly MaintenanceError["action"][]
 
+export const effectClassVocabulary = [
+  "inspect",
+  "repository-local",
+  "external",
+] as const satisfies readonly EffectClass[]
+
+export const transactionStateVocabulary = [
+  "unchanged",
+  "completed",
+  "partially-completed",
+  "unknown",
+] as const satisfies readonly TransactionState[]
+
+export const retrySafetyVocabulary = [
+  "safe",
+  "unsafe",
+  "requires-fresh-inspection",
+] as const satisfies readonly RetrySafety[]
+
+export const failureClassVocabulary = [
+  "usage",
+  "refusal",
+  "transient",
+  "continuation",
+  "recovery",
+  "unexpected",
+  "event_delivery",
+] as const satisfies readonly FailureClass[]
+
+export const errorFamilyVocabulary = [
+  "input",
+  "state_conflict",
+  "authentication",
+  "authorization_scope",
+  "network",
+  "transient",
+  "runtime",
+] as const satisfies readonly MaintenanceError["errorFamily"][]
+
+export const recoverabilityVocabulary = [
+  "none",
+  "retry",
+  "change_input",
+  "authenticate",
+  "repair_state",
+  "contact_support",
+] as const satisfies readonly MaintenanceError["recoverability"][]
+
+export const errorSeverityVocabulary = [
+  "warning",
+  "error",
+  "fatal",
+] as const satisfies readonly MaintenanceError["severity"][]
+
+const vocabularyExhaustivenessChecks: [
+  EffectClass extends (typeof effectClassVocabulary)[number] ? true : false,
+  TransactionState extends (typeof transactionStateVocabulary)[number] ? true : false,
+  RetrySafety extends (typeof retrySafetyVocabulary)[number] ? true : false,
+  FailureClass extends (typeof failureClassVocabulary)[number] ? true : false,
+  MaintenanceError["errorFamily"] extends (typeof errorFamilyVocabulary)[number] ? true : false,
+  MaintenanceError["recoverability"] extends (typeof recoverabilityVocabulary)[number] ? true : false,
+  MaintenanceError["severity"] extends (typeof errorSeverityVocabulary)[number] ? true : false,
+  MaintenanceAction extends (typeof actionVocabulary)[number] ? true : false,
+] = [true, true, true, true, true, true, true, true]
+
+void vocabularyExhaustivenessChecks
+
 export type ExitFamilyId =
   | "accepted-success"
   | "typed-unexpected"
@@ -31,22 +108,37 @@ export type ResultDescriptor = {
   resultCode: ResultCode
   exitFamilyId: ExitFamilyId
   exitClass: 0 | 1 | 2 | 20 | 21 | 22 | 23
-  failureClass: MaintenanceError["failureClass"] | null
+  failureClass: MaintenanceErrorFailureClass | null
   severity: "info" | "warning" | "error" | "fatal"
-  retrySafety: CommandPreview["retrySafety"]
-  transactionState: CommandPreview["transactionState"]
-  nextAction: CommandPreview["nextAction"]
+  retrySafety: RetrySafety
+  transactionState: TransactionState
+  nextAction: NextAction
 }
+
+export const failureClassPolicy = {
+  usage: { errorFamily: "input", recoverability: "change_input" },
+  refusal: { errorFamily: "authorization_scope", recoverability: "repair_state" },
+  transient: { errorFamily: "transient", recoverability: "retry" },
+  continuation: { errorFamily: "state_conflict", recoverability: "repair_state" },
+  recovery: { errorFamily: "runtime", recoverability: "repair_state" },
+  unexpected: { errorFamily: "runtime", recoverability: "contact_support" },
+} as const satisfies Record<
+  MaintenanceErrorFailureClass,
+  Pick<MaintenanceError, "errorFamily" | "recoverability">
+>
+
+export const retrySafetyForEffectClass = (effectClass: EffectClass): RetrySafety =>
+  effectClass === "inspect" || effectClass === "repository-local"
+    ? "safe"
+    : "requires-fresh-inspection"
 
 const result = (
   resultCode: ResultCode,
   exitFamilyId: ExitFamilyId,
   exitClass: ResultDescriptor["exitClass"],
-  failureClass: MaintenanceError["failureClass"] | null,
-  nextAction: CommandPreview["nextAction"],
-  options: Partial<
-    Pick<ResultDescriptor, "severity" | "retrySafety" | "transactionState">
-  > = {},
+  failureClass: MaintenanceErrorFailureClass | null,
+  nextAction: NextAction,
+  options: Partial<Pick<ResultDescriptor, "severity" | "retrySafety" | "transactionState">> = {},
 ): ResultDescriptor => ({
   resultCode,
   exitFamilyId,
@@ -60,10 +152,10 @@ const result = (
 
 const action = (
   id: string,
-  nextAction: MaintenanceError["action"],
+  nextAction: MaintenanceAction,
   summary: string,
-  commandId: CommandPreview["nextAction"]["commandId"] = null,
-): CommandPreview["nextAction"] => ({ id, action: nextAction, summary, commandId })
+  commandId: NextAction["commandId"] = null,
+): NextAction => ({ id, action: nextAction, summary, commandId })
 
 const contactSupport = action(
   "maintenance.contact-support",
@@ -440,8 +532,13 @@ export const containmentExit = {
   meaning: "last-resort process containment",
 } as const
 
+const isFailureDescriptor = (
+  descriptor: ResultDescriptor,
+): descriptor is ResultDescriptor & { failureClass: MaintenanceErrorFailureClass } =>
+  descriptor.exitClass !== 0 && descriptor.failureClass !== null
+
 const failureActions = resultVocabulary
-  .filter((descriptor) => descriptor.exitClass !== 0)
+  .filter(isFailureDescriptor)
   .map((descriptor) => ({
     id: descriptor.nextAction.id,
     action: descriptor.nextAction.action,
@@ -456,6 +553,13 @@ for (const [index, candidate] of failureActions.entries()) {
   }
 }
 
+type FailureNextAction = {
+  id: string
+  action: MaintenanceAction
+  commandId: NextAction["commandId"]
+  failureClass: FailureClass
+}
+
 export const failureNextActionProjection = [
   ...failureActions.filter(
     (candidate, index, all) => all.findIndex((row) => row.id === candidate.id) === index,
@@ -466,4 +570,4 @@ export const failureNextActionProjection = [
     commandId: null,
     failureClass: "event_delivery",
   },
-] as const
+] as const satisfies readonly FailureNextAction[]

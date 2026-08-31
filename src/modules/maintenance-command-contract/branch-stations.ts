@@ -1,13 +1,29 @@
 import type {
-  CommandPreview,
+  EffectClass,
   MaintenanceCommand,
-  MaintenanceError,
+  MaintenanceErrorFailureClass,
+  NextAction,
+  RetrySafety,
   ResultCode,
   StationId,
+  TransactionState,
 } from "./interface"
-import { resultVocabulary } from "./result-vocabulary"
+import {
+  maintenanceCommandContractId,
+  resultSchemaVersion,
+  resultVocabulary,
+  retrySafetyForEffectClass,
+} from "./result-vocabulary"
+import { commandVocabulary } from "./command-vocabulary"
 
-type FailureClass = MaintenanceError["failureClass"]
+/**
+ * The Station ID command half. Every Station ID is derived from this slug and a
+ * Result Code, so the rule stays with the Station owner. The facade's
+ * `maintenance` pseudo-command carries no separator and is returned unchanged.
+ */
+export const stationSlugFor = (
+  command: MaintenanceCommand["command"] | "maintenance",
+): string => command.replaceAll(":", "-")
 
 export type BranchKind =
   | "execution"
@@ -44,8 +60,8 @@ export type BranchStation = {
   expectedResultCode: ResultCode
   expectedExitClass: 0 | 1 | 2 | 20 | 21 | 22 | 23
   expectedEnvelopeStatus: "ok" | "error"
-  expectedRetrySafety: CommandPreview["retrySafety"]
-  expectedTransactionState: CommandPreview["transactionState"]
+  expectedRetrySafety: RetrySafety
+  expectedTransactionState: TransactionState
   controllingOwnerId: ControllingOwnerId
   reachability: StationReachability
   skipRationale: string | null
@@ -96,7 +112,55 @@ export type StationMapProjector = (
   evidence: readonly BranchStationEvidence[],
 ) => StationMap
 
-export const projectStationMap: StationMapProjector | undefined = undefined
+const evidenceForStation = (
+  station: BranchStation,
+  evidence: readonly BranchStationEvidence[],
+): BranchStationEvidence => {
+  const matches = evidence.filter(({ stationId }) => stationId === station.stationId)
+  const observed = matches[0]
+  if (observed === undefined) {
+    const skipped: BranchStationEvidence = {
+      stationId: station.stationId,
+      status: station.reachability === "required" ? "missing" : "skipped",
+      provenance: "synthetic",
+    }
+    if (station.skipRationale !== null) skipped.skipRationale = station.skipRationale
+    return skipped
+  }
+
+  if (matches.length > 1 ||
+    (observed.status === "covered" &&
+      (observed.provenance !== "real_process" ||
+        observed.observedResultCode !== station.expectedResultCode ||
+        observed.observedExitClass !== station.expectedExitClass))) {
+    return { ...observed, status: "drifted" }
+  }
+  return observed
+}
+
+export const projectStationMap: StationMapProjector = (catalog, evidence) => {
+  const stations = catalog.map((station) => evidenceForStation(station, evidence))
+  const required = catalog.filter(({ reachability }) => reachability === "required").length
+  const observed = stations.filter(({ status, provenance }, index) =>
+    catalog[index]?.reachability === "required" &&
+    status === "covered" &&
+    provenance === "real_process"
+  ).length
+  return {
+    commandContractId: maintenanceCommandContractId,
+    commandContractSchemaVersion: resultSchemaVersion,
+    declaredBranchCoverage: catalog.length,
+    implementationDeferredBranchCoverage: catalog.filter(
+      ({ reachability }) => reachability === "implementation-deferred",
+    ).length,
+    declaredUnreachableBranchCoverage: catalog.filter(
+      ({ reachability }) => reachability === "declared-unreachable",
+    ).length,
+    requiredObservedBranchTotal: required,
+    observedBranchCoverage: observed,
+    stations,
+  }
+}
 
 const inspectFailures = [
   "command-refused",
@@ -144,10 +208,81 @@ const descriptorFor = (resultCode: ResultCode) => {
   return descriptor
 }
 
-const branchKindFor = (failureClass: FailureClass | null): BranchKind => {
+const branchKindFor = (failureClass: MaintenanceErrorFailureClass | null): BranchKind => {
   if (failureClass === null) return "execution"
   if (failureClass === "transient") return "retry"
   return failureClass
+}
+
+const inspectionCommands: readonly BranchStation["commandId"][] = commandVocabulary
+  .filter(({ interfaceCall }) => interfaceCall === "inspect")
+  .map(({ command }) => command)
+
+const mutationExpectationFor = (
+  commandId: BranchStation["commandId"],
+): BranchStation["mutationExpectation"] => {
+  if (commandId === "maintenance") return { kind: "none" }
+  if (inspectionCommands.includes(commandId)) return { kind: "preview", expectedEffectIds: [] }
+  return { kind: "result", completedEffectIds: [], remainingEffectIds: [] }
+}
+
+/**
+ * A success Branch Station takes its Retry Safety from the one Effect Class
+ * policy owner in Result Vocabulary. A failure Branch Station keeps the Result
+ * Descriptor policy, because a failure's retry meaning belongs to the Result
+ * Code rather than to the command's Effect Class.
+ */
+const expectedRetrySafetyFor = (
+  classification: BranchStation["classification"],
+  effectClass: EffectClass | undefined,
+  declared: RetrySafety,
+): RetrySafety => classification === "success" && effectClass !== undefined
+  ? retrySafetyForEffectClass(effectClass)
+  : declared
+
+const repairRouteFor = (
+  input: { repairRouteCommandId?: MaintenanceCommand["command"] | null },
+  descriptor: ReturnType<typeof descriptorFor>,
+): MaintenanceCommand["command"] | null =>
+  Object.hasOwn(input, "repairRouteCommandId")
+    ? input.repairRouteCommandId ?? null
+    : descriptor.nextAction.commandId
+
+const commandDescriptorFor = (commandId: BranchStation["commandId"]) =>
+  commandId === "maintenance"
+    ? undefined
+    : commandVocabulary.find(({ command }) => command === commandId)
+
+export type BranchStationMembership = {
+  commandId: BranchStation["commandId"]
+  resultCode: ResultCode
+  classification: BranchStation["classification"]
+}
+
+/** The frozen Branch Station catalog is the sole serialized-membership owner. */
+export const isDeclaredBranchStation = (membership: BranchStationMembership): boolean =>
+  branchStationCatalog.some(({ commandId, expectedResultCode, classification }) =>
+    commandId === membership.commandId &&
+    expectedResultCode === membership.resultCode &&
+    classification === membership.classification
+  )
+
+/**
+ * The one Next Action a declared Branch Station may carry. A command-specific
+ * Next Action replaces the generic Result Descriptor Next Action for the two
+ * result-agnostic success codes; every other Result Code keeps its own.
+ */
+export const canonicalNextActionFor = (
+  commandId: BranchStation["commandId"],
+  resultCode: ResultCode,
+): NextAction | undefined => {
+  const descriptor = descriptorFor(resultCode)
+  const classification = descriptor.exitClass === 0 ? "success" : "failure"
+  if (!isDeclaredBranchStation({ commandId, resultCode, classification })) return undefined
+  const commandDescriptor = commandDescriptorFor(commandId)
+  return commandDescriptor !== undefined && (resultCode === "previewed" || resultCode === "completed")
+    ? commandDescriptor.nextAction
+    : descriptor.nextAction
 }
 
 const station = (input: {
@@ -162,27 +297,12 @@ const station = (input: {
   precondition?: string
 }): BranchStation => {
   const descriptor = descriptorFor(input.resultCode)
-  const commandSlug = input.commandId === "maintenance" ? "maintenance" : input.commandId.replaceAll(":", "-")
+  const commandSlug = stationSlugFor(input.commandId)
   const stationId = `${commandSlug}.${input.resultCode}` as StationId
   const classification = descriptor.exitClass === 0 ? "success" : "failure"
-  const inspectionCommands: readonly BranchStation["commandId"][] = [
-    "help",
-    "payload:check",
-    "runtime:repair",
-    "release:inspect",
-    "harness:claude:inspect",
-    "harness:codex:inspect",
-    "canary:inspect",
-  ]
-  const mutationExpectation: BranchStation["mutationExpectation"] =
-    input.commandId === "maintenance" ? { kind: "none" }
-    : inspectionCommands.includes(input.commandId) ?
-      { kind: "preview", expectedEffectIds: [] }
-    : {
-        kind: "result",
-        completedEffectIds: [],
-        remainingEffectIds: [],
-      }
+  const commandDescriptor = input.commandId === "maintenance"
+    ? undefined
+    : commandVocabulary.find(({ command }) => command === input.commandId)
   return {
     stationId,
     commandId: input.commandId,
@@ -193,17 +313,19 @@ const station = (input: {
     expectedResultCode: input.resultCode,
     expectedExitClass: descriptor.exitClass,
     expectedEnvelopeStatus: classification === "success" ? "ok" : "error",
-    expectedRetrySafety: descriptor.retrySafety,
+    expectedRetrySafety: expectedRetrySafetyFor(
+      classification,
+      commandDescriptor?.effectClass,
+      descriptor.retrySafety,
+    ),
     expectedTransactionState: descriptor.transactionState,
     controllingOwnerId: input.controllingOwnerId,
     reachability: input.reachability,
     skipRationale: input.skipRationale ?? null,
     governingInterface: input.governingInterface,
     expectedNextActionId: input.nextActionId ?? descriptor.nextAction.id,
-    repairRouteCommandId:
-      "repairRouteCommandId" in input ? input.repairRouteCommandId ?? null
-      : descriptor.nextAction.commandId ?? null,
-    mutationExpectation,
+    repairRouteCommandId: repairRouteFor(input, descriptor),
+    mutationExpectation: mutationExpectationFor(input.commandId),
   }
 }
 

@@ -1,8 +1,8 @@
 import type {
   CommandPreview,
+  FailureClass,
   MaintenanceCommand,
   MaintenanceCommands,
-  MaintenanceError,
   MaintenanceOutcome,
   ResultCode,
   StationId,
@@ -19,11 +19,11 @@ export type DiagnosticRecord = Readonly<{
   run_id: string
   command?: MaintenanceCommand["command"]
   station_id?: StationId
-  failure_class?: MaintenanceError["failureClass"] | "event_delivery"
+  failure_class?: FailureClass
   result_code?: ResultCode
   transaction_state?: CommandPreview["transactionState"]
   retry_safety?: CommandPreview["retrySafety"]
-  next_action?: MaintenanceError["nextAction"]
+  next_action?: CommandPreview["nextAction"]
   message: string
 }>
 
@@ -37,7 +37,7 @@ export type EventRecord = Readonly<{
   station_id: StationId
   outcome: "previewed" | "completed" | "refused" | "failed"
   result_code: ResultCode
-  failure_class?: MaintenanceError["failureClass"] | "event_delivery"
+  failure_class?: FailureClass
   transaction_state: CommandPreview["transactionState"]
   retry_safety: CommandPreview["retrySafety"]
   next_action_id: string

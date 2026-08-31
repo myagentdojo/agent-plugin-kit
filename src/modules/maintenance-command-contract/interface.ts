@@ -17,6 +17,49 @@ import type {
   ReleaseRequest,
 } from "../release-and-git-engine/interface"
 
+export type EffectClass = "inspect" | "repository-local" | "external"
+
+export type TransactionState =
+  | "unchanged"
+  | "completed"
+  | "partially-completed"
+  | "unknown"
+
+export type RetrySafety = "safe" | "unsafe" | "requires-fresh-inspection"
+
+export type MaintenanceAction =
+  | "change_input"
+  | "contact_support"
+  | "inspect_state"
+  | "open_docs"
+  | "repair_state"
+  | "retry"
+  | "run_command"
+  | "select_command"
+  | "wait"
+
+/** All machine-observable failure meanings owned by Maintenance. */
+export type FailureClass =
+  | "usage"
+  | "refusal"
+  | "transient"
+  | "continuation"
+  | "recovery"
+  | "unexpected"
+  | "event_delivery"
+
+/** Event delivery is observation-only and never appears on MaintenanceError. */
+export type MaintenanceErrorFailureClass = Exclude<FailureClass, "event_delivery">
+
+export type NextAction = {
+  id: string
+  action: MaintenanceAction
+  summary: string
+  commandId: MaintenanceCommand["command"] | null
+  retryAfterMs?: number
+  idempotencyKey?: string
+}
+
 export type MaintenanceApplyRequest =
   | {
       command: "payload:materialize"
@@ -105,14 +148,6 @@ export type StationId = `${string}.${ResultCode}`
 
 export type MaintenanceError = {
   name: "MaintenanceCommandError"
-  exitCodeHint: number
-  failureClass:
-    | "usage"
-    | "refusal"
-    | "transient"
-    | "continuation"
-    | "recovery"
-    | "unexpected"
   errorFamily:
     | "input"
     | "state_conflict"
@@ -122,17 +157,7 @@ export type MaintenanceError = {
     | "transient"
     | "runtime"
   severity: "warning" | "error" | "fatal"
-  action:
-    | "change_input"
-    | "contact_support"
-    | "inspect_state"
-    | "open_docs"
-    | "repair_state"
-    | "retry"
-    | "run_command"
-    | "select_command"
-    | "wait"
-  retryable: boolean
+  action: MaintenanceAction
   recoverability:
     | "none"
     | "retry"
@@ -140,28 +165,33 @@ export type MaintenanceError = {
     | "authenticate"
     | "repair_state"
     | "contact_support"
-  retrySafety: "safe" | "unsafe" | "requires-fresh-inspection"
-  transactionState: "unchanged" | "completed" | "partially-completed" | "unknown"
-  nextAction: {
-    id: string
-    action:
-      | "change_input"
-      | "contact_support"
-      | "inspect_state"
-      | "open_docs"
-      | "repair_state"
-      | "retry"
-      | "run_command"
-      | "select_command"
-      | "wait"
-    summary: string
-    commandId?: MaintenanceCommand["command"] | null
-    retryAfterMs?: number
-    idempotencyKey?: string
-  }
+  nextAction: NextAction
   retryAfterMs?: number
   idempotencyKey?: string
-}
+} & (
+  | {
+      exitCodeHint: 20
+      failureClass: "continuation"
+      errorFamily: "state_conflict"
+      severity: "error"
+      action: "inspect_state"
+      retryable: false
+      recoverability: "repair_state"
+      retrySafety: "unsafe"
+      transactionState: "partially-completed"
+      completedEffectIds: readonly string[]
+      remainingEffectIds: readonly [string, ...string[]]
+    }
+  | {
+      exitCodeHint: 1 | 2 | 20 | 21 | 22 | 23
+      failureClass: Exclude<MaintenanceErrorFailureClass, "continuation">
+      retryable: boolean
+      retrySafety: RetrySafety
+      transactionState: TransactionState
+      completedEffectIds?: never
+      remainingEffectIds?: never
+    }
+)
 
 export type MaintenanceOutcome<T> =
   | {
@@ -177,33 +207,77 @@ export type MaintenanceOutcome<T> =
       error: MaintenanceError
     }
 
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue }
+
+export type AgentPayload = {
+  readonly schemaVersion: 1
+  readonly [key: string]: JsonValue
+}
+
 export type CommandPreview = {
   schemaVersion: 1
   command: MaintenanceCommand["command"]
-  effectClass: "inspect" | "repository-local" | "external"
+  effectClass: EffectClass
   expectedEffectIds: readonly string[]
-  transactionState: MaintenanceError["transactionState"]
-  retrySafety: MaintenanceError["retrySafety"]
-  nextAction: MaintenanceError["nextAction"]
+  transactionState: TransactionState
+  retrySafety: RetrySafety
+  nextAction: NextAction
   human: string
-  agent: Readonly<Record<string, unknown>>
+  agent: AgentPayload
   stderr: string
 }
 
 export type CommandResult = {
   schemaVersion: 1
   command: MaintenanceApplyRequest["command"]
-  transactionState: MaintenanceError["transactionState"]
-  retrySafety: MaintenanceError["retrySafety"]
+  transactionState: TransactionState
+  retrySafety: RetrySafety
   completedEffectIds: readonly string[]
   remainingEffectIds: readonly string[]
-  nextAction: MaintenanceError["nextAction"]
+  nextAction: NextAction
   human: string
-  agent: Readonly<Record<string, unknown>>
+  agent: AgentPayload
   stderr: string
 }
 
+/**
+ * The Maintenance Command Contract boundary for inspection and application.
+ *
+ * A successful inspection of an external command that delegates to another
+ * owner binds its expected effect IDs to the inspected request and authorizes
+ * exactly one matching apply. The implementation consumes that authorization
+ * before delegating; a missing inspection or a changed request or effect
+ * binding returns the Maintenance-owned recovery refusal instead of delegating.
+ * This one-use binding governs `release:apply`, `harness:claude:apply`,
+ * `harness:codex:apply`, and `canary:qualify`.
+ *
+ * `runtime:repair-apply` is the one bounded exception. Runtime Custody state can
+ * change between any two calls, so a caller-held prior binding would authorize
+ * an apply against state that no longer exists. `apply` therefore inspects
+ * Runtime itself, inside the same call and immediately before the repair, and
+ * requires no prior `inspect`. A stale, absent, or non-repairable Runtime
+ * inspection refuses there rather than at a caller-held binding. Every other
+ * command keeps the one-use binding above.
+ */
 export interface MaintenanceCommands {
+  /**
+   * Inspect current state without acquiring a capability or causing an
+   * effect. For a delegating external command, the returned expected effect IDs
+   * are the binding consumed by the matching `apply` call.
+   */
   inspect(command: MaintenanceCommand): Promise<MaintenanceOutcome<CommandPreview>>
+
+  /**
+   * Apply one admitted request. For a delegating external command the matching
+   * inspection binding must be present and unchanged, and is consumed before
+   * owner delegation. For `runtime:repair-apply` the Runtime inspection happens
+   * inside this call instead, immediately before the repair.
+   */
   apply(request: MaintenanceApplyRequest): Promise<MaintenanceOutcome<CommandResult>>
 }

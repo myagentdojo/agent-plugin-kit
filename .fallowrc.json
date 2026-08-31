@@ -131,8 +131,12 @@
         "from": "deep-module-contract-tests/maintenance-command-contract",
         "allow": ["deep-module-private/maintenance-command-contract"],
         "allowTypeOnly": [
+          "deep-modules/canary-qualification",
+          "deep-modules/harness-journeys",
           "deep-modules/maintenance-command-contract",
-          "deep-modules/release-and-git-engine"
+          "deep-modules/plugin-payload-production",
+          "deep-modules/release-and-git-engine",
+          "deep-modules/runtime-custody"
         ]
       },
       {
@@ -196,8 +200,12 @@
       {
         "from": "deep-module-private/maintenance-command-contract",
         "allowTypeOnly": [
+          "deep-modules/canary-qualification",
+          "deep-modules/harness-journeys",
           "deep-modules/maintenance-command-contract",
-          "deep-modules/release-and-git-engine"
+          "deep-modules/plugin-payload-production",
+          "deep-modules/release-and-git-engine",
+          "deep-modules/runtime-custody"
         ]
       },
       {

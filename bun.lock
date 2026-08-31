@@ -32,6 +32,9 @@
     },
     "src/modules/maintenance-command-contract": {
       "name": "@agent-plugin-kit/maintenance-command-contract",
+      "dependencies": {
+        "zod": "4.4.3",
+      },
     },
     "src/modules/plugin-payload-production": {
       "name": "@agent-plugin-kit/plugin-payload-production",
