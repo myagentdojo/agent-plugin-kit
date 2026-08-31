@@ -110,21 +110,24 @@ const diagnosticLevels = ["debug", "info", "warning", "error", "fatal"] as const
 const eventOutcomes = ["previewed", "completed", "refused", "failed"] as const
 const safeIdentifierPattern = /^[A-Za-z0-9._:-]{1,160}$/
 const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
-const secretKeyPattern = /(?:password|passwd|secret|token|authorization|cookie|credential|private[-_]?key|api[-_]?key)/i
-const secretAssignmentPattern = /(^|[^A-Za-z0-9])(secret|password|passwd|token|credential|authorization|cookie|private[-_ ]?key|api[-_ ]?key)(\s*)([:=])(\s*)("[^"]*"|'[^']*'|[^\s,;]+)/gi
-const authUrlPattern = /(^|[^A-Za-z0-9])https?:\/\/[^\s/@]+:[^\s/@]+@[^\s]+/gi
-const authUrlDetectPattern = /(?:^|[^A-Za-z0-9])https?:\/\/[^\s/@]+:[^\s/@]+@[^\s]+/i
-const privateKeyPattern = /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/gi
-const privateKeyDetectPattern = /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/i
 const maximumCredentialMatchLength = 4096
-const credentialCandidatePattern = `[^\\s,;]{1,${maximumCredentialMatchLength}}`
+const secretKeyPattern = /(?:password|passwd|secret|token|authorization|cookie|credential|private[-_]?key|api[-_]?key)/i
+const secretAssignmentPattern = /(^|[^A-Za-z0-9])(secret|password|passwd|token|credential|authorization|cookie|private[-_ ]?key|api[-_ ]?key)(\s*)([:=])(\s*)("[^"]*"[^\s]*|'[^']*'[^\s]*|"[^"]*$|'[^']*$|[^\s]+)/gi
+const authUrlPattern = new RegExp(
+  `(^|[^A-Za-z0-9])(?=https?:\\/\\/[^\\s@]{0,${maximumCredentialMatchLength}}@)https?:\\/\\/[^\\s@]{0,${maximumCredentialMatchLength}}:[^\\s@]{0,${maximumCredentialMatchLength}}@[^\\s]+`,
+  "gi",
+)
+const authUrlDetectPattern = /(?:^|[^A-Za-z0-9])https?:\/\/[^\s:@]*:[^\s@]*@/i
+const privateKeyPattern = /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/gi
+const privateKeyDetectPattern = /-----BEGIN [^-]*PRIVATE KEY-----/i
+const credentialCandidatePattern = `[^\\s]{1,${maximumCredentialMatchLength}}`
 const bearerCredentialPattern = new RegExp(
-  `(^|[^A-Za-z0-9])(?:bearer|basic)\\s+${credentialCandidatePattern}(?![^\\s,;])`,
+  `(^|[^A-Za-z0-9])(?:bearer|basic)\\s+${credentialCandidatePattern}(?![^\\s])`,
   "gi",
 )
 const bearerCredentialDetectPattern = /(?:^|[^A-Za-z0-9])(?:bearer|basic)\s+/i
 const opReferencePattern = new RegExp(
-  `(^|[^A-Za-z0-9])op:\\/\\/${credentialCandidatePattern}(?![^\\s,;])`,
+  `(^|[^A-Za-z0-9])op:\\/\\/${credentialCandidatePattern}(?![^\\s])`,
   "gi",
 )
 const opReferenceDetectPattern = /(?:^|[^A-Za-z0-9])op:\/\//i

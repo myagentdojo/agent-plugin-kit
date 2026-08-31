@@ -438,10 +438,18 @@ test("redaction validates and freezes both seams before crossing", async () => {
   const malformedBearerCredential = `fixture-malformed-bearer!$<${malformedCredentialTail}`
   const malformedBasicCredential = `fixture-malformed-basic!$<${malformedCredentialTail}`
   const malformedOpReference = `op://fixture-malformed-vault/malformed!$<${malformedCredentialTail}`
+  const completePrivateKey = "-----BEGIN PRIVATE KEY-----\nfixture-private-key-secret\n-----END PRIVATE KEY-----"
+  const incompletePrivateKey = "-----BEGIN PRIVATE KEY-----\nfixtureTail"
   const underscoreAuthUsername = "fixture-auth-user"
   const underscoreAuthPassword = "fixture-auth-password"
   const underscoreAuthUrl = `https://${underscoreAuthUsername}:${underscoreAuthPassword}@fixture-auth-host`
   const underscoreAssignment = "fixture-underscore-assignment-secret"
+  const emptyUsernameAuthUrl = "https://:fixture-empty-username-password@fixture-empty-username.example"
+  const emptyPasswordAuthUrl = "https://fixture-empty-password-username:@fixture-empty-password.example"
+  const slashBearingAuthUrl = "https://fixtureUser:fixture/fixtureTail@fixture.example"
+  const quotedAssignmentWithSuffix = 'token="fixture head";fixtureTail'
+  const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
+  const incompleteAuthUrl = "https://fixtureUser:fixtureSecret@"
   const diagnostic = diagnosticHarness("debug", {
     redactionTrace: (step) => redactionTrace.push(step),
   })
@@ -457,14 +465,39 @@ test("redaction validates and freezes both seams before crossing", async () => {
       `Bearer ${malformedBearerCredential}`,
       `Basic ${malformedBasicCredential}`,
       malformedOpReference,
+      completePrivateKey,
       `x_token=${underscoreAssignment}`,
       "token=fixture-diagnostic-secret",
+      `x_${emptyUsernameAuthUrl}`,
+      `x_${emptyPasswordAuthUrl}`,
       `x_${underscoreAuthUrl}`,
-    ].join("; "),
+      slashBearingAuthUrl,
+      "https://fixture.example:8080",
+      "Bearer fixtureHead;fixtureTail",
+      "Basic fixtureHead,fixtureTail",
+      "op://fixture/head;fixtureTail",
+      quotedAssignmentWithSuffix,
+      'token="fixtureHead;fixtureTail',
+    ].join(" | "),
     secret_token: "fixture-diagnostic-secret",
   } as DiagnosticRecord)
+  const incompletePrivateKeyDiagnostic = diagnosticHarness("debug")
+  incompletePrivateKeyDiagnostic.pipeline.record({
+    ...diagnosticRecord(2, "error", "fixture.incomplete-private-key"),
+    message: incompletePrivateKey,
+  })
+  const overlongAuthDiagnostic = diagnosticHarness("debug")
+  overlongAuthDiagnostic.pipeline.record({
+    ...diagnosticRecord(3, "error", "fixture.overlong-auth-userinfo"),
+    message: overlongAuthUrl,
+  })
+  const incompleteAuthDiagnostic = diagnosticHarness("debug")
+  incompleteAuthDiagnostic.pipeline.record({
+    ...diagnosticRecord(4, "error", "fixture.incomplete-auth-url"),
+    message: incompleteAuthUrl,
+  })
   const harness = await facadeHarness({ eventAcceptance: "refused" })
-  const serialized = JSON.stringify({ injectedDiagnostics: diagnostic?.records, diagnostics: harness?.diagnostics.records, events: harness?.events.records })
+  const serialized = JSON.stringify({ injectedDiagnostics: diagnostic?.records, incompletePrivateKeyDiagnostics: incompletePrivateKeyDiagnostic.records, overlongAuthDiagnostics: overlongAuthDiagnostic.records, incompleteAuthDiagnostics: incompleteAuthDiagnostic.records, diagnostics: harness?.diagnostics.records, events: harness?.events.records })
   const redactionSecrets = [
     "fixture-secret-must-not-cross",
     "fixture-diagnostic-secret",
@@ -479,20 +512,37 @@ test("redaction validates and freezes both seams before crossing", async () => {
     malformedBearerCredential,
     malformedBasicCredential,
     malformedOpReference,
+    completePrivateKey,
+    incompletePrivateKey,
+    "fixture-private-key-secret",
     underscoreAuthUsername,
     underscoreAuthPassword,
     underscoreAuthUrl,
     underscoreAssignment,
+    emptyUsernameAuthUrl,
+    emptyPasswordAuthUrl,
+    slashBearingAuthUrl,
+    quotedAssignmentWithSuffix,
+    "fixture head",
+    overlongAuthUrl,
+    incompleteAuthUrl,
+    "fixture-empty-username-password",
+    "fixture-empty-password-username",
+    "fixtureTail",
+    "fixtureHead",
   ]
   absent(
     harness && {
       recordsFrozen: [...(diagnostic?.records ?? []), ...harness.diagnostics.records, ...harness.events.records].every(Object.isFrozen),
       leakedSecret: redactionSecrets.some((secret) => serialized.includes(secret)),
       redactedMessage: diagnostic?.records[0]?.message,
+      incompletePrivateKeyRecords: incompletePrivateKeyDiagnostic.records,
+      overlongAuthRecords: overlongAuthDiagnostic.records,
+      incompleteAuthRecords: incompleteAuthDiagnostic.records,
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
       order: redactionTrace,
     },
-    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED]; [REDACTED]; [REDACTED]; x_[REDACTED]; x_[REDACTED]; x_[REDACTED]; [REDACTED]; [REDACTED]; [REDACTED]; x_token=[REDACTED]; token=[REDACTED]; x_[REDACTED]", primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
+    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | https://fixture.example:8080 | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] | token=[REDACTED]", incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
     "redaction must precede both seams without changing the fixed primary result",
   )
 })
