@@ -13,10 +13,28 @@ import type {
   RetrySafety,
   StationId,
 } from "../interface"
-import type { CanaryQualification } from "../../canary-qualification/interface"
-import type { HarnessJourneys } from "../../harness-journeys/interface"
-import type { PluginPayloadProduction } from "../../plugin-payload-production/interface"
-import type { ReleaseAndGitEngine } from "../../release-and-git-engine/interface"
+import type {
+  CanaryPlan,
+  CanaryQualification,
+  CanaryResult,
+} from "../../canary-qualification/interface"
+import type {
+  ClaudeApplyResult,
+  ClaudeInspection,
+  CodexApplyResult,
+  CodexInspection,
+  HarnessJourneys,
+} from "../../harness-journeys/interface"
+import type {
+  PayloadProductionResult,
+  PluginPayloadProduction,
+} from "../../plugin-payload-production/interface"
+import type {
+  CandidateIdentity,
+  ReleaseAndGitEngine,
+  ReleasePlan,
+  ReleaseResult,
+} from "../../release-and-git-engine/interface"
 import type {
   RuntimeCustodyCommand,
   RuntimeCustodyResult,
@@ -63,7 +81,7 @@ export type MaintenanceCommandDependencies = {
 }
 
 type PayloadRequest = Parameters<PluginPayloadProduction["produce"]>[0]
-type PayloadResult = Awaited<ReturnType<PluginPayloadProduction["produce"]>>
+type PayloadResult = PayloadProductionResult
 type ReleaseInspectionCommand = Extract<
   MaintenanceCommand,
   { command: "release:inspect" | "release:apply" }
@@ -118,11 +136,154 @@ const retrySafetyFor = (effectClass: EffectClass): RetrySafety =>
     ? "safe"
     : "requires-fresh-inspection"
 
-const preservedAgent = (kind: string, result: JsonValue): AgentPayload => ({
+type AgentKind =
+  | "previewed"
+  | "checked"
+  | "materialized"
+  | "packaged"
+  | "release-plan"
+  | "claude-inspection"
+  | "codex-inspection"
+  | "canary-plan"
+  | "released"
+  | "claude-transitioned"
+  | "codex-transitioned"
+  | "qualified"
+  | "runtime-control"
+
+type HumanResultKind =
+  | "checked"
+  | "materialized"
+  | "packaged"
+  | "Release"
+  | "Claude Harness"
+  | "Codex Harness"
+  | "Canary Qualification"
+
+/**
+ * These projections are the only owner-result fields allowed into agent
+ * output. They deliberately copy the public meaning instead of forwarding a
+ * trusted owner's object, which keeps diagnostics, capabilities, and
+ * incidental fields on their owning seams.
+ */
+const agentPayload = (kind: AgentKind, result: JsonValue): AgentPayload => ({
   schemaVersion: resultSchemaVersion,
   kind,
   result,
 })
+
+const projectCandidateIdentity = (candidate: CandidateIdentity): JsonValue => ({
+  source: {
+    repository: { origin: candidate.source.repository.origin },
+    commit: candidate.source.commit,
+  },
+  release: {
+    reference: candidate.release.reference,
+    commit: candidate.release.commit,
+  },
+  package: {
+    repository: { origin: candidate.package.repository.origin },
+    commit: candidate.package.commit,
+  },
+  workflow: {
+    repository: { origin: candidate.workflow.repository.origin },
+    path: candidate.workflow.path,
+    commit: candidate.workflow.commit,
+  },
+})
+
+const projectPayloadResult = (result: PayloadResult): JsonValue => ({
+  kind: result.kind,
+  ...(result.payload === undefined
+    ? {}
+    : {
+        payload: {
+          regularFiles: [...result.payload.regularFiles],
+          payloadSha256: result.payload.payloadSha256,
+        },
+      }),
+  nextAction: result.nextAction,
+})
+
+const projectReleasePlan = (plan: ReleasePlan): JsonValue => ({
+  candidate: projectCandidateIdentity(plan.candidate),
+  expectedEffectIds: [...plan.expectedEffectIds],
+  approvalDigest: plan.approvalDigest,
+})
+
+const projectReleaseResult = (result: ReleaseResult): JsonValue => ({
+  candidate: projectCandidateIdentity(result.candidate),
+  completedEffectIds: [...result.completedEffectIds],
+  remainingEffectIds: [...result.remainingEffectIds],
+})
+
+const projectClaudeInspection = (inspection: ClaudeInspection): JsonValue => ({
+  candidate: projectCandidateIdentity(inspection.candidate),
+  profileIdentity: inspection.profileIdentity,
+  expectedEffectIds: [...inspection.expectedEffectIds],
+})
+
+const projectCodexInspection = (inspection: CodexInspection): JsonValue => ({
+  candidate: projectCandidateIdentity(inspection.candidate),
+  profileIdentity: inspection.profileIdentity,
+  expectedEffectIds: [...inspection.expectedEffectIds],
+  checkoutIdentity: inspection.checkoutIdentity,
+})
+
+const isCodexInspection = (inspection: ClaudeInspection): inspection is CodexInspection =>
+  "checkoutIdentity" in inspection
+
+const projectClaudeResult = (result: ClaudeApplyResult): JsonValue => ({
+  completedEffectIds: [...result.completedEffectIds],
+  remainingEffectIds: [...result.remainingEffectIds],
+})
+
+const projectCodexResult = (result: CodexApplyResult): JsonValue => ({
+  completedEffectIds: [...result.completedEffectIds],
+  remainingEffectIds: [...result.remainingEffectIds],
+  freshTaskCommand: [...result.freshTaskCommand],
+})
+
+const projectCanaryPlan = (plan: CanaryPlan): JsonValue => ({
+  candidate: projectCandidateIdentity(plan.candidate),
+  target: plan.target,
+  immutableReference: plan.immutableReference,
+})
+
+const projectCanaryResult = (result: CanaryResult): JsonValue => ({
+  candidate: projectCandidateIdentity(result.candidate),
+  hostedRunId: result.hostedRunId,
+  installedPayloadSha256: result.installedPayloadSha256,
+})
+
+const projectRuntimeResult = (result: RuntimeCustodyResult): JsonValue => {
+  if (result.kind === "skill-process") {
+    return { kind: result.kind, exitCode: result.exitCode }
+  }
+
+  const { control } = result
+  return {
+    kind: result.kind,
+    control: {
+      schemaVersion: control.schemaVersion,
+      ok: control.ok,
+      code: control.code,
+      sideEffects: [...control.sideEffects],
+      retrySafe: control.retrySafe,
+      nextAction: control.nextAction,
+      ...(control.runtime === undefined
+        ? {}
+        : {
+            runtime: {
+              version: control.runtime.version,
+              executableSha256: control.runtime.executableSha256,
+            },
+          }),
+      ...(control.state === undefined ? {} : { state: { before: control.state.before } }),
+    },
+    exitClass: result.exitClass,
+  }
+}
 
 const helpAgent = () => ({
   schemaVersion: resultSchemaVersion,
@@ -240,7 +401,7 @@ const preview = (
   })
 }
 
-const resultHuman = (command: MaintenanceApplyRequest["command"], kind: string): string => {
+const resultHuman = (command: MaintenanceApplyRequest["command"], kind: HumanResultKind): string => {
   switch (command) {
     case "payload:materialize":
       return "Plugin Payload materialized.\n"
@@ -255,8 +416,8 @@ const completedResult = (
   request: MaintenanceApplyRequest,
   completedEffectIds: readonly string[],
   remainingEffectIds: readonly string[],
-  kind: string,
-  agent: AgentPayload = { schemaVersion: resultSchemaVersion, kind },
+  kind: HumanResultKind,
+  agent: AgentPayload,
 ): MaintenanceOutcome<CommandResult> => {
   const [firstRemainingEffect, ...otherRemainingEffects] = remainingEffectIds
   if (firstRemainingEffect !== undefined) {
@@ -380,8 +541,29 @@ const freshInspectionKey = (command: MaintenanceCommand): string | null => {
   }
 }
 
-const payloadKind = (request: PayloadRequest, result: PayloadResult): string => {
-  if (result.kind === "refused") return result.kind
+const expectedEffectIdsFor = (request: MaintenanceApplyRequest): readonly string[] => {
+  switch (request.command) {
+    case "release:apply":
+      return request.request.expectedEffectIds
+    case "harness:claude:apply":
+      return request.request.expectedEffectIds
+    case "harness:codex:apply":
+      return request.request.expectedEffectIds
+    case "canary:qualify":
+    case "payload:materialize":
+    case "payload:package":
+    case "runtime:repair-apply":
+      return []
+  }
+}
+
+const effectIdsMatch = (left: readonly string[], right: readonly string[]): boolean =>
+  left.length === right.length && left.every((effectId, index) => effectId === right[index])
+
+const payloadKind = (
+  request: PayloadRequest,
+  result: Exclude<PayloadResult, { kind: "refused" }>,
+): Extract<AgentKind, "checked" | "materialized" | "packaged"> => {
   if (request.mode === "materialize") return "materialized"
   if (request.mode === "package") return "packaged"
   return "checked"
@@ -405,15 +587,15 @@ const applyPayload = async (
   collaborators: MaintenanceCommandDependencies,
 ): Promise<MaintenanceOutcome<CommandResult>> => {
   const ownerResult = await collaborators.payload.produce(request.request)
-  const kind = payloadKind(request.request, ownerResult)
   if (ownerResult.kind === "refused") return errorFor(request.command, "command-refused")
+  const kind = payloadKind(request.request, ownerResult)
   const effectId = payloadEffect(request.request)
   return completedResult(
     request,
     effectId === null ? [] : [effectId],
     [],
     kind,
-    preservedAgent(kind, ownerResult),
+    agentPayload(kind, projectPayloadResult(ownerResult)),
   )
 }
 
@@ -423,7 +605,7 @@ const inspectPayload = async (
 ): Promise<MaintenanceOutcome<CommandPreview>> => {
   const ownerResult = await collaborators.payload.produce(command.request)
   if (ownerResult.kind === "refused") return errorFor(command.command, "command-refused")
-  return preview(command.command, [], preservedAgent(ownerResult.kind, ownerResult))
+  return preview(command.command, [], agentPayload(ownerResult.kind, projectPayloadResult(ownerResult)))
 }
 
 const inspectRelease = async (
@@ -431,7 +613,7 @@ const inspectRelease = async (
   collaborators: MaintenanceCommandDependencies,
 ): Promise<MaintenanceOutcome<CommandPreview>> => {
   const plan = await collaborators.release.inspect(command.request)
-  return preview(command.command, plan.expectedEffectIds, preservedAgent("release-plan", plan))
+  return preview(command.command, plan.expectedEffectIds, agentPayload("release-plan", projectReleasePlan(plan)))
 }
 
 const inspectClaude = async (
@@ -439,7 +621,7 @@ const inspectClaude = async (
   collaborators: MaintenanceCommandDependencies,
 ): Promise<MaintenanceOutcome<CommandPreview>> => {
   const plan = await collaborators.harness.inspect(command.request)
-  return preview(command.command, plan.expectedEffectIds, preservedAgent("claude-inspection", plan))
+  return preview(command.command, plan.expectedEffectIds, agentPayload("claude-inspection", projectClaudeInspection(plan)))
 }
 
 const inspectCodex = async (
@@ -447,7 +629,8 @@ const inspectCodex = async (
   collaborators: MaintenanceCommandDependencies,
 ): Promise<MaintenanceOutcome<CommandPreview>> => {
   const plan = await collaborators.harness.inspect(command.request)
-  return preview(command.command, plan.expectedEffectIds, preservedAgent("codex-inspection", plan))
+  if (!isCodexInspection(plan)) throw new Error("Harness Journeys returned a Claude inspection for Codex")
+  return preview(command.command, plan.expectedEffectIds, agentPayload("codex-inspection", projectCodexInspection(plan)))
 }
 
 const inspectCanary = async (
@@ -455,7 +638,7 @@ const inspectCanary = async (
   collaborators: MaintenanceCommandDependencies,
 ): Promise<MaintenanceOutcome<CommandPreview>> => {
   const plan = await collaborators.canary.inspect(command.candidate)
-  return preview(command.command, [], preservedAgent("canary-plan", plan))
+  return preview(command.command, [], agentPayload("canary-plan", projectCanaryPlan(plan)))
 }
 
 const runtimeResultCodes: Record<RuntimeControl["code"], ResultCode> = {
@@ -523,7 +706,7 @@ const runtimePreview = (
       human: resultCode === "runtime-repair-preview"
         ? "Runtime Custody repair preview ready.\n"
         : "Runtime Custody repair is not required.\n",
-      agent: preservedAgent(resultCode, result),
+      agent: agentPayload("runtime-control", projectRuntimeResult(result)),
       stderr: "",
     },
   })
@@ -560,7 +743,7 @@ const runtimeCompletedResult = (
       remainingEffectIds: [],
       nextAction: resultDescriptor.nextAction,
       human: applied ? "Runtime Custody repaired.\n" : "Runtime Custody repair is not required.\n",
-      agent: preservedAgent(resultCode, result),
+      agent: agentPayload("runtime-control", projectRuntimeResult(result)),
       stderr: "",
     },
   })
@@ -601,7 +784,7 @@ const applyRelease = async (
     ownerResult.completedEffectIds,
     ownerResult.remainingEffectIds,
     "Release",
-    preservedAgent("released", ownerResult),
+    agentPayload("released", projectReleaseResult(ownerResult)),
   )
 }
 
@@ -615,7 +798,7 @@ const applyClaude = async (
     ownerResult.completedEffectIds,
     ownerResult.remainingEffectIds,
     "Claude Harness",
-    preservedAgent("claude-transitioned", ownerResult),
+    agentPayload("claude-transitioned", projectClaudeResult(ownerResult)),
   )
 }
 
@@ -629,7 +812,7 @@ const applyCodex = async (
     ownerResult.completedEffectIds,
     ownerResult.remainingEffectIds,
     "Codex Harness",
-    preservedAgent("codex-transitioned", ownerResult),
+    agentPayload("codex-transitioned", projectCodexResult(ownerResult)),
   )
 }
 
@@ -643,7 +826,7 @@ const applyCanary = async (
     ["effect:canary-qualified"],
     [],
     "Canary Qualification",
-    preservedAgent("qualified", ownerResult),
+    agentPayload("qualified", projectCanaryResult(ownerResult)),
   )
 }
 
@@ -688,7 +871,7 @@ const applyHandlerFor = <C extends MaintenanceApplyRequest["command"]>(
 export const createMaintenanceCommands = (
   collaborators: MaintenanceCommandDependencies,
 ): MaintenanceCommands => {
-  const inspected = new Set<string>()
+  const inspected = new Map<string, readonly string[]>()
 
   const inspectHandlers = {
     help: inspectionHandlerFor("help", async () => helpPreview()),
@@ -713,7 +896,9 @@ export const createMaintenanceCommands = (
   const inspect = async (command: MaintenanceCommand): Promise<MaintenanceOutcome<CommandPreview>> => {
     const outcome = await inspectHandlers[command.command](command)
     const inspectionKey = freshInspectionKey(command)
-    if (outcome.status === "ok" && inspectionKey !== null) inspected.add(inspectionKey)
+    if (outcome.status === "ok" && inspectionKey !== null) {
+      inspected.set(inspectionKey, [...outcome.value.expectedEffectIds])
+    }
     return outcome
   }
 
@@ -729,8 +914,15 @@ export const createMaintenanceCommands = (
 
   const apply = async (request: MaintenanceApplyRequest): Promise<MaintenanceOutcome<CommandResult>> => {
     const inspectionKey = freshInspectionKey(request)
-    if (inspectionKey !== null && !inspected.delete(inspectionKey)) {
-      return errorFor(request.command, "recovery-required")
+    if (inspectionKey !== null) {
+      const inspectedEffectIds = inspected.get(inspectionKey)
+      inspected.delete(inspectionKey)
+      if (
+        inspectedEffectIds === undefined ||
+        !effectIdsMatch(inspectedEffectIds, expectedEffectIdsFor(request))
+      ) {
+        return errorFor(request.command, "recovery-required")
+      }
     }
     return applyHandlers[request.command](request)
   }

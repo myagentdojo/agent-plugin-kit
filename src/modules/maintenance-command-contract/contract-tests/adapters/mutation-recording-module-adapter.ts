@@ -60,6 +60,7 @@ export function runtimeControl(
     sideEffects?: readonly [] | readonly ["published-runtime"]
     exitClass?: 0 | 2 | 20 | 21 | 22 | 23
     state?: { before: "valid" | "missing" | "corrupt" }
+    stderr?: string
   } = {},
 ): RuntimeCustodyResult {
   return {
@@ -73,7 +74,7 @@ export function runtimeControl(
       nextAction: "Inspect the Runtime Custody result.",
       ...(options.state === undefined ? {} : { state: options.state }),
     },
-    stderr: "",
+    stderr: options.stderr ?? "",
     exitClass: options.exitClass ?? 0,
   }
 }

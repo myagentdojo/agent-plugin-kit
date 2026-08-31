@@ -146,6 +146,27 @@ test("release apply transports only its fixed approval vector", async () => {
       remainingEffectIds: ["effect:release"],
     },
   })
+
+  const changedBinding = createMaintenanceContractHarness()
+  const changedRequest: MaintenanceApplyRequest = {
+    command: "release:apply",
+    request: {
+      candidate: request.request.candidate,
+      intent: request.request.intent,
+      expectedEffectIds: ["effect:changed"],
+    },
+    approval: request.approval,
+  }
+  await changedBinding.inspect(canonicalInspectionFor(request))
+  expect(await changedBinding.apply(changedRequest)).toMatchObject({
+    status: "error",
+    resultCode: "recovery-required",
+  })
+  expect(changedBinding.applyLedgers.release).toEqual([])
+  expect(await changedBinding.apply(request)).toMatchObject({
+    status: "error",
+    resultCode: "recovery-required",
+  })
 })
 test("Claude apply transports only its fixed approval vector", () => assertApply("claude", "external"))
 test("Codex apply transports only its fixed approval vector", () => assertApply("codex", "external"))
@@ -189,6 +210,29 @@ test("runtime repair apply refreshes preview immediately before exact apply argv
       transactionState: "unchanged",
     },
   })
+
+  const hostileSecret = "runtime-private-diagnostic-token"
+  const hostileRuntime = createMaintenanceContractHarness(undefined, {
+    runtimeResults: [
+      runtimeControl("REPAIR_PREVIEW", {
+        state: { before: "missing" },
+        stderr: hostileSecret,
+      }),
+      runtimeControl("REPAIR_PREVIEW", {
+        state: { before: "missing" },
+        stderr: hostileSecret,
+      }),
+      runtimeControl("REPAIR_APPLIED", {
+        sideEffects: ["published-runtime"],
+        stderr: hostileSecret,
+      }),
+    ],
+  })
+  const hostilePreview = await hostileRuntime.inspect({ command: "runtime:repair", argv: ["repair"] })
+  expect(JSON.stringify(hostilePreview?.status === "ok" ? hostilePreview.value.agent : undefined)).not.toContain(hostileSecret)
+  const hostileApplied = await hostileRuntime.apply(mutatingRequests.runtime)
+  expect(JSON.stringify(hostileApplied?.status === "ok" ? hostileApplied.value.agent : undefined)).not.toContain(hostileSecret)
+
   const scenarios = [
     {
       label: "fresh missing preview",

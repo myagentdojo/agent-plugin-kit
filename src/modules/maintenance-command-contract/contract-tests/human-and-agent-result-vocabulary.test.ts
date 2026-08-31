@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test"
-import { failureNextActionProjection, resultVocabulary } from "../result-vocabulary"
 import {
   parseCommandPreview,
   parseCommandResult,
@@ -61,7 +60,11 @@ async function assertOwnerResultsArePreserved() {
   ]) {
     await harness.inspect(request)
     const ownerOutcome = await harness.apply(request)
-    expect(ownerOutcome?.status === "ok" ? ownerOutcome.value.agent.result : undefined).toBeDefined()
+    const agentResult = ownerOutcome?.status === "ok" ? ownerOutcome.value.agent.result : undefined
+    expect(agentResult).toBeDefined()
+    expect(agentResult).not.toHaveProperty("stderr")
+    expect(agentResult).not.toHaveProperty("authority")
+    expect(agentResult).not.toHaveProperty("capabilities")
   }
   const codex = createMaintenanceContractHarness()
   await codex.inspect(mutatingRequests.codex)
@@ -82,24 +85,36 @@ test("help returns the canonical tagged preview", async () => {
   )
 })
 
-test("usage refusal retains sealed Result Vocabulary meaning", () => {
-  const actual = resultVocabulary.find(({ resultCode }) => resultCode === "usage-refused")
+test("usage refusal retains sealed Result Vocabulary meaning", async () => {
+  const actual = await createMaintenanceContractHarness().inspect({ command: "help" })
 
-  expect(actual, "contract-absent: usage refusal must remain a sealed Result Vocabulary row").toEqual({
-    resultCode: "usage-refused",
-    exitFamilyId: "usage-refusal",
-    exitClass: 2,
-    failureClass: "usage",
-    severity: "error",
-    retrySafety: "safe",
-    transactionState: "unchanged",
-    nextAction: {
-      id: "maintenance.show-help",
-      action: "change_input",
-      summary: "Choose a command from machine discovery.",
-      commandId: "help",
+  expect(actual, "contract-absent: help must expose usage refusal meaning through the production Interface").toMatchObject({
+    status: "ok",
+    resultCode: "previewed",
+  })
+  if (actual === undefined || actual.status !== "ok") throw new Error("missing help preview")
+  expect(actual.value.agent).toMatchObject({
+    exits: {
+      typed: expect.arrayContaining([{
+        family_id: "usage-refusal",
+        exit: 2,
+        owner: "Maintenance Command Contract",
+        result_codes: ["usage-refused", "runtime-usage-refused"],
+        envelope: true,
+        meaning: "usage refusal",
+      }]),
     },
   })
+  const nextActions = actual?.status === "ok" ? actual.value.agent.next_actions : undefined
+  expect(nextActions, "contract-absent: help must expose the usage refusal Next Action").toEqual(
+    expect.arrayContaining([{
+      id: "maintenance.show-help",
+      action: "change_input",
+      command_id: "help",
+      failure_class: "usage",
+    }]),
+  )
+  expect(Array.isArray(nextActions) ? nextActions.length : undefined).toBe(22)
 })
 
 test("human output remains deterministic", async () => {
@@ -122,8 +137,7 @@ test("unknown Transaction State never exits zero", async () => {
   expect(actual, "contract-absent: unknown durable state must return a typed result").toBeDefined()
   if (actual === undefined || actual.status !== "error") throw new Error("missing recovery error outcome")
   expect(actual.error.transactionState).toBe("unknown")
-  const descriptor = resultVocabulary.find(({ resultCode }) => resultCode === actual.resultCode)
-  expect(descriptor?.exitClass).not.toBe(0)
+  expect(actual.error.exitCodeHint).not.toBe(0)
   expect(parseMaintenanceError(actual.error)).toEqual(actual.error)
   expect(parseMaintenanceResultOutcome(JSON.parse(serializeMaintenanceResultOutcome(actual)))).toEqual(actual)
 })
@@ -131,7 +145,6 @@ test("unknown Transaction State never exits zero", async () => {
 test("governing result status and effects pass through unchanged", async () => {
   const harness = createMaintenanceContractHarness()
   const actual = await harness.apply(mutatingRequests.materialize)
-  expect(failureNextActionProjection).toHaveLength(22)
   expect(actual?.status === "ok" ? actual.value : actual, "contract-absent: the governing result must pass through unchanged").toEqual(literalPayloadResult)
   if (actual === undefined) throw new Error("missing payload outcome")
   expect(parseMaintenanceResultOutcome(JSON.parse(serializeMaintenanceResultOutcome(actual)))).toEqual(actual)

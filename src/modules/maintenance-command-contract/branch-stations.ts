@@ -203,15 +203,9 @@ const branchKindFor = (failureClass: MaintenanceErrorFailureClass | null): Branc
   return failureClass
 }
 
-const inspectionCommands: readonly BranchStation["commandId"][] = [
-  "help",
-  "payload:check",
-  "runtime:repair",
-  "release:inspect",
-  "harness:claude:inspect",
-  "harness:codex:inspect",
-  "canary:inspect",
-]
+const inspectionCommands: readonly BranchStation["commandId"][] = commandVocabulary
+  .filter(({ interfaceCall }) => interfaceCall === "inspect")
+  .map(({ command }) => command)
 
 const mutationExpectationFor = (
   commandId: BranchStation["commandId"],

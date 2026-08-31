@@ -246,7 +246,26 @@ export type CommandResult = {
   stderr: string
 }
 
+/**
+ * The Maintenance Command Contract boundary for inspection and application.
+ *
+ * A successful inspection of an external command binds its expected effect IDs
+ * to the inspected request and authorizes exactly one matching apply. The
+ * implementation consumes that authorization before delegating to an owner;
+ * a missing inspection or a changed request or effect binding returns the
+ * Maintenance-owned recovery refusal instead of delegating.
+ */
 export interface MaintenanceCommands {
+  /**
+   * Inspect current state without acquiring a capability or causing an
+   * effect. For an external command, the returned expected effect IDs are the
+   * binding consumed by the matching `apply` call.
+   */
   inspect(command: MaintenanceCommand): Promise<MaintenanceOutcome<CommandPreview>>
+
+  /**
+   * Apply one admitted request only after its matching inspection binding is
+   * present and unchanged. The binding is consumed before owner delegation.
+   */
   apply(request: MaintenanceApplyRequest): Promise<MaintenanceOutcome<CommandResult>>
 }
