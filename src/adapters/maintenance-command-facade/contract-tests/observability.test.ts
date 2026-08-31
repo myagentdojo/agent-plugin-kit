@@ -303,6 +303,7 @@ test("reset configure and dispose are idempotent and throwing close preserves pr
 })
 test("event acceptance is synchronous and best effort", async () => {
   const harness = await facadeHarness({ eventAcceptance: "accepted" })
+  const ipv6LoopbackAccepted = createMaintenanceEventAdapter({ endpoint: "http://[::1]/events" }) !== undefined
   const invalidEndpoint = "not-an-event-endpoint"
   let offFactoryLoads = 0
   const off = await facadeHarness({
@@ -331,7 +332,7 @@ test("event acceptance is synchronous and best effort", async () => {
   }
   absent(
     {
-      accepted: { eventCount: harness.events.records.length, primary: harness.observation },
+      accepted: { eventCount: harness.events.records.length, ipv6LoopbackAccepted, primary: harness.observation },
       off: { eventFactoryLoads: offFactoryLoads, commandCalls: off.commands.calls.length, primary: off.observation },
       absentEndpoint: { commandCalls: absentEndpoint.commands.calls.length, primary: absentEndpoint.observation },
       invalid: {
@@ -342,7 +343,7 @@ test("event acceptance is synchronous and best effort", async () => {
       },
     },
     {
-      accepted: { eventCount: 1, primary: literalHelpProcess },
+      accepted: { eventCount: 1, ipv6LoopbackAccepted: true, primary: literalHelpProcess },
       off: { eventFactoryLoads: 0, commandCalls: 1, primary: literalHelpProcess },
       absentEndpoint: { commandCalls: 1, primary: literalHelpProcess },
       invalid: {

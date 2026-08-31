@@ -8,7 +8,7 @@ import type {
   EventRecord,
 } from "../interface"
 
-const loopbackHosts = new Set(["127.0.0.1", "::1", "localhost"])
+const loopbackHosts = new Set(["127.0.0.1", "[::1]", "localhost"])
 
 const parsedEndpoint = (endpoint: string | undefined): URL | undefined => {
   if (endpoint === undefined || endpoint === "") return undefined
