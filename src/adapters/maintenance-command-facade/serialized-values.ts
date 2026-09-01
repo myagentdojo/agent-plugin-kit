@@ -229,47 +229,11 @@ const afterWhitespace = (value: string, start: number): number => {
   return end
 }
 
-const isBareKeyCharacter = (character: string | undefined): boolean =>
-  character !== undefined && /[A-Za-z0-9_./-]/.test(character)
-
-type SensitiveAssignmentKey = Readonly<{ end: number }>
-
 const isSensitiveAssignmentKey = (key: string): boolean =>
   secretKeyPattern.test(key.replace(/[^A-Za-z0-9]/g, ""))
 
-const quotedAssignmentKeyAt = (
-  value: string,
-  start: number,
-  quote: string,
-): SensitiveAssignmentKey | undefined => {
-  const end = value.indexOf(quote, start + 1)
-  if (end < 0) return undefined
-  const key = value.slice(start + 1, end)
-  return isSensitiveAssignmentKey(key) ? { end: end + 1 } : undefined
-}
-
-const bareAssignmentKeyAt = (value: string, start: number): SensitiveAssignmentKey | undefined => {
-  if (!isBareKeyCharacter(value[start])) return undefined
-  let end = start
-  while (isBareKeyCharacter(value[end])) end += 1
-  const key = value.slice(start, end)
-  let separatedEnd = afterWhitespace(value, end)
-  while (isBareKeyCharacter(value[separatedEnd])) separatedEnd += 1
-  const separatedKey = value.slice(start, separatedEnd)
-  if (isSensitiveAssignmentKey(separatedKey)) return { end: separatedEnd }
-  return isSensitiveAssignmentKey(key) ? { end } : undefined
-}
-
-const assignmentKeyAt = (
-  value: string,
-  start: number,
-): SensitiveAssignmentKey | undefined => {
-  if (isBareKeyCharacter(value[start - 1])) return undefined
-  const quote = value[start]
-  return quote === '"' || quote === "'"
-    ? quotedAssignmentKeyAt(value, start, quote)
-    : bareAssignmentKeyAt(value, start)
-}
+const isAssignmentKeyBoundary = (character: string | undefined): boolean =>
+  character !== undefined && "|,;{}[]()\n\r".includes(character)
 
 const nonWhitespaceEnd = (value: string, start: number): number => {
   let end = start
@@ -329,20 +293,28 @@ const assignmentValueRangeAt = (
   return valueEnd === valueStart ? undefined : { valueStart, valueEnd }
 }
 
-const secretAssignmentAt = (value: string, start: number): SecretAssignmentRange | undefined => {
-  const assignmentKey = assignmentKeyAt(value, start)
-  if (assignmentKey === undefined) return undefined
-  const separator = afterWhitespace(value, assignmentKey.end)
-  if (value[separator] !== ":" && value[separator] !== "=") return undefined
-  return assignmentValueRangeAt(value, separator)
-}
-
 const redactSecretAssignments = (value: string): string => {
   const output: string[] = []
   let copiedThrough = 0
+  let keyStart = 0
   let cursor = 0
   while (cursor < value.length) {
-    const assignment = secretAssignmentAt(value, cursor)
+    const character = value[cursor]
+    if (isAssignmentKeyBoundary(character)) {
+      keyStart = cursor + 1
+      cursor += 1
+      continue
+    }
+    if (character !== ":" && character !== "=") {
+      cursor += 1
+      continue
+    }
+    const key = value.slice(keyStart, cursor)
+    if (!isSensitiveAssignmentKey(key)) {
+      cursor += 1
+      continue
+    }
+    const assignment = assignmentValueRangeAt(value, cursor)
     if (assignment === undefined) {
       cursor += 1
       continue
@@ -350,6 +322,7 @@ const redactSecretAssignments = (value: string): string => {
     output.push(value.slice(copiedThrough, assignment.valueStart), redactedDiagnosticValue)
     copiedThrough = assignment.valueEnd
     cursor = assignment.valueEnd
+    keyStart = cursor
   }
   return copiedThrough === 0
     ? value
