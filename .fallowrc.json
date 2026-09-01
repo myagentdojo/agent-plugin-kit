@@ -96,7 +96,10 @@
       },
       {
         "name": "repository-quality-tooling",
-        "patterns": ["tooling/repository-quality/**/*.ts"]
+        "patterns": [
+          "tooling/repository-quality/**/*.ts",
+          "tooling/current-stage-test-runner.ts"
+        ]
       }
     ],
     "rules": [
