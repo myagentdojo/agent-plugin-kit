@@ -1,10 +1,4 @@
-import {
-  configureSync,
-  getLogger,
-  resetSync,
-  type Logger,
-  type Sink,
-} from "@logtape/logtape"
+import type { LogRecord, Sink } from "@logtape/logtape"
 import { redactByField } from "@logtape/redaction"
 import type {
   DiagnosticAdapter,
@@ -174,26 +168,14 @@ export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
   }
 }
 
-const emitThroughLogTape = (logger: Logger, record: DiagnosticRecord): void => {
-  const properties = { [logTapeRecordProperty]: record }
-  switch (record.level) {
-    case "debug":
-      logger.debug(properties)
-      break
-    case "info":
-      logger.info(properties)
-      break
-    case "warning":
-      logger.warning(properties)
-      break
-    case "error":
-      logger.error(properties)
-      break
-    case "fatal":
-      logger.fatal(properties)
-      break
-  }
-}
+const logRecordFor = (record: DiagnosticRecord): LogRecord => ({
+  category: diagnosticCategory,
+  level: record.level,
+  message: [record.message],
+  rawMessage: record.message,
+  timestamp: Date.parse(record.timestamp),
+  properties: { [logTapeRecordProperty]: record },
+})
 
 export type LogTapeDiagnosticAdapterOptions = {
   write?: (line: string) => void
@@ -204,46 +186,26 @@ export const createLogTapeDiagnosticAdapter = (
   options: LogTapeDiagnosticAdapterOptions = {},
 ): DiagnosticAdapter => {
   const write = options.write ?? ((line: string) => process.stderr.write(line))
-  let logger: Logger | undefined
   let disposed = false
-
-  const configure = (): void => {
-    if (logger !== undefined || disposed) return
-    const jsonlSink: Sink = (logRecord) => {
-      const record = logRecord.properties[logTapeRecordProperty] as DiagnosticRecord | undefined
-      if (record === undefined) return
-      try {
-        write(`${JSON.stringify(record)}\n`)
-      } catch {
-        // LogTape suppresses sink errors; preserve that property for stderr.
-      }
-    }
-    const sink = redactByField(jsonlSink, {
-      fieldPatterns: diagnosticSensitiveFieldPatterns,
-      action: () => redactedDiagnosticValue,
-    })
+  const jsonlSink: Sink = (logRecord) => {
+    const record = logRecord.properties[logTapeRecordProperty] as DiagnosticRecord | undefined
+    if (record === undefined) return
     try {
-      configureSync({
-        reset: true,
-        sinks: { diagnostic: sink },
-        loggers: [
-          { category: [...diagnosticCategory], lowestLevel: "debug", sinks: ["diagnostic"] },
-          { category: ["logtape", "meta"], lowestLevel: "fatal", sinks: [] },
-        ],
-      })
-      logger = getLogger(diagnosticCategory)
+      write(`${JSON.stringify(record)}\n`)
     } catch {
-      logger = undefined
+      // Environmental writes cannot alter the primary Maintenance result.
     }
   }
+  const sink = redactByField(jsonlSink, {
+    fieldPatterns: diagnosticSensitiveFieldPatterns,
+    action: () => redactedDiagnosticValue,
+  })
 
   return {
     record(record): void {
       if (disposed) return
-      configure()
-      if (logger === undefined) return
       try {
-        emitThroughLogTape(logger, record)
+        sink(logRecordFor(record))
       } catch {
         // A diagnostic writer failure cannot alter the command result.
       }
@@ -254,13 +216,6 @@ export const createLogTapeDiagnosticAdapter = (
     dispose(): void {
       if (disposed) return
       disposed = true
-      if (logger === undefined) return
-      logger = undefined
-      try {
-        resetSync()
-      } catch {
-        // Reset is deliberately idempotent at the Adapter boundary.
-      }
     },
   }
 }

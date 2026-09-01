@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { configureSync, getLogger, resetSync, type Sink } from "@logtape/logtape"
 import { literalHelpProcess, literalUsageProcess } from "../../../modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results"
 import {
   createDiagnosticPipeline,
@@ -170,6 +171,16 @@ const productionEventHarness = () => {
 }
 
 const productionDiagnosticLifecycle = () => {
+  const hostWrites: string[] = []
+  const hostSink: Sink = (record) => hostWrites.push(String(record.message[0] ?? ""))
+  resetSync()
+  configureSync({
+    sinks: { host: hostSink },
+    loggers: [{ category: ["fixture", "host"], lowestLevel: "debug", sinks: ["host"] }],
+  })
+  const hostLogger = getLogger(["fixture", "host"])
+  hostLogger.info("host-before-adapter")
+
   const firstWrites: string[] = []
   const first = createLogTapeDiagnosticAdapter({ write: (line) => firstWrites.push(line) })
   first.record(diagnosticRecord(1, "error", "fixture.production-first"))
@@ -180,14 +191,17 @@ const productionDiagnosticLifecycle = () => {
 
   const secondWrites: string[] = []
   const second = createLogTapeDiagnosticAdapter({ write: (line) => secondWrites.push(line) })
-  second.record(diagnosticRecord(3, "error", "fixture.production-after-reset"))
+  second.record(diagnosticRecord(3, "error", "fixture.production-after-dispose"))
   second.dispose()
-  return { firstWrites, secondWrites }
+  hostLogger.info("host-after-adapter")
+  resetSync()
+  return { firstWrites, secondWrites, hostWrites }
 }
 
 const productionLogTapeSummaryFor = (lifecycle: ReturnType<typeof productionDiagnosticLifecycle>) => ({
   firstEvents: lifecycle.firstWrites.map((line) => (JSON.parse(line) as DiagnosticRecord).event),
   secondEvents: lifecycle.secondWrites.map((line) => (JSON.parse(line) as DiagnosticRecord).event),
+  hostMessages: lifecycle.hostWrites,
 })
 
 const directFacadeCorrelationFor = async () => {
@@ -314,7 +328,7 @@ test("buffered context precedes trigger and primary error envelope is last", asy
     "stderr placement must keep the primary refusal last",
   )
 })
-test("reset configure and dispose are idempotent and throwing close preserves primary result", async () => {
+test("pipeline reset and adapter dispose preserve host logging and primary result", async () => {
   const harness = diagnosticHarness("default")
   harness.pipeline.record(diagnosticRecord(1, "info", "fixture.before-reset"))
   harness.pipeline.reset()
@@ -356,11 +370,12 @@ test("reset configure and dispose are idempotent and throwing close preserves pr
       },
       productionLogTape: {
         firstEvents: ["fixture.production-first", "fixture.production-second"],
-        secondEvents: ["fixture.production-after-reset"],
+        secondEvents: ["fixture.production-after-dispose"],
+        hostMessages: ["host-before-adapter", "host-after-adapter"],
       },
       primary: literalUsageProcess,
     },
-    "diagnostic lifecycle must reset between cases and contain close failure without replacing the primary result",
+    "diagnostic lifecycle must preserve host logging and contain close failure without replacing the primary result",
   )
   expect(lifecycleContract.doubleDispose).toBe("no-op")
 })
