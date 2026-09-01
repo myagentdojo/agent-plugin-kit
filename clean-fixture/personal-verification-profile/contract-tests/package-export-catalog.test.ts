@@ -68,5 +68,6 @@ test("Implementation and proof paths stay private from exports and complete in i
       "redirect-import",
       "redirect-default-only",
     ],
+    cachedBaselineRestorationRefused: true,
   })
 })

@@ -81,6 +81,7 @@ type InstalledPackageObservation = {
     readonly descriptor: typeof expectedQualificationConditionalExport
     readonly perturbationsRefused: readonly string[]
     readonly restorationsProved: readonly string[]
+    readonly cachedBaselineRestorationRefused: true
   }
   readonly admittedExecutionOrder: readonly [
     "admission",
@@ -135,6 +136,12 @@ type InstalledPackageObservation = {
     readonly postKillGraceExpired: false
     readonly readerCancellation: "not-required"
     readonly readerCancellationMs: 100
+    readonly readerCancellationSensitivity: {
+      readonly rejectionClassified: true
+      readonly rejectionDoesNotClaimClosure: true
+      readonly deadlineClassified: true
+      readonly deadlineBounded: true
+    }
     readonly descriptorHoldingSensitivity: {
       readonly refused: true
       readonly postKillGraceExpired: true
@@ -181,12 +188,16 @@ type SpawnResult = {
   readonly cleanup: {
     readonly deadlineMs: number
     readonly timedOut: boolean
-    readonly descriptorClosure: "closed" | "cancelled-after-grace" | "cancellation-deadline-expired"
+    readonly descriptorClosure:
+      | "closed"
+      | "cancelled-after-grace"
+      | "cancellation-rejected"
+      | "cancellation-deadline-expired"
     readonly cleanup: "natural" | "process-group-killed"
     readonly processGroupId: number
     readonly postKillGraceMs: number
     readonly postKillGraceExpired: boolean
-    readonly readerCancellation: "not-required" | "completed" | "deadline-expired"
+    readonly readerCancellation: "not-required" | "completed" | "rejected" | "deadline-expired"
     readonly readerCancellationMs: number
   }
 }
@@ -285,12 +296,12 @@ function killProcessGroup(pid: number, killChild: () => void): void {
 
 async function settleAfterProcessKill(
   settled: Promise<unknown>,
-  stdout: ReturnType<typeof captureStream>,
-  stderr: ReturnType<typeof captureStream>,
+  stdout: Pick<ReturnType<typeof captureStream>, "cancel">,
+  stderr: Pick<ReturnType<typeof captureStream>, "cancel">,
   postKillGraceMs: number,
 ): Promise<{
   readonly graceExpired: boolean
-  readonly readerCancellation: "not-required" | "completed" | "deadline-expired"
+  readonly readerCancellation: "not-required" | "completed" | "rejected" | "deadline-expired"
 }> {
   const grace = timer(postKillGraceMs)
   const postKill = await Promise.race([
@@ -302,7 +313,9 @@ async function settleAfterProcessKill(
   if (!graceExpired) return { graceExpired: false, readerCancellation: "not-required" }
   const cancellation = timer(readerCancellationDeadlineMs)
   const cancellationResult = await Promise.race([
-    Promise.allSettled([stdout.cancel(), stderr.cancel()]).then(() => "completed" as const),
+    Promise.allSettled([stdout.cancel(), stderr.cancel()]).then((results) =>
+      results.every((result) => result.status === "fulfilled") ? "completed" as const : "rejected" as const
+    ),
     cancellation.elapsed.then(() => "deadline-expired" as const),
   ])
   cancellation.cancel()
@@ -319,7 +332,43 @@ function descriptorClosureFor(
   settlement: Awaited<ReturnType<typeof settleAfterProcessKill>>,
 ): SpawnResult["cleanup"]["descriptorClosure"] {
   if (settlement.readerCancellation === "deadline-expired") return "cancellation-deadline-expired"
+  if (settlement.readerCancellation === "rejected") return "cancellation-rejected"
   return settlement.graceExpired ? "cancelled-after-grace" : "closed"
+}
+
+async function proveReaderCancellationSensitivity(): Promise<
+  InstalledPackageObservation["processTimeoutControl"]["readerCancellationSensitivity"]
+> {
+  const neverSettles = new Promise<never>(() => undefined)
+  const completedCancellation = { cancel: async () => undefined }
+  const rejected = await settleAfterProcessKill(
+    neverSettles,
+    { cancel: async () => await Promise.reject(new Error("reader cancellation refused")) },
+    completedCancellation,
+    0,
+  )
+  const deadlineStartedAt = performance.now()
+  const deadline = await settleAfterProcessKill(
+    neverSettles,
+    { cancel: async () => await neverSettles },
+    { cancel: async () => await neverSettles },
+    0,
+  )
+  const deadlineElapsedMs = performance.now() - deadlineStartedAt
+  const rejectionClassified = rejected.readerCancellation === "rejected"
+  const rejectionDoesNotClaimClosure = descriptorClosureFor(rejected) === "cancellation-rejected"
+  const deadlineClassified = deadline.readerCancellation === "deadline-expired"
+  const deadlineBounded = deadlineElapsedMs >= readerCancellationDeadlineMs &&
+    deadlineElapsedMs <= readerCancellationDeadlineMs + 100
+  if (!(rejectionClassified && rejectionDoesNotClaimClosure && deadlineClassified && deadlineBounded)) {
+    throw new Error("reader cancellation rejection/deadline sensitivity did not fail closed")
+  }
+  return {
+    rejectionClassified: true,
+    rejectionDoesNotClaimClosure: true,
+    deadlineClassified: true,
+    deadlineBounded: true,
+  }
 }
 
 async function spawn(command: readonly string[], options: {
@@ -1189,22 +1238,27 @@ async function qualificationPerturbationIsRefused(
     } finally {
       writeFileSync(manifestPath, original, { mode: 0o600 })
     }
-    const compilerRestored = await publicTypeResolutionSucceeds(consumerRoot, environment)
-    const catalogRestored = typeCatalogMatchesExpected(
-      installedTypeCatalog(packageRoot, baselineManifest.exports),
-    )
-    const runtimeRestored = readJsonOutput<QualificationProbeObservation>(
-      `restored Qualification descriptor after ${label}`,
-      await spawn(["bun", "--no-install", probePath, probeInputPath], {
-        cwd: consumerRoot,
-        env: environment,
-      }),
-    )
-    if (compilerRestored && catalogRestored && JSON.stringify(runtimeRestored) === JSON.stringify(baseline)) {
-      restorationsProved.push(label)
-    }
+    if (await qualificationDescriptorRestored({
+      consumerRoot,
+      packageRoot,
+      manifestPath,
+      probePath,
+      probeInputPath,
+      environment,
+      baseline,
+      label,
+    })) restorationsProved.push(label)
   }
-  if (perturbationsRefused.length !== perturbations.length || restorationsProved.length !== perturbations.length) {
+  const cachedBaselineRestorationRefused = proveCachedDescriptorCannotRestoreDisk(
+    manifestPath,
+    original,
+    baselineDescriptor,
+  )
+  if (
+    perturbationsRefused.length !== perturbations.length ||
+    restorationsProved.length !== perturbations.length ||
+    !cachedBaselineRestorationRefused
+  ) {
     throw new Error("Qualification conditional descriptor perturbations were not refused and restored")
   }
   return {
@@ -1213,7 +1267,69 @@ async function qualificationPerturbationIsRefused(
     descriptor: expectedQualificationConditionalExport,
     perturbationsRefused,
     restorationsProved,
+    cachedBaselineRestorationRefused: true,
   }
+}
+
+async function qualificationDescriptorRestored(input: {
+  readonly consumerRoot: string
+  readonly packageRoot: string
+  readonly manifestPath: string
+  readonly probePath: string
+  readonly probeInputPath: string
+  readonly environment: Readonly<Record<string, string>>
+  readonly baseline: QualificationProbeObservation
+  readonly label: string
+}): Promise<boolean> {
+  const restoredManifest = JSON.parse(readFileSync(input.manifestPath, "utf8")) as {
+    exports: Record<string, unknown>
+  }
+  const descriptorRestored = qualificationDescriptorMatchesExpected(
+    qualificationConditionalDescriptor(restoredManifest.exports),
+  )
+  const compilerRestored = await publicTypeResolutionSucceeds(input.consumerRoot, input.environment)
+  const catalogRestored = typeCatalogMatchesExpected(
+    installedTypeCatalog(input.packageRoot, restoredManifest.exports),
+  )
+  const runtimeRestored = readJsonOutput<QualificationProbeObservation>(
+    `restored Qualification descriptor after ${input.label}`,
+    await spawn(["bun", "--no-install", input.probePath, input.probeInputPath], {
+      cwd: input.consumerRoot,
+      env: input.environment,
+    }),
+  )
+  return descriptorRestored && compilerRestored && catalogRestored &&
+    JSON.stringify(runtimeRestored) === JSON.stringify(input.baseline)
+}
+
+function proveCachedDescriptorCannotRestoreDisk(
+  manifestPath: string,
+  original: string,
+  cachedDescriptor: ReturnType<typeof qualificationConditionalDescriptor>,
+): boolean {
+  const manifest = JSON.parse(original) as { exports: Record<string, unknown> }
+  manifest.exports["./qualification-evidence"] = {
+    types: expectedQualificationConditionalExport.targets.types,
+    import: expectedQualificationConditionalExport.targets.import,
+    default: expectedQualificationConditionalExport.targets.types,
+  }
+  let cachedRefused = false
+  try {
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 })
+    const diskManifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      exports: Record<string, unknown>
+    }
+    cachedRefused = qualificationDescriptorMatchesExpected(cachedDescriptor) &&
+      !qualificationDescriptorMatchesExpected(qualificationConditionalDescriptor(diskManifest.exports))
+  } finally {
+    writeFileSync(manifestPath, original, { mode: 0o600 })
+  }
+  const restoredManifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    exports: Record<string, unknown>
+  }
+  return cachedRefused && qualificationDescriptorMatchesExpected(
+    qualificationConditionalDescriptor(restoredManifest.exports),
+  )
 }
 
 function qualificationConditionalDescriptor(exportsMap: Readonly<Record<string, unknown>>): {
@@ -1670,6 +1786,7 @@ async function proveTimeoutCleanup(
     deadlineMs,
     graceMs,
   )
+  const readerCancellationSensitivity = await proveReaderCancellationSensitivity()
   return {
     exitCode: 124,
     timedOut: true,
@@ -1686,6 +1803,7 @@ async function proveTimeoutCleanup(
     postKillGraceExpired: false,
     readerCancellation: "not-required",
     readerCancellationMs: readerCancellationDeadlineMs,
+    readerCancellationSensitivity,
     descriptorHoldingSensitivity,
   }
 }

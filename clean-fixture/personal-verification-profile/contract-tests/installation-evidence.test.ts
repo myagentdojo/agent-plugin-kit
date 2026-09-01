@@ -48,6 +48,12 @@ test("Git installation runs no lifecycle script", () => {
     postKillGraceExpired: false,
     readerCancellation: "not-required",
     readerCancellationMs: 100,
+    readerCancellationSensitivity: {
+      rejectionClassified: true,
+      rejectionDoesNotClaimClosure: true,
+      deadlineClassified: true,
+      deadlineBounded: true,
+    },
     descriptorHoldingSensitivity: {
       refused: true,
       postKillGraceExpired: true,
