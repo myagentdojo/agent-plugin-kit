@@ -72,13 +72,18 @@ function diagnosticHarness(
   } = {},
 ) {
   const recording = createDiagnosticRecordingAdapter()
+  let localSequence = 0
+  const nextSequence = options.nextSequence ?? (() => {
+    localSequence += 1
+    return localSequence
+  })
   return {
     ...recording,
     pipeline: createDiagnosticPipeline({
       mode,
       maximumBufferedRecords: 250,
       diagnostics: recording.adapter,
-      ...(options.nextSequence === undefined ? {} : { nextSequence: options.nextSequence }),
+      nextSequence,
       ...(options.redactionTrace === undefined ? {} : { redactionTrace: options.redactionTrace }),
     }),
   }

@@ -36,16 +36,6 @@ const isSuppressedByMode = (mode: DiagnosticMode, level: DiagnosticRecord["level
 const isImmediateMode = (mode: DiagnosticMode): boolean =>
   mode === "quiet" || mode === "verbose" || mode === "debug"
 
-type SequenceAllocator = () => number
-
-const localSequenceAllocator = (): SequenceAllocator => {
-  let sequence = 0
-  return () => {
-    sequence += 1
-    return sequence
-  }
-}
-
 const truncationRecordFor = (
   trigger: DiagnosticRecord,
   droppedRecordCount: number,
@@ -72,7 +62,7 @@ export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
   const diagnostics = assembly.diagnostics
   const mode = assembly.mode
   const secrets = assembly.secretValues ?? []
-  const allocate = assembly.nextSequence ?? localSequenceAllocator()
+  const allocate = assembly.nextSequence
   let buffered: DiagnosticRecord[] = []
   let droppedRecordCount = 0
   let pendingTruncationSequence: number | undefined

@@ -128,7 +128,7 @@ export type DiagnosticPipelineAssembly = {
   maximumBufferedRecords: 250
   diagnostics: DiagnosticAdapter
   secretValues?: readonly string[]
-  nextSequence?: () => number
+  nextSequence: () => number
   redactionTrace?: (step: DiagnosticRedactionStep) => void
 }
 
