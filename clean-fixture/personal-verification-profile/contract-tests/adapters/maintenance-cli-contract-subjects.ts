@@ -1,5 +1,7 @@
-import type { ProcessObservation } from "../../../../src/adapters/maintenance-command-facade/interface"
-import { installedFoundation } from "./installed-foundation-contract-subject"
+import {
+  installedFoundation,
+  type ProcessObservation,
+} from "./installed-foundation-contract-subject"
 
 export type InstalledMaintenanceCliObservation = {
   observations: readonly ProcessObservation[]
@@ -7,6 +9,7 @@ export type InstalledMaintenanceCliObservation = {
   cwd: string
   installedFiles: readonly string[]
   externalDependencyPerturbationRefused: boolean
+  escapedRuntimePerturbationRefused: boolean
   stationMap: Readonly<Record<string, unknown>>
 }
 

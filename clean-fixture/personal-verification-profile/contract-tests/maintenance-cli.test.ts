@@ -26,10 +26,11 @@ test("fixed-run Clean Fixture namespaced events-off help ignores invalid endpoin
   absent(installedMaintenanceCliSubject?.observations[3], cleanFixtureHelpScenarios[3].expected, "events off must win over invalid endpoint configuration")
 })
 test("Clean Fixture reconciles installed RED inventory and Station Map projection", () => {
-  expect(expectedInstalledFiles).toHaveLength(26)
+  expect(expectedInstalledFiles).toHaveLength(113)
   absent(installedMaintenanceCliSubject?.installedFiles, expectedInstalledFiles, "the Git Clean Fixture must prove installed inventory")
   absent(installedMaintenanceCliSubject.importedFiles, expectedDependencyFreeHelpRuntimeTrace, "dependency-free help must load the exact installed runtime closure")
   expect(installedMaintenanceCliSubject.externalDependencyPerturbationRefused).toBeTrue()
+  expect(installedMaintenanceCliSubject.escapedRuntimePerturbationRefused).toBeTrue()
   expect(installedMaintenanceCliSubject?.stationMap, "contract-absent: the Git Clean Fixture must parse the installed Station Map bytes").toEqual({
     declared_branch_coverage: 118,
     required_station_ids: ["help.previewed", "maintenance.usage-refused"],

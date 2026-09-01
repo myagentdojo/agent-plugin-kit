@@ -28,19 +28,33 @@ test("Git installation runs no lifecycle script", () => {
     "XDG_STATE_HOME",
   ])
   expect(installedPackage.fixtureSensitiveEnvironmentKeys).toEqual([])
-  expect(installedPackage.processTimeoutControl).toEqual({
+  expect(installedPackage.processTimeoutControl).toMatchObject({
     exitCode: 124,
     timedOut: true,
     descriptorClosure: "closed",
     cleanup: "process-group-killed",
     descendantPidObserved: true,
     descendantTerminated: true,
+    processGroupTerminated: true,
+    monotonicClock: "performance.now",
+    deadlineMs: 150,
+    graceMs: 1_000,
+    withinDeadlineGrace: true,
   })
+  expect(installedPackage.processTimeoutControl.elapsedMs).toBeGreaterThanOrEqual(150)
+  expect(installedPackage.processTimeoutControl.elapsedMs).toBeLessThanOrEqual(1_150)
 })
 
 test("installed bytes match the literal package inventory", () => {
   expect(installedPackage?.regularFiles, "contract-absent: installed regular files must match the admitted inventory").toEqual(expectedInstalledFiles)
   expect(installedPackage?.installedBytesSha256).toMatch(/^sha256:[0-9a-f]{64}$/)
+  expect(installedPackage.installedInventoryPerturbationControl).toEqual({
+    roguePath: "rogue.js",
+    exactInventoryRefused: true,
+    digestChanged: true,
+    inventoryRestored: true,
+    digestRestored: true,
+  })
   expect(installedPackage.outsideRepository).toBeTrue()
   expect(installedPackage.fixtureRemoved).toBeTrue()
   expect(installedPackage.qualificationInputBindings).toEqual({

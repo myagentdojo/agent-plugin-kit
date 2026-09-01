@@ -24,6 +24,7 @@ export type InstalledPackageObservation = {
   fixtureSensitiveEnvironmentKeys: readonly string[]
   lifecycleScriptLedger: readonly string[]
   installedBytesSha256: `sha256:${string}`
+  installedInventoryPerturbationControl: typeof installedFoundation.installedPackage.installedInventoryPerturbationControl
   outsideRepository: boolean
   fixtureRemoved: boolean
   qualificationRuntimeTargetPerturbationRefused: boolean
