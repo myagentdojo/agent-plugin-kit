@@ -563,6 +563,8 @@ test("redaction validates and freezes both seams before crossing", async () => {
     { input: "password=correct\nhorse: battery staple", expected: "password=[REDACTED]" },
     { input: "password=correct | horse=battery staple", expected: "password=[REDACTED]" },
     { input: '{"token:mode":"opaque"}', expected: '{"token:mode":[REDACTED]}' },
+    { input: 'mode="token: opaque"| mode=safe', expected: 'mode="token: opaque"| mode=safe' },
+    { input: 'mode="token: opaque";mode=safe', expected: 'mode="token: opaque";mode=safe' },
   ] as const
   const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
   const incompleteAuthUrl = "https://fixtureUser:fixtureSecret@"

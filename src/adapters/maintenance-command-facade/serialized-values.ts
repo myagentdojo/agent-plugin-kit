@@ -614,9 +614,7 @@ const balancedQuotedValueEndAfter = (
   const quote = value[start]
   if (quote !== "\"" && quote !== "'") return undefined
   const closing = closingQuoteAfter(value, start)
-  return closing !== undefined && isQuotedValueDelimiter(value, closing + 1)
-    ? closing + 1
-    : undefined
+  return closing === undefined ? undefined : closing + 1
 }
 
 const quotedAssignmentSeparatorAfter = (
