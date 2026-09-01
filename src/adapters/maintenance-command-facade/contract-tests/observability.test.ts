@@ -257,6 +257,13 @@ const outcomeContextRecord = (overrides: Record<string, unknown> = {}): Record<s
   ...overrides,
 })
 
+const canonicalMaintenanceShowHelp = {
+  id: "maintenance.show-help",
+  action: "change_input",
+  summary: "Choose a command from machine discovery.",
+  commandId: "help",
+} as const
+
 const withoutField = (record: Record<string, unknown>, field: string): Record<string, unknown> => {
   const copy = { ...record }
   delete copy[field]
@@ -741,13 +748,19 @@ test("closed diagnostics fail closed and native field redaction protects the sin
 
   const malformedContext = diagnosticHarness("debug")
   const context = outcomeContextRecord()
+  const canonicalNextActionControl = diagnosticHarness("debug")
+  canonicalNextActionControl.pipeline.record({
+    ...diagnosticRecord(6, "info", "fixture.canonical-next-action"),
+    next_action: canonicalMaintenanceShowHelp,
+  })
+  expect(canonicalNextActionControl.records[0]?.next_action).toEqual(canonicalMaintenanceShowHelp)
   const contextCases = [
     withoutField(context, "station_id"),
     withoutField(context, "result_code"),
     withoutField(context, "transaction_state"),
     withoutField(context, "retry_safety"),
     { ...context, failure_class: "usage" },
-    { ...context, next_action: { id: "maintenance.show-help" } },
+    { ...context, next_action: canonicalMaintenanceShowHelp },
     { ...context, dropped_record_count: 1 },
     {
       ...context,
