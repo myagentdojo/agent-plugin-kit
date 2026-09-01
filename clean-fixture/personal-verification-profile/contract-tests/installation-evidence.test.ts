@@ -52,6 +52,7 @@ test("Git installation runs no lifecycle script", () => {
       rejectionClassified: true,
       rejectionDoesNotClaimClosure: true,
       deadlineClassified: true,
+      deadlineDoesNotClaimClosure: true,
       deadlineBounded: true,
     },
     descriptorHoldingSensitivity: {

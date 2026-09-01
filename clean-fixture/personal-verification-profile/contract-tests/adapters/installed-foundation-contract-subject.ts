@@ -140,6 +140,7 @@ type InstalledPackageObservation = {
       readonly rejectionClassified: true
       readonly rejectionDoesNotClaimClosure: true
       readonly deadlineClassified: true
+      readonly deadlineDoesNotClaimClosure: true
       readonly deadlineBounded: true
     }
     readonly descriptorHoldingSensitivity: {
@@ -358,15 +359,18 @@ async function proveReaderCancellationSensitivity(): Promise<
   const rejectionClassified = rejected.readerCancellation === "rejected"
   const rejectionDoesNotClaimClosure = descriptorClosureFor(rejected) === "cancellation-rejected"
   const deadlineClassified = deadline.readerCancellation === "deadline-expired"
+  const deadlineDoesNotClaimClosure = descriptorClosureFor(deadline) === "cancellation-deadline-expired"
   const deadlineBounded = deadlineElapsedMs >= readerCancellationDeadlineMs &&
     deadlineElapsedMs <= readerCancellationDeadlineMs + 100
-  if (!(rejectionClassified && rejectionDoesNotClaimClosure && deadlineClassified && deadlineBounded)) {
+  if (!(rejectionClassified && rejectionDoesNotClaimClosure && deadlineClassified &&
+    deadlineDoesNotClaimClosure && deadlineBounded)) {
     throw new Error("reader cancellation rejection/deadline sensitivity did not fail closed")
   }
   return {
     rejectionClassified: true,
     rejectionDoesNotClaimClosure: true,
     deadlineClassified: true,
+    deadlineDoesNotClaimClosure: true,
     deadlineBounded: true,
   }
 }
