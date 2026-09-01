@@ -597,6 +597,18 @@ test("redaction validates and freezes both seams before crossing", async () => {
     { input: String.raw`private key="opaque"\\, horse: battery staple`, expected: "private key=[REDACTED]" },
     { input: String.raw`private key="opaque"\\;horse: battery staple`, expected: "private key=[REDACTED]" },
     { input: 'private key="opaque"\\\\\nhorse: battery staple', expected: "private key=[REDACTED]" },
+    { input: 'private key="opaque"  | horse: battery staple', expected: "private key=[REDACTED]" },
+    { input: 'private key="opaque"\t| horse: battery staple', expected: "private key=[REDACTED]" },
+    { input: 'private key="opaque" , horse: battery staple', expected: "private key=[REDACTED]" },
+    { input: 'private key="opaque" ;horse: battery staple', expected: "private key=[REDACTED]" },
+    { input: 'private key="opaque" \nhorse: battery staple', expected: "private key=[REDACTED]" },
+    { input: 'private key="opaque"  | mode=safe', expected: "private key=[REDACTED]  | mode=safe" },
+    { input: 'private key="opaque"\t| mode=safe', expected: "private key=[REDACTED]\t| mode=safe" },
+    { input: 'private key="opaque" , mode=safe', expected: "private key=[REDACTED] , mode=safe" },
+    { input: 'private key="opaque" ;mode=safe', expected: "private key=[REDACTED] ;mode=safe" },
+    { input: 'private key="opaque" \nmode=safe', expected: "private key=[REDACTED] \nmode=safe" },
+    { input: 'private key="opaque" ordinary prose', expected: "private key=[REDACTED] ordinary prose" },
+    { input: 'private key="opaque-a". password=opaque-b', expected: "private key=[REDACTED]. password=[REDACTED]" },
   ] as const
   const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
   const incompleteAuthUrl = "https://fixtureUser:fixtureSecret@"

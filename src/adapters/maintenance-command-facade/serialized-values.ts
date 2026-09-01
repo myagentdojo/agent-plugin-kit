@@ -603,18 +603,38 @@ const assignmentBoundaryWidthAt = (value: string, cursor: number): number => {
   return ",;\n\r".includes(value[cursor] ?? "") ? 1 : 0
 }
 
+const backslashRunEnd = (value: string, start: number): number => {
+  let end = start
+  while (value[end] === "\\") end += 1
+  return end
+}
+
+const isHorizontalWhitespace = (character: string | undefined): boolean =>
+  character === " " || character === "\t"
+
+const boundedHorizontalWhitespaceEnd = (value: string, start: number): number | undefined => {
+  let end = start
+  const limit = Math.min(value.length, start + maximumRawAssignmentKeyLength)
+  while (end < limit && isHorizontalWhitespace(value[end])) end += 1
+  return isHorizontalWhitespace(value[end]) ? undefined : end
+}
+
+const quotedAssignmentBoundaryEnd = (value: string, closed: number): number | undefined => {
+  const boundary = backslashRunEnd(value, closed)
+  const separator = boundedHorizontalWhitespaceEnd(value, boundary)
+  if (separator === undefined) return value.length
+  const boundaryWidth = assignmentBoundaryWidthAt(value, separator)
+  if (boundaryWidth === 0) return undefined
+  if ((boundary - closed) % 2 !== 0) return value.length
+  return startsAssignment(value, separator + boundaryWidth) ? boundary : value.length
+}
+
 const quotedValueEnd = (value: string, start: number, quote: string): number => {
   const closing = closingQuoteAfter(value, start)
   if (closing === undefined) return value.length
   const closed = closing + 1
-  let boundary = closed
-  while (value[boundary] === "\\") boundary += 1
-  const boundaryWidth = assignmentBoundaryWidthAt(value, boundary)
-  if (boundaryWidth > 0) {
-    if ((boundary - closed) % 2 !== 0) return value.length
-    if (startsAssignment(value, boundary + boundaryWidth)) return boundary
-    return value.length
-  }
+  const assignmentBoundaryEnd = quotedAssignmentBoundaryEnd(value, closed)
+  if (assignmentBoundaryEnd !== undefined) return assignmentBoundaryEnd
   return isQuotedValueDelimiter(value, closed)
     ? closed
     : nonWhitespaceEnd(value, closed)
@@ -711,7 +731,7 @@ const assignmentValueRangeAfter = (
   key: AssignmentKey,
 ): SecretAssignmentRange => {
   const valueStart = separator.end
-  if (key.enclosingQuote !== undefined) {
+  if (key.enclosingQuote !== undefined && key.enclosingQuote >= valueStart) {
     return { valueStart, valueEnd: key.enclosingQuote }
   }
   const contentStart = afterWhitespace(value, valueStart)
