@@ -21,7 +21,11 @@ import {
   maintenanceSuccessEnvelopeDataSchema,
   isPlainJsonTree,
 } from "../../modules/maintenance-command-contract/serialized-values"
-import { canonicalNextActionFor, stationSlugFor } from "../../modules/maintenance-command-contract/branch-stations"
+import {
+  canonicalNextActionFor,
+  isDeclaredBranchStation,
+  stationSlugFor,
+} from "../../modules/maintenance-command-contract/branch-stations"
 import { commandVocabulary } from "../../modules/maintenance-command-contract/command-vocabulary"
 import {
   actionVocabulary,
@@ -271,6 +275,8 @@ const refineOutcomeContextShape = (
   addOutcomeContextIssue(ctx, record.level !== "info", "outcome context must use info level", "level")
   addOutcomeContextIssue(ctx, record.station_id === undefined, "outcome context requires station metadata", "station_id")
   addOutcomeContextIssue(ctx, record.result_code === undefined, "outcome context requires result metadata", "result_code")
+  addOutcomeContextIssue(ctx, record.transaction_state === undefined, "outcome context requires transaction metadata", "transaction_state")
+  addOutcomeContextIssue(ctx, record.retry_safety === undefined, "outcome context requires retry metadata", "retry_safety")
   addOutcomeContextIssue(ctx, record.failure_class !== undefined, "outcome context cannot carry failure class", "failure_class")
   addOutcomeContextIssue(ctx, record.next_action !== undefined, "outcome context cannot carry next action", "next_action")
   addOutcomeContextIssue(ctx, record.dropped_record_count !== undefined, "outcome context cannot carry dropped record count", "dropped_record_count")
@@ -281,6 +287,16 @@ const expectedOutcomeContextStationIdFor = (
 ): string | undefined => {
   if (record.command === undefined || record.result_code === undefined) return undefined
   return `${stationSlugFor(record.command)}.${record.result_code}`
+}
+
+type BranchStationClassification = "success" | "failure"
+
+const resultClassificationFor = (
+  resultCode: ResultCode,
+): BranchStationClassification | undefined => {
+  const descriptor = resultVocabulary.find(({ resultCode: candidate }) => candidate === resultCode)
+  if (descriptor === undefined) return undefined
+  return descriptor.exitClass === 0 ? "success" : "failure"
 }
 
 const refineOutcomeContextCommand = (
@@ -295,6 +311,18 @@ const refineOutcomeContextCommand = (
     ctx,
     record.command !== undefined && record.station_id !== expectedOutcomeContextStationIdFor(record),
     "outcome context command disagrees with station or result",
+    "command",
+  )
+  const classification = resultClassificationFor(record.result_code)
+  addOutcomeContextIssue(
+    ctx,
+    record.command !== undefined &&
+      (classification === undefined || !isDeclaredBranchStation({
+        commandId: record.command,
+        resultCode: record.result_code,
+        classification,
+      })),
+    "outcome context command and result are not a declared Branch Station",
     "command",
   )
   const resultSuffix = record.station_id.slice(record.station_id.lastIndexOf(".") + 1)

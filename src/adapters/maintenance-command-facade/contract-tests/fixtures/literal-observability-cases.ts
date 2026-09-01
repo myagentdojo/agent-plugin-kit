@@ -23,6 +23,7 @@ export const outcomeContextContract = {
   level: "info",
   usageRefusalMessage: 'Maintenance command reached result code "usage-refused".',
   previewedMessage: 'Maintenance command reached result code "previewed".',
+  completedMessage: 'Maintenance command reached result code "completed".',
 } as const
 
 export const bufferedSequence = [1, 2, 3, 4] as const

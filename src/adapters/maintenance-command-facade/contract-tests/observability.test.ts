@@ -541,35 +541,118 @@ test("event acceptance is synchronous and best effort", async () => {
   )
 })
 test("event refusal retains run sequence event ID result and station correlation", async () => {
-  const production = productionEventHarness()
-  const harness = await facadeHarness({ eventAdapter: production.adapter })
-  const recordedEvent = production.records[0]
-  absent(
-    {
-      failure: (() => {
-        const record = harness.diagnostics.records.find(({ event }) => event === fixedEventFailure.event)
-        return record && { event: record.event, stationId: record.station_id, resultCode: record.result_code, failureClass: record.failure_class, nextActionId: record.next_action?.id }
-      })(),
-      correlation: { runIds: [recordedEvent?.run_id, harness.diagnostics.records.at(-1)?.run_id], sequences: [recordedEvent?.sequence, harness.diagnostics.records.at(-1)?.sequence], eventId: recordedEvent?.event_id },
-      primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
-    },
-    {
-      failure: {
-        event: fixedEventFailure.event,
-        stationId: fixedEventFailure.stationId,
-        resultCode: fixedEventFailure.resultCode,
-        failureClass: fixedEventFailure.failureClass,
-        nextActionId: fixedEventFailure.nextActionId,
+  const cases = [
+    { label: "default", flag: undefined, contextVisible: true, diagnosticSequences: [2, 3] },
+    { label: "quiet", flag: "--quiet", contextVisible: false, diagnosticSequences: [3] },
+    { label: "verbose", flag: "--verbose", contextVisible: true, diagnosticSequences: [2, 3] },
+    { label: "debug", flag: "--debug", contextVisible: true, diagnosticSequences: [2, 3] },
+  ] as const
+  for (const { label, flag, contextVisible, diagnosticSequences } of cases) {
+    const production = productionEventHarness()
+    const argv = flag === undefined
+      ? ["--run-id", "contract-help-literal", "help"]
+      : [flag, "--run-id", "contract-help-literal", "help"]
+    const harness = await facadeHarness({ eventAdapter: production.adapter, argv })
+    const recordedEvent = production.records[0]
+    const context = harness.diagnostics.records.find(({ event }) => event === outcomeContextContract.event)
+    const failure = harness.diagnostics.records.find(({ event }) => event === fixedEventFailure.event)
+    absent(
+      {
+        event: recordedEvent,
+        diagnostics: harness.diagnostics.records,
+        diagnosticSequences: harness.diagnostics.records.map(({ sequence }) => sequence),
+        primary: { stdout: harness.observation.stdout, stderr: harness.observation.stderr, exitCode: harness.observation.exitCode },
       },
-      correlation: {
-        runIds: ["contract-help-literal", "contract-help-literal"],
-        sequences: [1, 3],
-        eventId: "opaque-event-id",
+      {
+        event: {
+          schema_version: 1,
+          event_id: "opaque-event-id",
+          occurred_at: "2026-08-27T00:00:00.000Z",
+          sequence: 1,
+          run_id: "contract-help-literal",
+          command: "help",
+          station_id: fixedEventFailure.stationId,
+          outcome: "previewed",
+          result_code: fixedEventFailure.resultCode,
+          transaction_state: "unchanged",
+          retry_safety: "safe",
+          next_action_id: "help.choose-command",
+        },
+        diagnostics: contextVisible
+          ? [
+              {
+                schema_version: 2,
+                record_type: "diagnostic",
+                timestamp: "2026-08-27T00:00:00.000Z",
+                sequence: 2,
+                level: outcomeContextContract.level,
+                category: ["agent-plugin-kit", "maintenance"],
+                event: outcomeContextContract.event,
+                run_id: "contract-help-literal",
+                command: "help",
+                station_id: fixedEventFailure.stationId,
+                result_code: fixedEventFailure.resultCode,
+                transaction_state: "unchanged",
+                retry_safety: "safe",
+                message: outcomeContextContract.previewedMessage,
+              },
+              {
+                schema_version: 2,
+                record_type: "diagnostic",
+                timestamp: "2026-08-27T00:00:00.000Z",
+                sequence: 3,
+                level: "error",
+                category: ["agent-plugin-kit", "maintenance"],
+                event: fixedEventFailure.event,
+                run_id: "contract-help-literal",
+                command: "help",
+                station_id: fixedEventFailure.stationId,
+                failure_class: fixedEventFailure.failureClass,
+                result_code: fixedEventFailure.resultCode,
+                transaction_state: "unchanged",
+                retry_safety: "safe",
+                next_action: {
+                  id: fixedEventFailure.nextActionId,
+                  action: "repair_state",
+                  summary: "Inspect the configured event transport; do not repeat the command solely to replay its event.",
+                  commandId: null,
+                },
+                message: "Inspect the configured event transport; do not repeat the command solely to replay its event.",
+              },
+            ]
+          : [
+              {
+                schema_version: 2,
+                record_type: "diagnostic",
+                timestamp: "2026-08-27T00:00:00.000Z",
+                sequence: 3,
+                level: "error",
+                category: ["agent-plugin-kit", "maintenance"],
+                event: fixedEventFailure.event,
+                run_id: "contract-help-literal",
+                command: "help",
+                station_id: fixedEventFailure.stationId,
+                failure_class: fixedEventFailure.failureClass,
+                result_code: fixedEventFailure.resultCode,
+                transaction_state: "unchanged",
+                retry_safety: "safe",
+                next_action: {
+                  id: fixedEventFailure.nextActionId,
+                  action: "repair_state",
+                  summary: "Inspect the configured event transport; do not repeat the command solely to replay its event.",
+                  commandId: null,
+                },
+                message: "Inspect the configured event transport; do not repeat the command solely to replay its event.",
+              },
+            ],
+        diagnosticSequences,
+        primary: { stdout: literalHelpProcess.stdout, stderr: "", exitCode: literalHelpProcess.exitCode },
       },
-      primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode },
-    },
-    "event refusal must retain original result and monotonic correlation",
-  )
+      `${label} event refusal must retain full record shapes and deliberate sequence gaps`,
+    )
+    expect(contextVisible, `${label} mode context visibility is a test-owned expectation`).toBe(context !== undefined)
+    expect(failure, `${label} mode must write event-delivery failure`).toBeDefined()
+  }
 })
 test("fake-clock delivery owns two bounded attempts and all settlement cases", async () => {
   expect(fixedEventFailure.endpoint).toBe("http://127.0.0.1:9/events")
@@ -661,6 +744,8 @@ test("closed diagnostics fail closed and native field redaction protects the sin
   const contextCases = [
     withoutField(context, "station_id"),
     withoutField(context, "result_code"),
+    withoutField(context, "transaction_state"),
+    withoutField(context, "retry_safety"),
     { ...context, failure_class: "usage" },
     { ...context, next_action: { id: "maintenance.show-help" } },
     { ...context, dropped_record_count: 1 },
@@ -676,6 +761,13 @@ test("closed diagnostics fail closed and native field redaction protects the sin
       station_id: "help.previewed",
       result_code: "previewed",
       message: outcomeContextContract.previewedMessage,
+    },
+    {
+      ...context,
+      command: "help",
+      station_id: "help.completed",
+      result_code: "completed",
+      message: outcomeContextContract.completedMessage,
     },
     { ...context, command: "help" },
   ]
