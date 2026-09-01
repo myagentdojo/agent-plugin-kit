@@ -654,23 +654,41 @@ const quotedSegmentEndAt = (value: string, cursor: number): number | undefined =
   return (closingQuoteAfter(value, cursor) ?? value.length - 1) + 1
 }
 
-const nestedDepthAfter = (character: string | undefined, depth: number): number => {
-  if (character !== undefined && "{[(".includes(character)) return depth + 1
-  if (character !== undefined && "}])".includes(character) && depth > 0) return depth - 1
-  return depth
+const expectedCloserForOpener = new Map([
+  ["{", "}"],
+  ["[", "]"],
+  ["(", ")"],
+])
+
+const closingDelimiters = new Set(expectedCloserForOpener.values())
+
+const consumeNestedDelimiter = (
+  character: string | undefined,
+  expectedClosers: string[],
+): boolean => {
+  if (character === undefined) return true
+  const expectedCloser = expectedCloserForOpener.get(character)
+  if (expectedCloser !== undefined) {
+    expectedClosers.push(expectedCloser)
+    return true
+  }
+  if (!closingDelimiters.has(character)) return true
+  if (expectedClosers.at(-1) !== character) return false
+  expectedClosers.pop()
+  return true
 }
 
 const unquotedAssignmentValueEnd = (value: string, start: number): number => {
   let end = start
-  let nestedDepth = 0
+  const expectedClosers: string[] = []
   while (end < value.length) {
-    if (startsFollowingAssignmentAt(value, end, nestedDepth)) break
+    if (startsFollowingAssignmentAt(value, end, expectedClosers.length)) break
     const quotedEnd = quotedSegmentEndAt(value, end)
     if (quotedEnd !== undefined) {
       end = quotedEnd
       continue
     }
-    nestedDepth = nestedDepthAfter(value[end], nestedDepth)
+    if (!consumeNestedDelimiter(value[end], expectedClosers)) return value.length
     end += 1
   }
   while (end > start && /\s/.test(value[end - 1] ?? "")) end -= 1

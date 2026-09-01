@@ -569,6 +569,9 @@ test("redaction validates and freezes both seams before crossing", async () => {
     { input: 'password={"mode":"safe","value":"opaque-secret"} | mode=safe', expected: "password=[REDACTED] | mode=safe" },
     { input: 'private key="opaque"| mode=safe', expected: "private key=[REDACTED]| mode=safe" },
     { input: 'private key="opaque";mode=safe', expected: "private key=[REDACTED];mode=safe" },
+    { input: "password={opaque] | mode=safe, hidden-tail}", expected: "password=[REDACTED]" },
+    { input: "password=[opaque) | mode=safe, hidden-tail]", expected: "password=[REDACTED]" },
+    { input: "password=(opaque} | mode=safe, hidden-tail)", expected: "password=[REDACTED]" },
   ] as const
   const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
   const incompleteAuthUrl = "https://fixtureUser:fixtureSecret@"
