@@ -13,7 +13,11 @@ test("the root package exposes exactly the accepted type catalog", () => {
   expect(Object.keys(packageMetadata.exports).sort()).toEqual([...expectedPublicSubpaths].sort())
   expect(installedPackage.publicTypeResolution).toEqual({ exitCode: 0, stdout: "", stderr: "" })
   expect(installedPackage.rootRuntimeExports).toEqual([])
+  expect(installedPackage.rootValueDeclarations).toEqual([])
   expect(installedPackage.subpathRuntimeExports).toEqual(expectedSubpathRuntimeExports)
+  expect(installedPackage.subpathValueDeclarations).toEqual(
+    Object.fromEntries(Object.entries(expectedSubpathRuntimeExports).filter(([subpath]) => subpath !== ".")),
+  )
   expect(installedPackage?.rootTypeExports, "contract-absent: installed root type exports must be independently observed").toEqual(expectedRootTypeExports)
 })
 
@@ -26,6 +30,15 @@ test("the Git package exposes exactly nine accepted public subpaths", () => {
     typeBaselineRestored: true,
     runtimeSubpathsRefused: [...expectedPublicSubpaths],
     runtimeSubpathsRestored: [...expectedPublicSubpaths],
+    valueDeclarationsRefused: [
+      "admission-bootstrap-remove",
+      "admission-bootstrap-drift",
+      "admission-bootstrap-add",
+      "qualification-evidence-remove",
+      "qualification-evidence-drift",
+      "qualification-evidence-add",
+    ],
+    compilerBaselineRestored: true,
   })
 })
 

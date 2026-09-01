@@ -52,10 +52,12 @@ type InstalledPackageObservation = {
   readonly fixtureEnvironmentKeys: readonly string[]
   readonly fixtureSensitiveEnvironmentKeys: readonly string[]
   readonly rootTypeExports: readonly string[]
+  readonly rootValueDeclarations: readonly string[]
   readonly rootRuntimeExports: readonly string[]
   readonly subpathRuntimeExports: Readonly<Record<string, readonly string[]>>
   readonly publicSubpaths: readonly string[]
   readonly subpathTypeExports: Readonly<Record<string, readonly string[]>>
+  readonly subpathValueDeclarations: Readonly<Record<string, readonly string[]>>
   readonly regularFiles: readonly string[]
   readonly symlinks: readonly InstalledSymlink[]
   readonly lifecycleScriptLedger: readonly string[]
@@ -86,11 +88,17 @@ type InstalledPackageObservation = {
     readonly admission: AdmissionResult
     readonly startedProcesses: readonly string[]
   }
+  readonly causalOrderPerturbationControl: {
+    readonly preAdmissionLaunchRefused: true
+    readonly baselineRestored: true
+  }
   readonly publicSurfacePerturbationControl: {
     readonly typeFormsRefused: readonly string[]
     readonly typeBaselineRestored: true
     readonly runtimeSubpathsRefused: readonly string[]
     readonly runtimeSubpathsRestored: readonly string[]
+    readonly valueDeclarationsRefused: readonly string[]
+    readonly compilerBaselineRestored: true
   }
   readonly observationBindingControl: {
     readonly baselineProvedClaims: readonly ["kit.command.invoked", "runtime.supported-platform"]
@@ -127,6 +135,7 @@ type InstalledPackageObservation = {
       readonly descriptorClosure: "cancelled-after-grace"
       readonly descendantTerminatedAfterRestoration: true
       readonly withinOuterBound: true
+      readonly outerDeadlineMs: 1_650
     }
   }
 }
@@ -198,6 +207,20 @@ type QualificationProbeObservation = {
   readonly runtimeExports: Readonly<Record<string, readonly string[]>>
   readonly personalQualification: QualificationOutcome
   readonly publicQualification: QualificationOutcome
+}
+
+type ExecutionPhase = "admission" | "maintenance-cli" | "observation-cells" | "qualification"
+
+class PhaseLedger {
+  readonly #phases: ExecutionPhase[] = []
+
+  record(phase: ExecutionPhase): void {
+    if (this.#phases.at(-1) !== phase) this.#phases.push(phase)
+  }
+
+  snapshot(): readonly ExecutionPhase[] {
+    return [...this.#phases]
+  }
 }
 
 const defaultProcessDeadlineMs = 30_000
@@ -277,9 +300,11 @@ async function spawn(command: readonly string[], options: {
   readonly env?: Readonly<Record<string, string | undefined>>
   readonly deadlineMs?: number
   readonly postKillGraceMs?: number
+  readonly phase?: { readonly ledger: PhaseLedger; readonly name: ExecutionPhase }
 }): Promise<SpawnResult> {
   const deadlineMs = options.deadlineMs ?? defaultProcessDeadlineMs
   const postKillGraceMs = options.postKillGraceMs ?? defaultPostKillGraceMs
+  options.phase?.ledger.record(options.phase.name)
   const child = Bun.spawn([...command], {
     cwd: options.cwd,
     ...optionalSpawnEnvironment(options.env),
@@ -502,17 +527,33 @@ function exportedTypeNames(source: string): string[] {
   return names
 }
 
+function exportedValueNames(source: string): string[] {
+  return [...source.matchAll(
+    /^export\s+(?:declare\s+)?(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)/gmu,
+  )].flatMap((match) => match[1] === undefined ? [] : [match[1]])
+}
+
 function installedTypeCatalog(
   packageRoot: string,
   exportsMap: Readonly<Record<string, unknown>>,
-): { rootTypeExports: readonly string[]; subpathTypeExports: Readonly<Record<string, readonly string[]>> } {
+): {
+  rootTypeExports: readonly string[]
+  rootValueDeclarations: readonly string[]
+  subpathTypeExports: Readonly<Record<string, readonly string[]>>
+  subpathValueDeclarations: Readonly<Record<string, readonly string[]>>
+} {
   const entries = Object.entries(exportsMap).map(([subpath, value]) => {
     const target = exportTarget(value).replace(/^\.\//u, "")
-    return [subpath, exportedTypeNames(readFileSync(join(packageRoot, target), "utf8"))] as const
+    const source = readFileSync(join(packageRoot, target), "utf8")
+    return [subpath, exportedTypeNames(source), exportedValueNames(source)] as const
   })
   return {
     rootTypeExports: entries.find(([subpath]) => subpath === ".")?.[1] ?? [],
+    rootValueDeclarations: entries.find(([subpath]) => subpath === ".")?.[2] ?? [],
     subpathTypeExports: Object.fromEntries(entries.filter(([subpath]) => subpath !== ".")),
+    subpathValueDeclarations: Object.fromEntries(
+      entries.filter(([subpath]) => subpath !== ".").map(([subpath, , values]) => [subpath, values]),
+    ),
   }
 }
 
@@ -531,6 +572,14 @@ async function observePublicTypeResolution(
     ...Object.entries(expectedSubpathTypeExports).map(([subpath, names], index) =>
       typeImport(`${packageName}${subpath.slice(1)}`, names, `Subpath${index}`)
     ),
+    `import { admissionBootstrap } from ${JSON.stringify(`${packageName}/admission-bootstrap`)}`,
+    `import type { AdmissionBootstrap } from ${JSON.stringify(`${packageName}/admission-bootstrap`)}`,
+    `import { qualificationEvidence } from ${JSON.stringify(`${packageName}/qualification-evidence`)}`,
+    `import type { QualificationEvidence } from ${JSON.stringify(`${packageName}/qualification-evidence`)}`,
+    "const admittedValue: AdmissionBootstrap = admissionBootstrap",
+    "const qualificationValue: QualificationEvidence = qualificationEvidence",
+    "void admittedValue",
+    "void qualificationValue",
   ].join("\n")
   writeFileSync(sourcePath, `${source}\n`, { mode: 0o600 })
 
@@ -567,6 +616,18 @@ async function observePublicTypeResolution(
   ], { cwd: consumerRoot, env: environment })
   requireSuccess("installed public type resolution", result)
   return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr }
+}
+
+async function publicTypeResolutionSucceeds(
+  consumerRoot: string,
+  environment: Readonly<Record<string, string>>,
+): Promise<boolean> {
+  try {
+    await observePublicTypeResolution(consumerRoot, environment)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function candidateAtCommit(commit: string) {
@@ -718,6 +779,7 @@ function derivePublicProcessEvidence(
 async function observeHost(
   consumerRoot: string,
   environment: Readonly<Record<string, string>>,
+  phaseLedger?: PhaseLedger,
 ): Promise<HostObservation> {
   const result = readJsonOutput<{ readonly os: string; readonly arch: string }>(
     "Clean Fixture host observation",
@@ -726,7 +788,13 @@ async function observeHost(
       "--no-install",
       "-e",
       "console.log(JSON.stringify({ os: process.platform, arch: process.arch }))",
-    ], { cwd: consumerRoot, env: environment }),
+    ], {
+      cwd: consumerRoot,
+      env: environment,
+      ...(phaseLedger === undefined
+        ? {}
+        : { phase: { ledger: phaseLedger, name: "maintenance-cli" as const } }),
+    }),
   )
   if (!(["darwin", "linux"] as const).includes(result.os as "darwin" | "linux")) {
     throw new Error(`unsupported observed operating system: ${result.os}`)
@@ -866,6 +934,33 @@ function writeQualificationProbe(
   return probePath
 }
 
+async function provePreAdmissionLaunchRefusal(
+  consumerRoot: string,
+  foreignCwd: string,
+  environment: Readonly<Record<string, string>>,
+  admissionProbePath: string,
+  admissionInputPath: string,
+): Promise<boolean> {
+  const ledger = new PhaseLedger()
+  const binary = join(consumerRoot, "node_modules/.bin/agent-plugin-kit")
+  await spawn(["bun", "--no-install", binary, "--run-id", "pre-admission-control", "--help"], {
+    cwd: foreignCwd,
+    env: environment,
+    phase: { ledger, name: "maintenance-cli" },
+  })
+  await spawn(["bun", "--no-install", admissionProbePath, admissionInputPath], {
+    cwd: consumerRoot,
+    env: environment,
+    phase: { ledger, name: "admission" },
+  })
+  return JSON.stringify(ledger.snapshot()) !== JSON.stringify([
+    "admission",
+    "maintenance-cli",
+    "observation-cells",
+    "qualification",
+  ])
+}
+
 function readJsonOutput<T>(label: string, result: SpawnResult): T {
   return JSON.parse(requireSuccess(label, result)) as T
 }
@@ -959,6 +1054,7 @@ async function observeCli(
   packageRoot: string,
   foreignCwd: string,
   environment: Readonly<Record<string, string>>,
+  phaseLedger?: PhaseLedger,
 ): Promise<Omit<
   InstalledMaintenanceCliObservation,
   | "externalDependencyPerturbationRefused"
@@ -981,6 +1077,9 @@ async function observeCli(
     const result = await spawn(["bun", "--no-install", "--preload", preload, binary, ...scenario.argv], {
       cwd: foreignCwd,
       env: { ...environment, ...("environment" in scenario ? scenario.environment : {}) },
+      ...(phaseLedger === undefined
+        ? {}
+        : { phase: { ledger: phaseLedger, name: "maintenance-cli" as const } }),
     })
     observations.push({ exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr })
   }
@@ -1065,7 +1164,11 @@ async function qualificationPerturbationIsRefused(
 
 function typeCatalogMatchesExpected(catalog: ReturnType<typeof installedTypeCatalog>): boolean {
   return JSON.stringify(catalog.rootTypeExports) === JSON.stringify(expectedRootTypeExports) &&
-    JSON.stringify(catalog.subpathTypeExports) === JSON.stringify(expectedSubpathTypeExports)
+    JSON.stringify(catalog.subpathTypeExports) === JSON.stringify(expectedSubpathTypeExports) &&
+    JSON.stringify(catalog.rootValueDeclarations) === JSON.stringify(expectedSubpathRuntimeExports["."]) &&
+    JSON.stringify(catalog.subpathValueDeclarations) === JSON.stringify(
+      Object.fromEntries(Object.entries(expectedSubpathRuntimeExports).filter(([subpath]) => subpath !== ".")),
+    )
 }
 
 async function observeRuntimeExportKeys(
@@ -1118,6 +1221,51 @@ function proveTypeSurfacePerturbations(
   return { refused, restored: true }
 }
 
+async function proveValueDeclarationPerturbations(
+  consumerRoot: string,
+  packageRoot: string,
+  exportsMap: Readonly<Record<string, unknown>>,
+  environment: Readonly<Record<string, string>>,
+): Promise<{ readonly refused: readonly string[]; readonly restored: true }> {
+  const cases = [
+    {
+      subpath: "./admission-bootstrap",
+      declaration: "export declare const admissionBootstrap: AdmissionBootstrap",
+      drift: "export declare const admissionBootstrap: string",
+      extra: "export declare function cleanFixtureUnexpectedValue(): void",
+    },
+    {
+      subpath: "./qualification-evidence",
+      declaration: "export declare const qualificationEvidence: QualificationEvidence",
+      drift: "export declare const qualificationEvidence: string",
+      extra: "export declare const cleanFixtureUnexpectedValue: string",
+    },
+  ] as const
+  const refused: string[] = []
+  for (const item of cases) {
+    const target = join(packageRoot, exportTarget(exportsMap[item.subpath]).replace(/^\.\//u, ""))
+    const original = readFileSync(target, "utf8")
+    const label = item.subpath.slice(2)
+    if (!original.includes(item.declaration)) throw new Error(`missing accepted value declaration: ${label}`)
+    try {
+      writeFileSync(target, original.replace(item.declaration, ""), { mode: 0o600 })
+      if (!(await publicTypeResolutionSucceeds(consumerRoot, environment))) refused.push(`${label}-remove`)
+      writeFileSync(target, original.replace(item.declaration, item.drift), { mode: 0o600 })
+      if (!(await publicTypeResolutionSucceeds(consumerRoot, environment))) refused.push(`${label}-drift`)
+      writeFileSync(target, `${original}\n${item.extra}\n`, { mode: 0o600 })
+      if (!typeCatalogMatchesExpected(installedTypeCatalog(packageRoot, exportsMap))) {
+        refused.push(`${label}-add`)
+      }
+    } finally {
+      writeFileSync(target, original, { mode: 0o600 })
+    }
+  }
+  const restored = await publicTypeResolutionSucceeds(consumerRoot, environment) &&
+    typeCatalogMatchesExpected(installedTypeCatalog(packageRoot, exportsMap))
+  if (!restored) throw new Error("compiler-backed public declaration baseline was not restored")
+  return { refused, restored: true }
+}
+
 async function proveRuntimeSurfacePerturbations(
   consumerRoot: string,
   packageRoot: string,
@@ -1152,6 +1300,12 @@ async function provePublicSurfacePerturbations(
   environment: Readonly<Record<string, string>>,
 ): Promise<InstalledPackageObservation["publicSurfacePerturbationControl"]> {
   const type = proveTypeSurfacePerturbations(packageRoot, exportsMap)
+  const values = await proveValueDeclarationPerturbations(
+    consumerRoot,
+    packageRoot,
+    exportsMap,
+    environment,
+  )
   const runtime = await proveRuntimeSurfacePerturbations(
     consumerRoot,
     packageRoot,
@@ -1163,6 +1317,8 @@ async function provePublicSurfacePerturbations(
     typeBaselineRestored: type.restored,
     runtimeSubpathsRefused: runtime.refused,
     runtimeSubpathsRestored: runtime.restored,
+    valueDeclarationsRefused: values.refused,
+    compilerBaselineRestored: values.restored,
   }
 }
 
@@ -1315,12 +1471,13 @@ function processGroupExists(processGroupId: number): boolean {
 async function waitForProcessTreeExit(
   descendantPid: number,
   processGroupId: number,
+  deadlineAt = performance.now() + 500,
 ): Promise<{ readonly descendantExists: boolean; readonly processGroupExists: boolean }> {
   let liveness = {
     descendantExists: processExists(descendantPid),
     processGroupExists: processGroupExists(processGroupId),
   }
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  while (performance.now() < deadlineAt) {
     if (!liveness.descendantExists && !liveness.processGroupExists) return liveness
     await Bun.sleep(10)
     liveness = {
@@ -1390,20 +1547,22 @@ async function proveDescriptorHoldingSensitivity(
     `await Bun.write(${JSON.stringify(pidPath)}, String(child.pid))`,
   ].join("\n")
   const startedAt = performance.now()
+  const outerDeadlineMs = 1_650 as const
+  const outerDeadlineAt = startedAt + outerDeadlineMs
   const result = await spawn([process.execPath, "-e", script], {
     cwd: fixtureRoot,
     env: environment,
     deadlineMs,
     postKillGraceMs: graceMs,
   })
-  const elapsedMs = performance.now() - startedAt
   const pid = Number(readFileSync(pidPath, "utf8"))
-  const refused = result.exitCode === 124 && result.cleanup.postKillGraceExpired &&
-    result.cleanup.descriptorClosure === "cancelled-after-grace" &&
-    elapsedMs <= deadlineMs + graceMs + 250
   killDescriptorHolder(pid)
-  for (let attempt = 0; attempt < 50 && processExists(pid); attempt += 1) await Bun.sleep(10)
-  if (!refused || processExists(pid)) {
+  while (processExists(pid) && performance.now() < outerDeadlineAt) await Bun.sleep(10)
+  const elapsedMs = performance.now() - startedAt
+  const refused = result.exitCode === 124 && result.cleanup.postKillGraceExpired &&
+    result.cleanup.descriptorClosure === "cancelled-after-grace" && !processExists(pid) &&
+    elapsedMs <= outerDeadlineMs
+  if (!refused) {
     throw new Error("descriptor-holding descendant did not fail closed within the outer bound")
   }
   return {
@@ -1412,6 +1571,7 @@ async function proveDescriptorHoldingSensitivity(
     descriptorClosure: "cancelled-after-grace",
     descendantTerminatedAfterRestoration: true,
     withinOuterBound: true,
+    outerDeadlineMs,
   }
 }
 
@@ -1454,6 +1614,22 @@ async function proveTimeoutCleanup(
 function readLifecycleLedger(path: string): readonly string[] {
   if (!existsSync(path)) return []
   return readFileSync(path, "utf8").split("\n").filter(Boolean)
+}
+
+function proveRestoredCausalOrder(
+  preAdmissionLaunchRefused: boolean,
+  admittedExecutionOrder: readonly ExecutionPhase[],
+): InstalledPackageObservation["causalOrderPerturbationControl"] {
+  const baselineRestored = JSON.stringify(admittedExecutionOrder) === JSON.stringify([
+    "admission",
+    "maintenance-cli",
+    "observation-cells",
+    "qualification",
+  ])
+  if (!preAdmissionLaunchRefused || !baselineRestored) {
+    throw new Error("execution phase ledger did not refuse pre-Admission launch and restore baseline")
+  }
+  return { preAdmissionLaunchRefused: true, baselineRestored: true }
 }
 
 async function observeInstalledFoundation(): Promise<InstalledFoundationObservation> {
@@ -1538,26 +1714,34 @@ async function observeInstalledFoundation(): Promise<InstalledFoundationObservat
     const request = candidateAtCommit(sourceCommit)
     const admissionInputPath = writeAdmissionInput(consumerRoot, "admitted", request)
     const admissionProbePath = writeAdmissionProbe(consumerRoot)
-    const admittedExecutionOrder: string[] = ["admission"]
+    const preAdmissionLaunchRefused = await provePreAdmissionLaunchRefusal(
+      consumerRoot,
+      foreignCwd,
+      environment,
+      admissionProbePath,
+      admissionInputPath,
+    )
+    const admittedPhaseLedger = new PhaseLedger()
     const admission = readJsonOutput<AdmissionResult>(
       "installed public Admission probe",
       await spawn(["bun", "--no-install", admissionProbePath, admissionInputPath], {
         cwd: consumerRoot,
         env: environment,
+        phase: { ledger: admittedPhaseLedger, name: "admission" },
       }),
     )
     if (admission.kind !== "admitted") {
       throw new Error(`installed Candidate was refused before downstream execution: ${JSON.stringify(admission)}`)
     }
-    admittedExecutionOrder.push("maintenance-cli")
     const installedMaintenanceCliBase = await observeCli(
       consumerRoot,
       observerRoot,
       packageRoot,
       foreignCwd,
       environment,
+      admittedPhaseLedger,
     )
-    const hostObservation = await observeHost(consumerRoot, environment)
+    const hostObservation = await observeHost(consumerRoot, environment, admittedPhaseLedger)
     const commandObservation = installedMaintenanceCliBase.observations[0]
     if (commandObservation === undefined) {
       throw new Error("accepted maintenance CLI scenarios produced no command observation")
@@ -1573,7 +1757,7 @@ async function observeInstalledFoundation(): Promise<InstalledFoundationObservat
     if (processEvidence === undefined) {
       throw new Error("accepted CLI and host observations did not produce qualification evidence")
     }
-    admittedExecutionOrder.push("observation-cells")
+    admittedPhaseLedger.record("observation-cells")
     const mainInputPath = writeProbeInput(
       consumerRoot,
       "admitted",
@@ -1583,12 +1767,12 @@ async function observeInstalledFoundation(): Promise<InstalledFoundationObservat
     )
     const qualificationInputBindings = observeQualificationInputBindings(mainInputPath)
     const qualificationProbePath = writeQualificationProbe(consumerRoot, publicSubpaths)
-    admittedExecutionOrder.push("qualification")
     const qualificationProbe = readJsonOutput<QualificationProbeObservation>(
       "installed public Qualification probe",
       await spawn(["bun", "--no-install", qualificationProbePath, mainInputPath], {
         cwd: consumerRoot,
         env: environment,
+        phase: { ledger: admittedPhaseLedger, name: "qualification" },
       }),
     )
     const runtimePerturbationControl = await proveExternalRuntimePerturbation(
@@ -1620,28 +1804,29 @@ async function observeInstalledFoundation(): Promise<InstalledFoundationObservat
       "refused",
       mismatchedRequest,
     )
-    const startedProcesses = ["admission"]
+    const refusedPhaseLedger = new PhaseLedger()
     const refusedAdmission = readJsonOutput<AdmissionResult>(
       "mismatched installed public Admission probe",
       await spawn(["bun", "--no-install", admissionProbePath, refusedInputPath], {
         cwd: consumerRoot,
         env: environment,
+        phase: { ledger: refusedPhaseLedger, name: "admission" },
       }),
     )
     if (refusedAdmission.kind === "admitted") {
-      startedProcesses.push("maintenance-cli")
       await observeCli(
         consumerRoot,
         join(observerRoot, "refused-candidate"),
         packageRoot,
         foreignCwd,
         environment,
+        refusedPhaseLedger,
       )
-      startedProcesses.push("observation-cells")
-      startedProcesses.push("qualification")
+      refusedPhaseLedger.record("observation-cells")
       await spawn(["bun", "--no-install", qualificationProbePath, refusedInputPath], {
         cwd: consumerRoot,
         env: environment,
+        phase: { ledger: refusedPhaseLedger, name: "qualification" },
       })
     }
     const publicSurfacePerturbationControl = await provePublicSurfacePerturbations(
@@ -1651,6 +1836,11 @@ async function observeInstalledFoundation(): Promise<InstalledFoundationObservat
       environment,
     )
     const processTimeoutControl = await proveTimeoutCleanup(fixtureRoot, environment)
+    const admittedExecutionOrder = admittedPhaseLedger.snapshot()
+    const causalOrderPerturbationControl = proveRestoredCausalOrder(
+      preAdmissionLaunchRefused,
+      admittedExecutionOrder,
+    )
 
     observation = {
       sourceCommit,
@@ -1681,8 +1871,9 @@ async function observeInstalledFoundation(): Promise<InstalledFoundationObservat
       ],
       admissionRefusalControl: {
         admission: refusedAdmission,
-        startedProcesses,
+        startedProcesses: refusedPhaseLedger.snapshot(),
       },
+      causalOrderPerturbationControl,
       publicSurfacePerturbationControl,
       observationBindingControl,
       qualificationInputBindings,

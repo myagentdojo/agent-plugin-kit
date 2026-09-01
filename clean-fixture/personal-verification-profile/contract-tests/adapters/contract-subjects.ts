@@ -6,9 +6,11 @@ import {
 
 export type InstalledPackageObservation = {
   rootTypeExports: readonly string[]
+  rootValueDeclarations: readonly string[]
   rootRuntimeExports: readonly string[]
   publicSubpaths: readonly string[]
   subpathTypeExports: Readonly<Record<string, readonly string[]>>
+  subpathValueDeclarations: Readonly<Record<string, readonly string[]>>
   subpathRuntimeExports: Readonly<Record<string, readonly string[]>>
   regularFiles: readonly string[]
   symlinks: typeof installedFoundation.installedPackage.symlinks
@@ -31,6 +33,7 @@ export type InstalledPackageObservation = {
   qualificationRuntimeTargetPerturbationControl: typeof installedFoundation.installedPackage.qualificationRuntimeTargetPerturbationControl
   admittedExecutionOrder: typeof installedFoundation.installedPackage.admittedExecutionOrder
   admissionRefusalControl: typeof installedFoundation.installedPackage.admissionRefusalControl
+  causalOrderPerturbationControl: typeof installedFoundation.installedPackage.causalOrderPerturbationControl
   publicSurfacePerturbationControl: typeof installedFoundation.installedPackage.publicSurfacePerturbationControl
   observationBindingControl: typeof installedFoundation.installedPackage.observationBindingControl
   qualificationInputBindings: typeof installedFoundation.installedPackage.qualificationInputBindings

@@ -52,6 +52,7 @@ test("Git installation runs no lifecycle script", () => {
       descriptorClosure: "cancelled-after-grace",
       descendantTerminatedAfterRestoration: true,
       withinOuterBound: true,
+      outerDeadlineMs: 1_650,
     },
   })
   expect(installedPackage.processTimeoutControl.elapsedMs).toBeGreaterThanOrEqual(150)

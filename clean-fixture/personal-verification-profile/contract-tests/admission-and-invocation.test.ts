@@ -57,6 +57,10 @@ test("public Admission source is dependency-free before maintenance execution", 
     },
     startedProcesses: ["admission"],
   })
+  expect(installedPackage.causalOrderPerturbationControl).toEqual({
+    preAdmissionLaunchRefused: true,
+    baselineRestored: true,
+  })
 })
 
 test("public command invocation requires the same Admitted Identity", async () => {
