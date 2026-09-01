@@ -111,8 +111,7 @@ const eventOutcomes = ["previewed", "completed", "refused", "failed"] as const
 const safeIdentifierPattern = /^[A-Za-z0-9._:-]{1,160}$/
 const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
 const maximumCredentialMatchLength = 4096
-const secretKeyPattern = /(?:password|passwd|secret|token|authorization|cookie|credential|private[-_ ]?key|api[-_ ]?key)/i
-const spaceSeparatedKeyPattern = /^(?:private|api)\s+key$/i
+const secretKeyPattern = /(?:password|passwd|secret|token|authorization|cookie|credential|private[-_]?key|api[-_]?key)/i
 const uriSchemePattern = "[A-Za-z][A-Za-z0-9+.-]*"
 const authUrlPattern = new RegExp(
   `(^|[^A-Za-z0-9])(?=${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@)${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@[^\\s]+`,
@@ -227,19 +226,23 @@ type SecretAssignmentRange = Readonly<{
 const isBareKeyCharacter = (character: string | undefined): boolean =>
   character !== undefined && /[A-Za-z0-9_-]/.test(character)
 
-type AssignmentKey = Readonly<{ key: string; end: number }>
+type SensitiveAssignmentKey = Readonly<{ end: number }>
+
+const isSensitiveAssignmentKey = (key: string): boolean =>
+  secretKeyPattern.test(key.trim().replace(/\s+/g, "_"))
 
 const quotedAssignmentKeyAt = (
   value: string,
   start: number,
   quote: string,
-): AssignmentKey | undefined => {
+): SensitiveAssignmentKey | undefined => {
   const end = value.indexOf(quote, start + 1)
   if (end < 0) return undefined
-  return { key: value.slice(start + 1, end), end: end + 1 }
+  const key = value.slice(start + 1, end)
+  return isSensitiveAssignmentKey(key) ? { end: end + 1 } : undefined
 }
 
-const bareAssignmentKeyAt = (value: string, start: number): AssignmentKey | undefined => {
+const bareAssignmentKeyAt = (value: string, start: number): SensitiveAssignmentKey | undefined => {
   if (!isBareKeyCharacter(value[start])) return undefined
   let end = start
   while (isBareKeyCharacter(value[end])) end += 1
@@ -248,15 +251,14 @@ const bareAssignmentKeyAt = (value: string, start: number): AssignmentKey | unde
   while (/\s/.test(value[separatedEnd] ?? "")) separatedEnd += 1
   while (isBareKeyCharacter(value[separatedEnd])) separatedEnd += 1
   const separatedKey = value.slice(start, separatedEnd)
-  return spaceSeparatedKeyPattern.test(separatedKey)
-    ? { key: separatedKey, end: separatedEnd }
-    : { key, end }
+  if (isSensitiveAssignmentKey(separatedKey)) return { end: separatedEnd }
+  return isSensitiveAssignmentKey(key) ? { end } : undefined
 }
 
 const assignmentKeyAt = (
   value: string,
   start: number,
-): AssignmentKey | undefined => {
+): SensitiveAssignmentKey | undefined => {
   if (isBareKeyCharacter(value[start - 1])) return undefined
   const quote = value[start]
   return quote === '"' || quote === "'"
@@ -318,7 +320,7 @@ const assignmentValueRangeAt = (
 
 const secretAssignmentAt = (value: string, start: number): SecretAssignmentRange | undefined => {
   const assignmentKey = assignmentKeyAt(value, start)
-  if (assignmentKey === undefined || !secretKeyPattern.test(assignmentKey.key)) return undefined
+  if (assignmentKey === undefined) return undefined
   const separator = afterWhitespace(value, assignmentKey.end)
   if (value[separator] !== ":" && value[separator] !== "=") return undefined
   return assignmentValueRangeAt(value, separator)
