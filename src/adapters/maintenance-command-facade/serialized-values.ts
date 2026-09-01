@@ -113,7 +113,6 @@ const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
 const maximumCredentialMatchLength = 4096
 const secretKeyPattern = /(?:password|passwd|secret|token|authorization|cookie|credential|private[-_]?key|api[-_]?key)/i
 const uriSchemePattern = "[A-Za-z][A-Za-z0-9+.-]*"
-const secretAssignmentPattern = /(^|[^A-Za-z0-9])(?:(["'])(secret|password|passwd|token|credential|authorization|cookie|private[-_ ]?key|api[-_ ]?key)\2|(secret|password|passwd|token|credential|authorization|cookie|private[-_ ]?key|api[-_ ]?key))(\s*)([:=])(\s*)("(?:\\.|[^"\\])*"[^\s]*|'(?:\\.|[^'\\])*'[^\s]*|"(?:(?:\\.|[^"\\])*)$|'(?:(?:\\.|[^'\\])*)$|[^\s]+)/gi
 const authUrlPattern = new RegExp(
   `(^|[^A-Za-z0-9])(?=${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@)${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@[^\\s]+`,
   "gi",
@@ -219,20 +218,125 @@ const replaceConfiguredSecrets = (value: string, secrets: readonly string[]): st
   return redacted
 }
 
-const redactSecretAssignment = (
-  _match: string,
-  boundary: string,
-  quote: string | undefined,
-  quotedKey: string | undefined,
-  bareKey: string | undefined,
-  beforeSeparator: string,
-  separator: string,
-  afterSeparator: string,
-): string => {
-  const key = quotedKey ?? bareKey
-  if (key === undefined) return redactedDiagnosticValue
-  const renderedKey = quote === undefined ? key : `${quote}${key}${quote}`
-  return `${boundary}${renderedKey}${beforeSeparator}${separator}${afterSeparator}${redactedDiagnosticValue}`
+type SecretAssignmentRange = Readonly<{
+  valueStart: number
+  valueEnd: number
+}>
+
+const isBareKeyCharacter = (character: string | undefined): boolean =>
+  character !== undefined && /[A-Za-z0-9_-]/.test(character)
+
+const isKeyPhraseCharacter = (character: string | undefined): boolean =>
+  character !== undefined && /[A-Za-z0-9_ -]/.test(character)
+
+type AssignmentKey = Readonly<{ key: string; end: number }>
+
+const quotedAssignmentKeyAt = (
+  value: string,
+  start: number,
+  quote: string,
+): AssignmentKey | undefined => {
+  const end = value.indexOf(quote, start + 1)
+  if (end < 0 || end - start > 161) return undefined
+  return { key: value.slice(start + 1, end), end: end + 1 }
+}
+
+const bareAssignmentKeyAt = (value: string, start: number): AssignmentKey | undefined => {
+  if (!isBareKeyCharacter(value[start])) return undefined
+  let end = start
+  while (end - start <= 160 && isKeyPhraseCharacter(value[end])) end += 1
+  while (end > start && /\s/.test(value[end - 1] ?? "")) end -= 1
+  return end === start ? undefined : { key: value.slice(start, end), end }
+}
+
+const assignmentKeyAt = (
+  value: string,
+  start: number,
+): AssignmentKey | undefined => {
+  if (isBareKeyCharacter(value[start - 1])) return undefined
+  const quote = value[start]
+  return quote === '"' || quote === "'"
+    ? quotedAssignmentKeyAt(value, start, quote)
+    : bareAssignmentKeyAt(value, start)
+}
+
+const nonWhitespaceEnd = (value: string, start: number): number => {
+  let end = start
+  while (end < value.length && !/\s/.test(value[end] ?? "")) end += 1
+  return end
+}
+
+const isQuotedValueDelimiter = (value: string, start: number): boolean => {
+  const delimiter = value[start]
+  if (delimiter === undefined || /\s/.test(delimiter) || ",}])".includes(delimiter)) return true
+  if (delimiter !== ";" && delimiter !== ".") return false
+  const next = value[start + 1]
+  return next === undefined || /\s/.test(next)
+}
+
+const quotedValueEnd = (value: string, start: number, quote: string): number => {
+  let end = start + 1
+  while (end < value.length) {
+    const character = value[end]
+    if (character === "\\") {
+      end += 2
+      continue
+    }
+    if (character === quote) {
+      const closed = end + 1
+      return isQuotedValueDelimiter(value, closed)
+        ? closed
+        : nonWhitespaceEnd(value, closed)
+    }
+    end += 1
+  }
+  return value.length
+}
+
+const afterWhitespace = (value: string, start: number): number => {
+  let end = start
+  while (/\s/.test(value[end] ?? "")) end += 1
+  return end
+}
+
+const assignmentValueRangeAt = (
+  value: string,
+  separator: number,
+): SecretAssignmentRange | undefined => {
+  const valueStart = afterWhitespace(value, separator + 1)
+  const quote = value[valueStart]
+  if (quote === undefined) return undefined
+  const valueEnd = quote === '"' || quote === "'"
+    ? quotedValueEnd(value, valueStart, quote)
+    : nonWhitespaceEnd(value, valueStart)
+  return valueEnd === valueStart ? undefined : { valueStart, valueEnd }
+}
+
+const secretAssignmentAt = (value: string, start: number): SecretAssignmentRange | undefined => {
+  const assignmentKey = assignmentKeyAt(value, start)
+  if (assignmentKey === undefined || !secretKeyPattern.test(assignmentKey.key)) return undefined
+  const separator = afterWhitespace(value, assignmentKey.end)
+  if (value[separator] !== ":" && value[separator] !== "=") return undefined
+  return assignmentValueRangeAt(value, separator)
+}
+
+const redactSecretAssignments = (value: string): string => {
+  const output: string[] = []
+  let copiedThrough = 0
+  let cursor = 0
+  while (cursor < value.length) {
+    const assignment = secretAssignmentAt(value, cursor)
+    if (assignment === undefined) {
+      cursor += 1
+      continue
+    }
+    output.push(value.slice(copiedThrough, assignment.valueStart), redactedDiagnosticValue)
+    copiedThrough = assignment.valueEnd
+    cursor = assignment.valueEnd
+  }
+  return copiedThrough === 0
+    ? value
+    : `${output.join("")}${value.slice(copiedThrough)}`
 }
 
 const redactString = (value: string, secrets: readonly string[]): string => {
@@ -242,7 +346,7 @@ const redactString = (value: string, secrets: readonly string[]): string => {
   const urlRedacted = privateKeyRedacted.replace(authUrlPattern, preserveBoundaryAndRedact)
   const bearerRedacted = urlRedacted.replace(bearerCredentialPattern, preserveBoundaryAndRedact)
   const opReferenceRedacted = bearerRedacted.replace(opReferencePattern, preserveBoundaryAndRedact)
-  return opReferenceRedacted.replace(secretAssignmentPattern, redactSecretAssignment)
+  return redactSecretAssignments(opReferenceRedacted)
 }
 
 const isRedactionBlocked = (key: string, depth: number): boolean =>

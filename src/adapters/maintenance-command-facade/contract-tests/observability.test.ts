@@ -489,6 +489,9 @@ test("redaction validates and freezes both seams before crossing", async () => {
   const quotedAssignmentWithSuffix = 'token="fixture head";fixtureTail'
   const quotedJsonTokenAssignment = '{"token":"fixture-json-token-secret"}'
   const quotedJsonPasswordAssignment = '{"password":"fixture-json-password-secret"}'
+  const prefixedJsonTokenAssignment = '{"accessToken":"fixture-access-token-secret"}'
+  const prefixedClientSecretAssignment = "clientSecret=fixture-client-secret"
+  const delimitedJsonTokenAssignment = '{"token":"fixture-delimited-token-secret","mode":"safe"}'
   const malformedDoubleQuotedKeyAssignment = '"token=fixture-malformed-double-key-secret'
   const malformedJsonQuotedKeyAssignment = '{"token:fixture-malformed-json-key-secret'
   const malformedSingleQuotedKeyAssignment = "'password:fixture-malformed-single-key-secret"
@@ -530,6 +533,9 @@ test("redaction validates and freezes both seams before crossing", async () => {
       quotedAssignmentWithSuffix,
       quotedJsonTokenAssignment,
       quotedJsonPasswordAssignment,
+      prefixedJsonTokenAssignment,
+      prefixedClientSecretAssignment,
+      delimitedJsonTokenAssignment,
       malformedDoubleQuotedKeyAssignment,
       malformedJsonQuotedKeyAssignment,
       malformedSingleQuotedKeyAssignment,
@@ -593,8 +599,14 @@ test("redaction validates and freezes both seams before crossing", async () => {
     "fixture head",
     quotedJsonTokenAssignment,
     quotedJsonPasswordAssignment,
+    prefixedJsonTokenAssignment,
+    prefixedClientSecretAssignment,
+    delimitedJsonTokenAssignment,
     "fixture-json-token-secret",
     "fixture-json-password-secret",
+    "fixture-access-token-secret",
+    "fixture-client-secret",
+    "fixture-delimited-token-secret",
     malformedDoubleQuotedKeyAssignment,
     malformedJsonQuotedKeyAssignment,
     malformedSingleQuotedKeyAssignment,
@@ -620,7 +632,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
       order: redactionTrace,
     },
-    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | {\"token\":[REDACTED] | {\"password\":[REDACTED] | \"token=[REDACTED] | {\"token:[REDACTED] | 'password:[REDACTED] | token=[REDACTED]", incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
+    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | {\"token\":[REDACTED]} | {\"password\":[REDACTED]} | {\"accessToken\":[REDACTED]} | clientSecret=[REDACTED] | {\"token\":[REDACTED],\"mode\":\"safe\"} | \"token=[REDACTED] | {\"token:[REDACTED] | 'password:[REDACTED] | token=[REDACTED]", incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
     "redaction must precede both seams without changing the fixed primary result",
   )
 })
