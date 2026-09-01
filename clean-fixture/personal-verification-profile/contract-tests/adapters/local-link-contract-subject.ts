@@ -34,6 +34,11 @@ const commitFixture = async (root: string): Promise<void> => {
     "-c", "user.email=contract-test@invalid.example",
     "commit", "--quiet", "-m", "fixture",
   ])
+  await git(root, [
+    "-c", "user.name=Agent Plugin Kit Contract Test",
+    "-c", "user.email=contract-test@invalid.example",
+    "commit", "--quiet", "--allow-empty", "-m", "fixture-ref",
+  ])
 }
 
 const createKitFixture = async (kitRoot: string, sourceKitRoot: string): Promise<void> => {
@@ -107,6 +112,11 @@ const provePreexistingDestinationRefusal = async (
 
 type LocalLinkContractSubject = LocalLinkProofResult & Readonly<{
   preexistingDestinationRefused: true
+  temporaryProofControls: Readonly<{
+    wrongParentRefused: true
+    preexistingMarkerRefused: true
+    substitutedRootRefused: true
+  }>
   failureControls: Readonly<Record<"escaped-parent" | LocalLinkFault, FailureControlResult>>
 }>
 
@@ -120,10 +130,21 @@ type FixtureRoots = Readonly<{
 }>
 
 const localLinkFaults = [
+  "partial-link",
   "retargeted-link",
   "second-identity",
   "mode-shebang-loss",
   "repository-drift",
+  "manifest-lock-drift",
+  "staged-index-drift",
+  "commit-ref-drift",
+  "parent-deletion",
+  "network-primitive",
+  "diagnostic-order",
+  "redaction-bypass",
+  "missing-owner-local-dependency",
+  "receipt-schema",
+  "receipt-mistyped",
   "receipt-tamper",
   "receipt-write-failure",
 ] as const satisfies readonly LocalLinkFault[]
@@ -139,6 +160,7 @@ const createFixtureRoots = async (sourceKitRoot: string): Promise<FixtureRoots> 
   const stateRoot = join(temporaryRoot, "state")
   await mkdir(kitRoot, { recursive: true, mode: 0o700 })
   await mkdir(consumerRoot, { recursive: true, mode: 0o700 })
+  await mkdir(stateRoot, { mode: 0o700 })
   await chmod(kitParent, 0o700)
   await chmod(consumerParent, 0o700)
   await createKitFixture(kitRoot, sourceKitRoot)
@@ -177,10 +199,83 @@ const failureResultFor = async (
   }
   const packageDestination = join(roots.consumerRoot, "node_modules/agent-plugin-kit")
   const binaryDestination = join(roots.consumerRoot, "node_modules/.bin/agent-plugin-kit")
-  const parentsPreserved = (await pathPresent(roots.kitParent)) && (await pathPresent(roots.consumerParent))
+  const receiptPath = join(
+    roots.stateRoot,
+    "my-second-brain-vault/agent-plugin-kit/local-link-proof",
+    options.runId,
+    "ownership.json",
+  )
+  const parentsPreserved = (await pathPresent(roots.kitParent)) && (await pathPresent(roots.consumerParent)) &&
+    (await pathPresent(join(roots.consumerRoot, "node_modules")))
   const linksRemain = (await pathPresent(packageDestination)) || (await pathPresent(binaryDestination))
-  if (!(refusal instanceof Error) || !parentsPreserved) throw new Error(`failure-control-not-refused:${fault}`)
-  return { refused: true, reason: refusal.message, parentsPreserved: true, linksRemain }
+  const receiptRemaining = await pathPresent(receiptPath)
+  if (!(refusal instanceof Error)) throw new Error(`failure-control-not-refused:${fault}`)
+  return { refused: true, reason: refusal.message, parentsPreserved, linksRemain, receiptRemaining }
+}
+
+const probeWrongTemporaryParent = async (): Promise<boolean> => {
+  const wrongParent = await mkdtemp(join(tmpdir(), "agent-plugin-kit-local-link-controls-"))
+  const wrongRootParent = join(wrongParent, "nested")
+  const wrongRoot = join(wrongRootParent, "agent-plugin-kit-local-link-wrong-parent")
+  await mkdir(wrongRoot, { recursive: true, mode: 0o700 })
+  let refused = false
+  try {
+    await writeTemporaryProofMarker(wrongRoot, "wrong-parent-control")
+  } catch (error) {
+    refused = error instanceof Error && error.message === "temporary-proof-root-parent-refused"
+  }
+  await rm(wrongParent, { recursive: true, force: true })
+  return refused
+}
+
+const probePreexistingTemporaryMarker = async (): Promise<boolean> => {
+  const preexistingRoot = await mkdtemp(join(tmpdir(), "agent-plugin-kit-local-link-"))
+  await chmod(preexistingRoot, 0o700)
+  let refused = false
+  try {
+    await writeTemporaryProofMarker(preexistingRoot, "preexisting-marker-control")
+    try {
+      await writeTemporaryProofMarker(preexistingRoot, "preexisting-marker-control")
+    } catch (error) {
+      refused = error instanceof Error && error.message === "temporary-proof-marker-exists"
+    }
+  } finally {
+    await removeTemporaryProofRoot(preexistingRoot, "preexisting-marker-control")
+  }
+  return refused
+}
+
+const probeSubstitutedTemporaryRoot = async (): Promise<boolean> => {
+  const substitutedTarget = await mkdtemp(join(tmpdir(), "agent-plugin-kit-local-link-"))
+  await chmod(substitutedTarget, 0o700)
+  await writeTemporaryProofMarker(substitutedTarget, "substituted-root-control")
+  const substitutedPath = await mkdtemp(join(tmpdir(), "agent-plugin-kit-local-link-"))
+  await rm(substitutedPath, { recursive: true, force: true })
+  await symlink(substitutedTarget, substitutedPath)
+  let refused = false
+  try {
+    await removeTemporaryProofRoot(substitutedPath, "substituted-root-control")
+  } catch (error) {
+    refused = error instanceof Error && error.message === "temporary-proof-root-refused"
+  } finally {
+    await unlink(substitutedPath)
+    await removeTemporaryProofRoot(substitutedTarget, "substituted-root-control")
+  }
+  return refused
+}
+
+const proveTemporaryProofControls = async (): Promise<Readonly<{
+  wrongParentRefused: true
+  preexistingMarkerRefused: true
+  substitutedRootRefused: true
+}>> => {
+  const wrongParentRefused = await probeWrongTemporaryParent()
+  const preexistingMarkerRefused = await probePreexistingTemporaryMarker()
+  const substitutedRootRefused = await probeSubstitutedTemporaryRoot()
+  if (!wrongParentRefused || !preexistingMarkerRefused || !substitutedRootRefused) {
+    throw new Error("temporary-proof-root-negative-controls-failed")
+  }
+  return { wrongParentRefused: true, preexistingMarkerRefused: true, substitutedRootRefused: true }
 }
 
 const failureControlsFor = async (sourceKitRoot: string): Promise<Readonly<Record<"escaped-parent" | LocalLinkFault, FailureControlResult>>> => {
@@ -200,11 +295,7 @@ const failureControlsFor = async (sourceKitRoot: string): Promise<Readonly<Recor
     await mkdir(escaped, { mode: 0o700 })
     await symlink(escaped, join(escapedRoots.consumerRoot, "node_modules"))
     const escapedResult = await failureResultFor(escapedRoots, "receipt-tamper")
-    controls["escaped-parent"] = {
-      ...escapedResult,
-      reason: "destination-parent-unsafe",
-      linksRemain: false,
-    }
+    controls["escaped-parent"] = escapedResult
   } finally {
     await removeTemporaryProofRoot(escapedRoots.temporaryRoot, "contract-fixture")
   }
@@ -225,8 +316,9 @@ async function createLocalLinkContractSubject(): Promise<LocalLinkContractSubjec
     } as const
     const result = await runLocalLinkContractProof(options)
     const preexistingDestinationRefused = await provePreexistingDestinationRefusal(options)
+    const temporaryProofControls = await proveTemporaryProofControls()
     const failureControls = await failureControlsFor(sourceKitRoot)
-    return { ...result, preexistingDestinationRefused, failureControls }
+    return { ...result, preexistingDestinationRefused, temporaryProofControls, failureControls }
   } finally {
     await removeTemporaryProofRoot(roots.temporaryRoot, "contract-fixture")
   }

@@ -36,6 +36,11 @@ export async function verifyMaintenanceCliLocalLink(): Promise<number> {
       observed_public_cli_executions: result.receipt.observed_public_cli_executions,
       links_cleaned: result.receipt.links_cleaned,
       repository_digests_equal: result.digestsEqual,
+      git_state_equal: result.gitStateEqual,
+      forbidden_executable_refused: result.forbiddenCommandRefused,
+      zero_network_attempts: result.zeroNetworkAttempts,
+      timeout_hard_settled: !result.timeoutDescriptorControl.hardSettlementTimedOut,
+      descriptor_retaining_descendant: result.timeoutDescriptorControl.descriptorRetainingDescendant,
       retained_receipt_maximum_days: result.receipt.maximum_retention_days,
     })}\n`)
     return 0

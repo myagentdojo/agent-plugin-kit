@@ -12,6 +12,11 @@ test("temporary Kit and consumer parents are private and bounded", () => {
     file_mode: 0o600,
     maximum_retention_days: 7,
   })
+  expect(localLinkContractSubject.temporaryProofControls).toEqual({
+    wrongParentRefused: true,
+    preexistingMarkerRefused: true,
+    substitutedRootRefused: true,
+  })
 })
 test("link destinations must be absent before creation", () => {
   expect(localLinkContractSubject.preflightDestinations).toEqual(["absent", "absent"])
@@ -21,6 +26,14 @@ test("link destinations must be absent before creation", () => {
     reason: "destination-parent-unsafe",
     parentsPreserved: true,
     linksRemain: false,
+    receiptRemaining: false,
+  })
+  expect(localLinkContractSubject.failureControls["partial-link"]).toEqual({
+    refused: true,
+    reason: "partial-link-failure",
+    parentsPreserved: true,
+    linksRemain: false,
+    receiptRemaining: false,
   })
 })
 test("package and binary links retain raw and canonical targets", () =>
@@ -38,12 +51,14 @@ test("package and binary links retain raw and canonical targets", () =>
       reason: "owned-link-drifted:binary",
       parentsPreserved: true,
       linksRemain: true,
+      receiptRemaining: true,
     },
     secondIdentity: {
       refused: true,
       reason: "owned-link-drifted:package",
       parentsPreserved: true,
       linksRemain: true,
+      receiptRemaining: true,
     },
   }))
 test("linked binary retains Bun shebang and executable mode", () => {
@@ -53,12 +68,16 @@ test("linked binary retains Bun shebang and executable mode", () => {
     reason: "public-binary-identity-invalid",
     parentsPreserved: true,
     linksRemain: false,
+    receiptRemaining: false,
   })
   expect(localLinkContractSubject.timeoutDescriptorControl).toMatchObject({
     deadlineMs: 100,
+    hardSettlementDeadlineMs: 1000,
     timedOut: true,
+    hardSettlementTimedOut: false,
     exitObserved: true,
     descriptorClosure: "closed",
+    descriptorRetainingDescendant: true,
     cleanup: "process-group-killed",
     retainedResources: 0,
   })
@@ -70,11 +89,18 @@ test("foreign cwd fixed help uses an explicit fixed run ID", () => {
     exitCode: literalHelpProcess.exitCode,
     stdoutRecordCount: 1,
     stderrRecordCount: 0,
+    stdoutRecordTypes: ["envelope"],
+    stderrRecordTypes: [],
     stdoutStatus: "ok",
     stderrSequences: [],
     stderrEvents: [],
+    stationIds: ["help.previewed"],
+    resultCodes: ["previewed"],
+    nextActionIds: ["help.choose-command"],
     primaryEnvelopeChannel: "stdout",
     eventSequenceGap: false,
+    noExtraRecords: true,
+    safeContext: true,
     redacted: true,
   })
 })
@@ -97,7 +123,8 @@ test("cleanup ledger pins exactly four public CLI executions", async () => {
   expect(observations[3]?.stderr.split("\n").filter(Boolean).at(-1)).toContain('"record_type":"error_envelope"')
   expect(localLinkContractSubject.processCleanupReceipts).toHaveLength(4)
   expect(localLinkContractSubject.processCleanupReceipts.every((receipt) =>
-    !receipt.timedOut && receipt.descriptorClosure === "closed" && receipt.retainedResources === 0)).toBe(true)
+    !receipt.timedOut && !receipt.hardSettlementTimedOut && receipt.descriptorClosure === "closed" &&
+    !receipt.descriptorRetainingDescendant && receipt.retainedResources === 0)).toBe(true)
   expect(localLinkContractSubject.publicObservability).toEqual([
     expect.objectContaining({ runId: "local-link-help", exitCode: literalHelpProcess.exitCode, stdoutStatus: "ok" }),
     expect.objectContaining({ runId: "local-link-usage", exitCode: literalUsageProcess.exitCode, stderrSequences: [1, 2] }),
@@ -123,16 +150,20 @@ test("cleanup unlinks binary then package without deleting parents", () => {
     reason: "ownership-receipt-tampered",
     parentsPreserved: true,
     linksRemain: true,
+    receiptRemaining: true,
   })
   expect(localLinkContractSubject.failureControls["receipt-write-failure"]).toEqual({
     refused: true,
     reason: "ownership-receipt-write-failure",
     parentsPreserved: true,
-    linksRemain: true,
+    linksRemain: false,
+    receiptRemaining: false,
   })
 })
 test("before and after digests prove no tracked manifest or lock drift", () => {
   expect(localLinkContractSubject.digestsEqual).toBe(true)
+  expect(localLinkContractSubject.gitStateEqual).toBe(true)
+  expect(localLinkContractSubject.zeroNetworkAttempts).toBe(true)
   expect(localLinkContractSubject.receipt.observed_public_cli_executions).toBe(4)
   expect(localLinkContractSubject.forbiddenCommandRefused).toBe(true)
   expect(localLinkContractSubject.failureControls["repository-drift"]).toEqual({
@@ -140,5 +171,64 @@ test("before and after digests prove no tracked manifest or lock drift", () => {
     reason: "repository-state-drifted",
     parentsPreserved: true,
     linksRemain: false,
+    receiptRemaining: false,
+  })
+  for (const fault of ["manifest-lock-drift", "staged-index-drift", "commit-ref-drift"] as const) {
+    expect(localLinkContractSubject.failureControls[fault]).toEqual({
+      refused: true,
+      reason: "repository-state-drifted",
+      parentsPreserved: true,
+      linksRemain: false,
+      receiptRemaining: false,
+    })
+  }
+  expect(localLinkContractSubject.failureControls["parent-deletion"]).toEqual({
+    refused: true,
+    reason: "destination-parent-removed",
+    parentsPreserved: false,
+    linksRemain: false,
+    receiptRemaining: true,
+  })
+  expect(localLinkContractSubject.failureControls["network-primitive"]).toEqual({
+    refused: true,
+    reason: "network-primitive-detected",
+    parentsPreserved: true,
+    linksRemain: false,
+    receiptRemaining: false,
+  })
+  expect(localLinkContractSubject.failureControls["diagnostic-order"]).toEqual({
+    refused: true,
+    reason: "public-process-diagnostic-value-drift",
+    parentsPreserved: true,
+    linksRemain: false,
+    receiptRemaining: false,
+  })
+  expect(localLinkContractSubject.failureControls["redaction-bypass"]).toEqual({
+    refused: true,
+    reason: "public-process-redaction-drift",
+    parentsPreserved: true,
+    linksRemain: false,
+    receiptRemaining: false,
+  })
+  expect(localLinkContractSubject.failureControls["missing-owner-local-dependency"]).toEqual({
+    refused: true,
+    reason: "owner-local-dependency-missing",
+    parentsPreserved: true,
+    linksRemain: false,
+    receiptRemaining: false,
+  })
+  expect(localLinkContractSubject.failureControls["receipt-schema"]).toEqual({
+    refused: true,
+    reason: "ownership-receipt-invalid",
+    parentsPreserved: true,
+    linksRemain: false,
+    receiptRemaining: false,
+  })
+  expect(localLinkContractSubject.failureControls["receipt-mistyped"]).toEqual({
+    refused: true,
+    reason: "ownership-receipt-invalid",
+    parentsPreserved: true,
+    linksRemain: false,
+    receiptRemaining: false,
   })
 })

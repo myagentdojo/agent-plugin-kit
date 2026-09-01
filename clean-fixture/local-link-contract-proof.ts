@@ -15,6 +15,7 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { literalHelpProcess, literalUsageProcess } from "../src/modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results"
 import type { ProcessObservation } from "../src/adapters/maintenance-command-facade/interface"
@@ -35,7 +36,7 @@ export type LocalLinkProcessScenario = Readonly<{
   }>
 }>
 
-export type AuditCommandKind = "read" | "link" | "public-process" | "timeout-probe"
+export type AuditCommandKind = "read" | "link" | "public-process" | "timeout-probe" | "fault"
 
 export type AuditLedgerEntry = Readonly<{
   operation: "command" | "unlink"
@@ -45,18 +46,30 @@ export type AuditLedgerEntry = Readonly<{
 }>
 
 export type LocalLinkFault =
+  | "partial-link"
   | "retargeted-link"
   | "second-identity"
   | "mode-shebang-loss"
   | "repository-drift"
+  | "manifest-lock-drift"
+  | "staged-index-drift"
+  | "commit-ref-drift"
+  | "parent-deletion"
+  | "network-primitive"
+  | "diagnostic-order"
+  | "redaction-bypass"
+  | "missing-owner-local-dependency"
+  | "receipt-schema"
+  | "receipt-mistyped"
   | "receipt-tamper"
   | "receipt-write-failure"
 
 export type FailureControlResult = Readonly<{
   refused: true
   reason: string
-  parentsPreserved: true
+  parentsPreserved: boolean
   linksRemain: boolean
+  receiptRemaining: boolean
 }>
 
 export type PublicObservabilityOracle = Readonly<{
@@ -64,16 +77,26 @@ export type PublicObservabilityOracle = Readonly<{
   exitCode: number
   stdoutRecordCount: number
   stderrRecordCount: number
+  stdoutRecordTypes: readonly string[]
+  stderrRecordTypes: readonly string[]
   stdoutStatus: "ok" | "empty"
   stderrSequences: readonly number[]
   stderrEvents: readonly string[]
+  stationIds: readonly string[]
+  resultCodes: readonly string[]
+  nextActionIds: readonly string[]
   primaryEnvelopeChannel: "stdout" | "stderr" | "none"
   eventSequenceGap: boolean
+  noExtraRecords: true
+  safeContext: true
   redacted: true
 }>
 
 type RepositorySnapshot = Readonly<{
   status: string
+  head: string
+  tree: string
+  index_sha256: string
   tracked: readonly Readonly<{ path: string; mode: string; sha256: string }>[]
   manifestsAndLocks: readonly Readonly<{ path: string; sha256: string }>[]
 }>
@@ -107,9 +130,12 @@ type OwnershipReceipt = Readonly<{
 
 export type ProcessCleanupReceipt = Readonly<{
   deadlineMs: number
+  hardSettlementDeadlineMs: number
   timedOut: boolean
+  hardSettlementTimedOut: boolean
   exitObserved: boolean
   descriptorClosure: "closed"
+  descriptorRetainingDescendant: boolean
   cleanup: "natural" | "process-group-killed"
   retainedResources: 0
 }>
@@ -129,6 +155,7 @@ export type LocalLinkProofResult = Readonly<{
   auditLedger: readonly AuditLedgerEntry[]
   publicObservability: readonly PublicObservabilityOracle[]
   forbiddenCommandRefused: true
+  zeroNetworkAttempts: true
   timeoutDescriptorControl: ProcessCleanupReceipt
   parentsPreserved: true
   receiptDeleted: true
@@ -143,6 +170,7 @@ export type LocalLinkProofResult = Readonly<{
     links_cleaned: true
   }>
   digestsEqual: boolean
+  gitStateEqual: true
 }>
 
 export type LocalLinkProofOptions = Readonly<{
@@ -170,6 +198,7 @@ type AuditedCommand = Readonly<{
   cwd: string
   allowedExecutable?: string
   allowedArgv?: readonly string[]
+  approvedExecutable?: string
 }>
 
 const actualExecutable = (executable: string): string =>
@@ -181,7 +210,96 @@ const sameArgv = (left: readonly string[], right: readonly string[]): boolean =>
 const exactGitReadArgv = {
   status: ["status", "--porcelain=v1", "--untracked-files=all"],
   index: ["ls-files", "-s", "-z"],
+  head: ["rev-parse", "HEAD"],
+  tree: ["rev-parse", "HEAD^{tree}"],
 } as const
+
+const exactGitFaultArgv = {
+  stagedIndex: ["add", "--", "src/adapters/maintenance-command-facade/maintenance.ts"],
+  commitRef: ["reset", "--soft", "HEAD^"],
+} as const
+
+const timeoutProbeArgv = [
+  "-e",
+  "const child = Bun.spawn([process.execPath, '-e', 'setTimeout(() => {}, 10_000)'], { stdout: 'inherit', stderr: 'inherit' }); process.stderr.write('descriptor-retaining-descendant\\n'); process.exit(0)",
+] as const
+
+const networkPrimitiveMutation = "\nfetch(\"http://127.0.0.1:9/proof-network-negative-control\")\n"
+const redactionControlSecret = "local-link-redaction-control-secret"
+
+type ApprovedScenario = Readonly<{
+  argv: readonly string[]
+  environment?: Readonly<Record<string, string>>
+  expected: Readonly<{
+    exitCode: number
+    runId: string
+    stdoutStatus?: "ok"
+    diagnosticEvent?: string
+    finalStderrRecordType?: "error_envelope"
+  }>
+}>
+
+const approvedScenarioCatalog: readonly ApprovedScenario[] = [
+  {
+    argv: ["maintenance", "--json", "--run-id", "local-link-help", "help"],
+    expected: { exitCode: 0, runId: "local-link-help", stdoutStatus: "ok" },
+  },
+  {
+    argv: ["--run-id", "local-link-usage", "unknown"],
+    expected: {
+      exitCode: 2,
+      runId: "local-link-usage",
+      diagnosticEvent: "maintenance.usage-refused",
+      finalStderrRecordType: "error_envelope",
+    },
+  },
+  {
+    argv: ["--events", "auto", "--run-id", "local-link-event", "maintenance", "help"],
+    environment: { AGENT_PLUGIN_KIT_EVENT_ENDPOINT: "http://127.0.0.1:9/events" },
+    expected: {
+      exitCode: 0,
+      runId: "local-link-event",
+      stdoutStatus: "ok",
+      diagnosticEvent: "event.delivery-failed",
+    },
+  },
+  {
+    argv: ["--run-id", "local-link-second-refusal", "unknown"],
+    expected: {
+      exitCode: 2,
+      runId: "local-link-second-refusal",
+      diagnosticEvent: "maintenance.usage-refused",
+      finalStderrRecordType: "error_envelope",
+    },
+  },
+] as const
+
+const sameEnvironment = (
+  left: Readonly<Record<string, string>> | undefined,
+  right: Readonly<Record<string, string>> | undefined,
+): boolean => JSON.stringify(left ?? {}) === JSON.stringify(right ?? {})
+
+const assertApprovedScenarioCatalog = (scenarios: readonly LocalLinkProcessScenario[]): void => {
+  if (scenarios.length !== approvedScenarioCatalog.length) throw new Error("public-process-scenario-count-invalid")
+  for (const [index, scenario] of scenarios.entries()) {
+    const expected = approvedScenarioCatalog[index]
+    if (!approvedScenarioMatches(scenario, expected)) throw new Error("public-process-scenario-catalog-invalid")
+  }
+}
+
+const approvedScenarioMatches = (
+  scenario: LocalLinkProcessScenario,
+  expected: ApprovedScenario | undefined,
+): boolean => {
+  if (expected === undefined) return false
+  const expectedFields = expected.expected
+  const actualFields = scenario.expected
+  return sameArgv(scenario.argv, expected.argv) && scenario.ledger === `execute:${expected.argv.join(" ")}` &&
+    sameEnvironment(scenario.environment, expected.environment) && actualFields.exitCode === expectedFields.exitCode &&
+    actualFields.runId === expectedFields.runId && actualFields.stdoutStatus === expectedFields.stdoutStatus &&
+    actualFields.diagnosticEvent === expectedFields.diagnosticEvent &&
+    actualFields.finalStderrRecordType === expectedFields.finalStderrRecordType
+}
 
 const isGitPathRead = (argv: readonly string[], operation: "check-ignore" | "error-unmatch" | "index"): boolean => {
   const expected = operation === "check-ignore"
@@ -192,7 +310,11 @@ const isGitPathRead = (argv: readonly string[], operation: "check-ignore" | "err
 
 const allowedGitRead = (argv: readonly string[]): boolean =>
   sameArgv(argv, exactGitReadArgv.status) || sameArgv(argv, exactGitReadArgv.index) ||
+  sameArgv(argv, exactGitReadArgv.head) || sameArgv(argv, exactGitReadArgv.tree) ||
   isGitPathRead(argv, "check-ignore") || isGitPathRead(argv, "error-unmatch") || isGitPathRead(argv, "index")
+
+const allowedGitFault = (argv: readonly string[]): boolean =>
+  sameArgv(argv, exactGitFaultArgv.stagedIndex) || sameArgv(argv, exactGitFaultArgv.commitRef)
 
 const isReadCommandAllowlisted = (command: AuditedCommand): boolean =>
   basename(command.executable) === "git" && allowedGitRead(command.argv)
@@ -203,11 +325,15 @@ const isLinkCommandAllowlisted = (command: AuditedCommand): boolean =>
   isAbsolute(command.argv[1]) && isAbsolute(command.argv[2])
 
 const isPublicProcessAllowlisted = (command: AuditedCommand): boolean =>
-  command.allowedExecutable === command.executable && command.allowedArgv !== undefined &&
+  command.approvedExecutable !== undefined && command.executable === command.approvedExecutable &&
+  command.allowedExecutable === command.approvedExecutable && command.allowedArgv !== undefined &&
   sameArgv(command.argv, command.allowedArgv)
 
 const isTimeoutProbeAllowlisted = (command: AuditedCommand): boolean =>
-  command.executable === process.execPath && sameArgv(command.argv, ["-e", "setTimeout(() => {}, 10_000)"])
+  command.executable === process.execPath && sameArgv(command.argv, timeoutProbeArgv)
+
+const isFaultCommandAllowlisted = (command: AuditedCommand): boolean =>
+  basename(command.executable) === "git" && allowedGitFault(command.argv)
 
 const commandIsAllowlisted = (command: AuditedCommand): boolean => {
   switch (command.kind) {
@@ -219,6 +345,8 @@ const commandIsAllowlisted = (command: AuditedCommand): boolean => {
       return isPublicProcessAllowlisted(command)
     case "timeout-probe":
       return isTimeoutProbeAllowlisted(command)
+    case "fault":
+      return isFaultCommandAllowlisted(command)
   }
 }
 
@@ -272,6 +400,8 @@ const pathState = async (path: string): Promise<"absent" | "present"> => {
 const repositorySnapshot = async (root: string, ledger: AuditLedgerEntry[] = []): Promise<RepositorySnapshot> => {
   const status = await commandOutput(["git", "status", "--porcelain=v1", "--untracked-files=all"], root, [0], ledger)
   const index = await commandOutput(["git", "ls-files", "-s", "-z"], root, [0], ledger)
+  const head = (await commandOutput(["git", "rev-parse", "HEAD"], root, [0], ledger)).trim()
+  const tree = (await commandOutput(["git", "rev-parse", "HEAD^{tree}"], root, [0], ledger)).trim()
   const rows = index.split("\0").filter(Boolean).map((row) => {
     const match = /^(\d+) [0-9a-f]+ \d+\t(.+)$/u.exec(row)
     if (match === null) throw new Error("tracked-index-row-invalid")
@@ -289,7 +419,7 @@ const repositorySnapshot = async (root: string, ledger: AuditLedgerEntry[] = [])
   const manifestsAndLocks = tracked.filter(({ path }) =>
     basename(path) === "package.json" || basename(path) === "package-lock.json" ||
     basename(path) === "npm-shrinkwrap.json" || basename(path) === "bun.lock")
-  return { status, tracked, manifestsAndLocks }
+  return { status, head, tree, index_sha256: sha256(index), tracked, manifestsAndLocks }
 }
 
 const sameSnapshot = (left: RepositorySnapshot, right: RepositorySnapshot): boolean =>
@@ -307,16 +437,33 @@ const assertIgnored = async (consumerRoot: string, destination: string, ledger: 
   await commandOutput(["git", "check-ignore", "--quiet", "--", relativeDestination], consumerRoot, [0], ledger)
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+
+const hasExactKeys = (value: Record<string, unknown>, keys: readonly string[]): boolean => {
+  const actual = Object.keys(value)
+  return actual.length === keys.length && keys.every((key) => Object.hasOwn(value, key))
+}
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((entry) => typeof entry === "string")
+
+const isAbsoluteString = (value: unknown): value is string =>
+  typeof value === "string" && isAbsolute(value)
+
+const isDigest = (value: unknown): value is string =>
+  typeof value === "string" && /^[0-9a-f]{64}$/u.test(value)
+
 const readJsonObject = async (path: string): Promise<Record<string, unknown>> => {
   const value: unknown = JSON.parse(await readFile(path, "utf8"))
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("json-object-required")
-  return value as Record<string, unknown>
+  if (!isRecord(value)) throw new Error("json-object-required")
+  return value
 }
 
 const dependenciesFor = (manifest: Record<string, unknown>): Readonly<Record<string, unknown>> => {
   const value = manifest.dependencies
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+  return isRecord(value)
+    ? value
     : {}
 }
 
@@ -326,8 +473,8 @@ const allDependenciesFor = (manifest: Record<string, unknown>): Readonly<Record<
   const entries: Record<string, unknown> = {}
   for (const field of dependencyFields) {
     const value = manifest[field]
-    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-      Object.assign(entries, value as Record<string, unknown>)
+    if (isRecord(value)) {
+      Object.assign(entries, value)
     }
   }
   return entries
@@ -389,16 +536,32 @@ const assertNoNonOwnerLogTape = async (
   }
 }
 
-const assertOwnerLocalLogTapeInstallation = async (kitRoot: string, facadeRoot: string): Promise<void> => {
+const assertLogTapeLockResolution = async (kitRoot: string): Promise<void> => {
   const lock = await readFile(join(kitRoot, "bun.lock"), "utf8")
   if (!lock.includes('"@logtape/logtape": "2.3.1"') || !lock.includes('"@logtape/logtape@2.3.1"') ||
     !lock.includes('"@logtape/redaction": "2.3.1"') || !lock.includes('"@logtape/redaction@2.3.1"')) {
     throw new Error("logtape-lock-resolution-invalid")
   }
-  for (const name of ownerLogTapeNames) {
-    const ownerLocalManifest = join(facadeRoot, "node_modules", name, "package.json")
+}
+
+const ownerLocalPackageResolution = async (
+  name: string,
+  facadeRoot: string,
+): Promise<Readonly<{ ownerLocalManifest: string; resolved: string; ownerLocalResolution: string }>> => {
+  const ownerLocalManifest = join(facadeRoot, "node_modules", name, "package.json")
+  try {
     const resolved = Bun.resolveSync(`${name}/package.json`, join(facadeRoot, "implementation"))
     const ownerLocalResolution = await realpath(ownerLocalManifest)
+    return { ownerLocalManifest, resolved, ownerLocalResolution }
+  } catch {
+    throw new Error("owner-local-dependency-missing")
+  }
+}
+
+const assertOwnerLocalLogTapeInstallation = async (kitRoot: string, facadeRoot: string): Promise<void> => {
+  await assertLogTapeLockResolution(kitRoot)
+  for (const name of ownerLogTapeNames) {
+    const { ownerLocalManifest, resolved, ownerLocalResolution } = await ownerLocalPackageResolution(name, facadeRoot)
     if (ownerLocalResolution !== await realpath(resolved)) throw new Error("logtape-installed-resolution-not-owner-local")
     const installedManifest = await readJsonObject(ownerLocalManifest)
     if (installedManifest.name !== name || installedManifest.version !== "2.3.1") {
@@ -448,48 +611,155 @@ const assertOwnershipReceiptMetadata = (metadata: Awaited<ReturnType<typeof lsta
   }
 }
 
-const assertOwnershipReceiptIdentity = (receipt: Record<string, unknown>): void => {
-  if (receipt.schema_version !== 1 || receipt.proof !== proofIdentity || typeof receipt.run_id !== "string" ||
-    !validRunId(receipt.run_id)) {
-    throw new Error("ownership-receipt-invalid")
+const isAuditCommandKind = (value: unknown): value is AuditCommandKind => {
+  if (typeof value !== "string") return false
+  switch (value) {
+    case "read":
+    case "link":
+    case "public-process":
+    case "timeout-probe":
+    case "fault":
+      return true
+    default:
+      return false
   }
 }
 
-const assertOwnershipReceiptTiming = (receipt: Record<string, unknown>): void => {
-  if (typeof receipt.created_at !== "string" || typeof receipt.retained_until !== "string" ||
-    !Number.isFinite(Date.parse(receipt.created_at)) || !Number.isFinite(Date.parse(receipt.retained_until))) {
-    throw new Error("ownership-receipt-invalid")
-  }
+const isLinkKind = (value: unknown): value is "package" | "binary" =>
+  value === "package" || value === "binary"
+
+const isUnlinkLedgerEntry = (value: Record<string, unknown>): boolean =>
+  hasExactKeys(value, ["operation", "kind"]) && isLinkKind(value.kind)
+
+const isCommandLedgerEntry = (value: Record<string, unknown>): boolean =>
+  hasExactKeys(value, ["operation", "kind", "executable", "argv"]) &&
+  isAuditCommandKind(value.kind) && typeof value.executable === "string" && isStringArray(value.argv)
+
+const isAuditLedgerEntry = (value: unknown): value is AuditLedgerEntry => {
+  if (!isRecord(value)) return false
+  return value.operation === "unlink" ? isUnlinkLedgerEntry(value) :
+    value.operation === "command" && isCommandLedgerEntry(value)
 }
 
-const assertOwnershipReceiptCollections = (receipt: Record<string, unknown>): void => {
-  if (!Array.isArray(receipt.links) || !Array.isArray(receipt.command_ledger)) {
-    throw new Error("ownership-receipt-invalid")
-  }
+const isSafeNonNegativeInteger = (value: unknown): value is number => {
+  if (typeof value !== "number") return false
+  return Number.isSafeInteger(value) && value >= 0
 }
 
-const assertOwnershipReceiptHeader = (receipt: Record<string, unknown>): void => {
-  assertOwnershipReceiptIdentity(receipt)
-  assertOwnershipReceiptTiming(receipt)
-  assertOwnershipReceiptCollections(receipt)
+const isLinkIdentity = (value: unknown): value is LinkIdentity => {
+  if (!isRecord(value) || !hasExactKeys(value, ["kind", "destination", "rawTarget", "canonicalTarget", "device", "inode", "mode"])) {
+    return false
+  }
+  return isLinkKind(value.kind) && isAbsoluteString(value.destination) && typeof value.rawTarget === "string" &&
+    isAbsoluteString(value.canonicalTarget) && isSafeNonNegativeInteger(value.device) &&
+    isSafeNonNegativeInteger(value.inode) && isSafeNonNegativeInteger(value.mode)
 }
 
-const assertOwnershipReceiptState = (receipt: Record<string, unknown>): void => {
-  const created = receipt.created
-  const cleaned = receipt.cleaned
-  if (created === null || typeof created !== "object" || Array.isArray(created) ||
-    cleaned === null || typeof cleaned !== "object" || Array.isArray(cleaned)) {
-    throw new Error("ownership-receipt-state-invalid")
+const isGitObjectId = (value: unknown): value is string =>
+  typeof value === "string" && /^[0-9a-f]{40}$/u.test(value)
+
+const isRepositoryFile = (value: unknown): value is Readonly<{ path: string; mode: string; sha256: string }> => {
+  if (!isRecord(value) || !hasExactKeys(value, ["path", "mode", "sha256"])) return false
+  return typeof value.path === "string" && value.path !== "" && typeof value.mode === "string" && isDigest(value.sha256)
+}
+
+const isRepositorySnapshot = (value: unknown): value is RepositorySnapshot => {
+  if (!isRecord(value) || !hasExactKeys(value, ["status", "head", "tree", "index_sha256", "tracked", "manifestsAndLocks"])) {
+    return false
   }
+  const tracked = isRepositoryFileList(value.tracked)
+  const manifestsAndLocks = isRepositoryFileList(value.manifestsAndLocks)
+  return [typeof value.status === "string", isGitObjectId(value.head), isGitObjectId(value.tree),
+    isDigest(value.index_sha256), tracked, manifestsAndLocks].every(Boolean)
+}
+
+const isRepositoryFileList = (value: unknown): boolean =>
+  Array.isArray(value) && value.every(isRepositoryFile)
+
+const receiptKeys = [
+  "schema_version", "proof", "run_id", "created_at", "retained_until", "roots", "sources", "destinations",
+  "preflight_destinations", "links", "created", "cleaned", "repository_snapshots", "command_ledger",
+] as const
+
+const isReceiptHeader = (value: Record<string, unknown>): boolean =>
+  value.schema_version === 1 && value.proof === proofIdentity && typeof value.run_id === "string" &&
+  validRunId(value.run_id) && typeof value.created_at === "string" && typeof value.retained_until === "string"
+
+const isReceiptDates = (value: Record<string, unknown>): boolean => {
+  if (typeof value.created_at !== "string" || typeof value.retained_until !== "string") return false
+  const createdAt = Date.parse(value.created_at)
+  const retainedUntil = Date.parse(value.retained_until)
+  return Number.isFinite(createdAt) && Number.isFinite(retainedUntil) && retainedUntil >= createdAt &&
+    retainedUntil - createdAt <= maximumRetentionMs
+}
+
+const isAbsolutePathPair = (value: unknown, keys: readonly [string, string]): boolean => {
+  if (!isRecord(value) || !hasExactKeys(value, keys)) return false
+  return isAbsoluteString(value[keys[0]]) && isAbsoluteString(value[keys[1]])
+}
+
+const isReceiptPaths = (value: Record<string, unknown>): boolean =>
+  isAbsolutePathPair(value.roots, ["kit", "consumer"]) &&
+  isAbsolutePathPair(value.sources, ["package", "binary"]) &&
+  isAbsolutePathPair(value.destinations, ["package", "binary"])
+
+const isReceiptPreflight = (value: Record<string, unknown>): boolean =>
+  Array.isArray(value.preflight_destinations) && value.preflight_destinations.length === 2 &&
+  value.preflight_destinations[0] === "absent" && value.preflight_destinations[1] === "absent"
+
+const isReceiptLinks = (value: Record<string, unknown>): boolean => {
+  if (!Array.isArray(value.links) || value.links.length > 2 || !value.links.every(isLinkIdentity)) return false
+  const linkKinds = value.links.map((link) => link.kind)
+  return new Set(linkKinds).size === linkKinds.length
+}
+
+const isReceiptFlags = (value: Record<string, unknown>): boolean => {
+  const created = value.created
+  const cleaned = value.cleaned
+  if (!isRecord(created) || !hasExactKeys(created, ["package", "binary"]) ||
+    typeof created.package !== "boolean" || typeof created.binary !== "boolean") return false
+  return isRecord(cleaned) && hasExactKeys(cleaned, ["package", "binary"]) &&
+    typeof cleaned.package === "boolean" && typeof cleaned.binary === "boolean"
+}
+
+const isReceiptSnapshots = (value: Record<string, unknown>): boolean => {
+  const snapshots = value.repository_snapshots
+  return isRecord(snapshots) && hasExactKeys(snapshots, ["kit", "consumer"]) &&
+    isRepositorySnapshot(snapshots.kit) && isRepositorySnapshot(snapshots.consumer)
+}
+
+const isReceiptLedger = (value: Record<string, unknown>): boolean => {
+  const ledger = value.command_ledger
+  if (!Array.isArray(ledger)) return false
+  return ledger.every(isAuditLedgerEntry)
+}
+
+const isOwnershipReceipt = (value: unknown): value is OwnershipReceipt => {
+  if (!isRecord(value) || !hasExactKeys(value, receiptKeys)) return false
+  const validators = [
+    isReceiptHeader(value),
+    isReceiptDates(value),
+    isReceiptPaths(value),
+    isReceiptPreflight(value),
+    isReceiptLinks(value),
+    isReceiptFlags(value),
+    isReceiptSnapshots(value),
+    isReceiptLedger(value),
+  ]
+  return validators.every(Boolean)
 }
 
 const readOwnershipReceipt = async (path: string): Promise<OwnershipReceipt> => {
   const metadata = await lstat(path)
   assertOwnershipReceiptMetadata(metadata)
-  const receipt = await readJsonObject(path)
-  assertOwnershipReceiptHeader(receipt)
-  assertOwnershipReceiptState(receipt)
-  return receipt as unknown as OwnershipReceipt
+  let value: unknown
+  try {
+    value = JSON.parse(await readFile(path, "utf8"))
+  } catch {
+    throw new Error("ownership-receipt-invalid")
+  }
+  if (!isOwnershipReceipt(value)) throw new Error("ownership-receipt-invalid")
+  return value
 }
 
 const receiptLink = (receipt: OwnershipReceipt, kind: "package" | "binary"): LinkIdentity => {
@@ -514,7 +784,7 @@ const receiptMatchesOwnershipContext = (
   receipt.destinations.package === context.destinations.package &&
   receipt.destinations.binary === context.destinations.binary &&
   receipt.preflight_destinations[0] === "absent" && receipt.preflight_destinations[1] === "absent" &&
-  receipt.links.length === 2 &&
+  receipt.links.length <= 2 &&
   receipt.links.every((link) => link.kind === "package" || link.kind === "binary")
 
 const receiptMatchesContext = (
@@ -524,11 +794,37 @@ const receiptMatchesContext = (
 
 const ownershipMarkerName = ".agent-plugin-kit-local-link-owner.json"
 
+const temporaryRootName = (root: string): boolean =>
+  basename(root).startsWith("agent-plugin-kit-local-link-")
+
+const canonicalTemporaryRoot = async (root: string): Promise<string> => {
+  const metadata = await lstat(root)
+  if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw new Error("temporary-proof-root-refused")
+  const canonicalRoot = await realpath(root)
+  const canonicalTemporaryDirectory = await realpath(tmpdir())
+  if (!temporaryRootName(canonicalRoot) || dirname(canonicalRoot) !== canonicalTemporaryDirectory) {
+    throw new Error("temporary-proof-root-parent-refused")
+  }
+  return canonicalRoot
+}
+
+const isProofMarker = (value: unknown): value is Readonly<{ proof: typeof proofIdentity; run_id: string; root: string }> =>
+  isRecord(value) && hasExactKeys(value, ["proof", "run_id", "root"]) && value.proof === proofIdentity &&
+  typeof value.run_id === "string" && validRunId(value.run_id) && isAbsoluteString(value.root)
+
 export const writeTemporaryProofMarker = async (root: string, runId: string): Promise<void> => {
   if (!validRunId(runId)) throw new Error("temporary-proof-run-id-invalid")
-  const canonicalRoot = await realpath(root)
+  const canonicalRoot = await canonicalTemporaryRoot(root)
   const markerPath = join(canonicalRoot, ownershipMarkerName)
-  await writeFile(markerPath, `${JSON.stringify({ proof: proofIdentity, run_id: runId, root: canonicalRoot })}\n`, { mode: 0o600 })
+  try {
+    await writeFile(markerPath, `${JSON.stringify({ proof: proofIdentity, run_id: runId, root: canonicalRoot })}\n`, {
+      flag: "wx",
+      mode: 0o600,
+    })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("temporary-proof-marker-exists")
+    throw error
+  }
   await chmod(markerPath, 0o600)
 }
 
@@ -597,23 +893,117 @@ const minimalEnvironment = (overrides: Readonly<Record<string, string>> = {}): R
   ...overrides,
 })
 
+const processDeadlines = {
+  "public-process": { deadlineMs: 2_000, hardSettlementDeadlineMs: 3_000 },
+  "timeout-probe": { deadlineMs: 100, hardSettlementDeadlineMs: 1_000 },
+} as const
+
+type ProcessKind = keyof typeof processDeadlines
+
+type ProcessSettlement = Readonly<{
+  capturedStdout: string
+  capturedStderr: string
+  observedExitCode: number
+  timedOut: boolean
+  hardSettlementTimedOut: boolean
+}>
+
+const auditedProcessCommand = (
+  command: readonly string[],
+  cwd: string,
+  kind: ProcessKind,
+  allowlistedArgv: readonly string[],
+  approvedExecutable: string | undefined,
+): AuditedCommand => ({
+  kind,
+  executable: actualExecutable(command[0] ?? ""),
+  argv: command.slice(1),
+  cwd,
+  ...(kind === "public-process" && approvedExecutable !== undefined
+    ? { allowedExecutable: approvedExecutable, allowedArgv: allowlistedArgv, approvedExecutable }
+    : {}),
+})
+
+const killProcessGroup = (child: ReturnType<typeof Bun.spawn>): void => {
+  try {
+    process.kill(-child.pid, "SIGKILL")
+  } catch {
+    try {
+      child.kill("SIGKILL")
+    } catch {
+      // The child may have exited between the deadline and cleanup.
+    }
+  }
+}
+
+const settleBoundedProcess = async (
+  child: ReturnType<typeof Bun.spawn>,
+  stdout: Promise<string>,
+  stderr: Promise<string>,
+  deadlineMs: number,
+  hardSettlementDeadlineMs: number,
+): Promise<ProcessSettlement> => {
+  let timedOut = false
+  let hardSettlementTimedOut = false
+  const deadline = setTimeout(() => {
+    timedOut = true
+    killProcessGroup(child)
+  }, deadlineMs)
+  let releaseHardDeadline: (() => void) | undefined
+  let hardTimer: ReturnType<typeof setTimeout> | undefined
+  const hardDeadline = new Promise<false>((resolveHardDeadline) => {
+    releaseHardDeadline = () => resolveHardDeadline(false)
+    hardTimer = setTimeout(() => {
+      hardSettlementTimedOut = true
+      killProcessGroup(child)
+      resolveHardDeadline(false)
+    }, hardSettlementDeadlineMs)
+  })
+  const settled = await Promise.race([
+    Promise.all([stdout, stderr, child.exited]).then((value) => ({ settled: true as const, value })),
+    hardDeadline.then(() => ({ settled: false as const })),
+  ])
+  clearTimeout(deadline)
+  if (hardTimer !== undefined) clearTimeout(hardTimer)
+  releaseHardDeadline?.()
+  if (!settled.settled) throw new Error("process-settlement-deadline-exceeded")
+  const [capturedStdout, capturedStderr, observedExitCode] = settled.value
+  return { capturedStdout, capturedStderr, observedExitCode, timedOut, hardSettlementTimedOut }
+}
+
+const assertProcessNotRetained = (child: ReturnType<typeof Bun.spawn>): void => {
+  let retained = false
+  try {
+    process.kill(child.pid, 0)
+    retained = true
+  } catch {
+    retained = false
+  }
+  if (retained) throw new Error("public-process-retained")
+}
+
+const descriptorRetentionFor = (kind: ProcessKind, capturedStderr: string): boolean => {
+  const descriptorRetainingDescendant = capturedStderr.includes("descriptor-retaining-descendant")
+  if (kind === "timeout-probe" && !descriptorRetainingDescendant) {
+    throw new Error("descriptor-retaining-descendant-not-observed")
+  }
+  if (kind !== "timeout-probe" && descriptorRetainingDescendant) {
+    throw new Error("unexpected-descriptor-retaining-descendant")
+  }
+  return descriptorRetainingDescendant
+}
+
 const invokeBoundedProcess = async (
   command: readonly string[],
   cwd: string,
   environment: Readonly<Record<string, string>>,
   ledger: AuditLedgerEntry[],
-  kind: "public-process" | "timeout-probe" = "public-process",
+  kind: ProcessKind = "public-process",
   allowlistedArgv: readonly string[] = command.slice(1),
+  approvedExecutable?: string,
 ): Promise<{ observation: ProcessObservation; cleanup: ProcessCleanupReceipt }> => {
-  const deadlineMs = kind === "timeout-probe" ? 100 : 2_000
-  const executable = actualExecutable(command[0] ?? "")
-  auditCommand({
-    kind,
-    executable,
-    argv: command.slice(1),
-    cwd,
-    ...(kind === "public-process" ? { allowedExecutable: executable, allowedArgv: allowlistedArgv } : {}),
-  }, ledger)
+  const auditedCommand = auditedProcessCommand(command, cwd, kind, allowlistedArgv, approvedExecutable)
+  const executable = auditCommand(auditedCommand, ledger)
   const child = Bun.spawn([executable, ...command.slice(1)], {
     cwd,
     detached: true,
@@ -624,33 +1014,25 @@ const invokeBoundedProcess = async (
   })
   const stdout = new Response(child.stdout).text()
   const stderr = new Response(child.stderr).text()
-  let timedOut = false
-  const deadline = setTimeout(() => {
-    timedOut = true
-    try {
-      process.kill(-child.pid, "SIGKILL")
-    } catch {
-      child.kill("SIGKILL")
-    }
-  }, deadlineMs)
-  const [capturedStdout, capturedStderr, observedExitCode] = await Promise.all([stdout, stderr, child.exited])
-  clearTimeout(deadline)
-  let retained = false
-  try {
-    process.kill(child.pid, 0)
-    retained = true
-  } catch {
-    retained = false
-  }
-  if (retained) throw new Error("public-process-retained")
+  const deadline = processDeadlines[kind]
+  const settled = await settleBoundedProcess(child, stdout, stderr, deadline.deadlineMs, deadline.hardSettlementDeadlineMs)
+  assertProcessNotRetained(child)
+  const descriptorRetainingDescendant = descriptorRetentionFor(kind, settled.capturedStderr)
   return {
-    observation: { stdout: capturedStdout, stderr: capturedStderr, exitCode: timedOut ? 124 : observedExitCode },
+    observation: {
+      stdout: settled.capturedStdout,
+      stderr: settled.capturedStderr,
+      exitCode: settled.timedOut ? 124 : settled.observedExitCode,
+    },
     cleanup: {
-      deadlineMs,
-      timedOut,
+      deadlineMs: deadline.deadlineMs,
+      hardSettlementDeadlineMs: deadline.hardSettlementDeadlineMs,
+      timedOut: settled.timedOut,
+      hardSettlementTimedOut: settled.hardSettlementTimedOut,
       exitObserved: true,
       descriptorClosure: "closed",
-      cleanup: timedOut ? "process-group-killed" : "natural",
+      descriptorRetainingDescendant,
+      cleanup: settled.timedOut ? "process-group-killed" : "natural",
       retainedResources: 0,
     },
   }
@@ -658,8 +1040,8 @@ const invokeBoundedProcess = async (
 
 const parsedLine = (line: string): Record<string, unknown> => {
   const value: unknown = JSON.parse(line)
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("process-record-invalid")
-  return value as Record<string, unknown>
+  if (!isRecord(value)) throw new Error("process-record-invalid")
+  return value
 }
 
 const channelRecords = (channel: string): Record<string, unknown>[] => {
@@ -685,8 +1067,8 @@ const exactKeys = (record: Record<string, unknown>, keys: readonly string[], fai
 
 const nextActionFor = (record: Record<string, unknown>): Record<string, unknown> => {
   const action = record.next_action
-  if (action === null || typeof action !== "object" || Array.isArray(action)) throw new Error("diagnostic-next-action-invalid")
-  return action as Record<string, unknown>
+  if (!isRecord(action)) throw new Error("diagnostic-next-action-invalid")
+  return action
 }
 
 type DiagnosticExpectation = Readonly<{
@@ -794,6 +1176,7 @@ const assertNoRedactionLeak = (
   const serialized = JSON.stringify(records)
   const forbidden = [
     ...(scenario.environment === undefined ? [] : Object.values(scenario.environment)),
+    redactionControlSecret,
     process.env.PATH ?? "",
     process.env.HOME ?? "",
   ].filter((value) => value.length > 0)
@@ -935,18 +1318,61 @@ const summarizePublicObservation = (
   stderrSequences: readonly number[],
   primaryEnvelopeChannel: PublicObservabilityOracle["primaryEnvelopeChannel"],
   eventSequenceGap: boolean,
-): PublicObservabilityOracle => ({
-  runId: scenario.expected.runId,
-  exitCode: observation.exitCode,
-  stdoutRecordCount: stdout.length,
-  stderrRecordCount: stderr.length,
-  stdoutStatus,
-  stderrSequences,
-  stderrEvents: stderr.map((record) => String(record.event ?? record.record_type)),
-  primaryEnvelopeChannel,
-  eventSequenceGap,
-  redacted: true,
-})
+): PublicObservabilityOracle => {
+  const allRecords = [...stdout, ...stderr]
+  const noExtraRecords = allRecords.every((record) => {
+    const recordType = record.record_type
+    return recordType === undefined || recordType === "diagnostic" || recordType === "error_envelope"
+  })
+  if (!noExtraRecords) throw new Error("public-process-record-type-drift")
+  const safeContext = !JSON.stringify(allRecords).includes(redactionControlSecret)
+  if (!safeContext) throw new Error("public-process-redaction-drift")
+  const nestedRecord = (record: Record<string, unknown>, key: string): unknown => {
+    const direct = record[key]
+    if (direct !== undefined) return direct
+    const data = record.data
+    if (isRecord(data) && data[key] !== undefined) return data[key]
+    const error = record.error
+    if (isRecord(error) && key === "station_id") return error.stationId
+    return undefined
+  }
+  const valuesFor = (key: string): string[] => allRecords.flatMap((record) => {
+    const value = nestedRecord(record, key)
+    return typeof value === "string" ? [value] : []
+  })
+  const nextActionIds = allRecords.flatMap((record) => {
+    const direct = record.next_action
+    if (isRecord(direct) && typeof direct.id === "string") return [direct.id]
+    const data = record.data
+    if (isRecord(data) && isRecord(data.next_action) && typeof data.next_action.id === "string") {
+      return [data.next_action.id]
+    }
+    const error = record.error
+    if (isRecord(error) && Array.isArray(error.agentActions)) {
+      return error.agentActions.flatMap((entry) => isRecord(entry) && typeof entry.nextActionId === "string" ? [entry.nextActionId] : [])
+    }
+    return []
+  })
+  return {
+    runId: scenario.expected.runId,
+    exitCode: observation.exitCode,
+    stdoutRecordCount: stdout.length,
+    stderrRecordCount: stderr.length,
+    stdoutRecordTypes: stdout.map((record) => typeof record.record_type === "string" ? record.record_type : "envelope"),
+    stderrRecordTypes: stderr.map((record) => typeof record.record_type === "string" ? record.record_type : "diagnostic"),
+    stdoutStatus,
+    stderrSequences,
+    stderrEvents: stderr.map((record) => String(record.event ?? record.record_type)),
+    stationIds: valuesFor("station_id"),
+    resultCodes: valuesFor("result_code"),
+    nextActionIds,
+    primaryEnvelopeChannel,
+    eventSequenceGap,
+    noExtraRecords: true,
+    safeContext: true,
+    redacted: true,
+  }
+}
 
 const validateHelpSuccessObservation = (
   scenario: LocalLinkProcessScenario,
@@ -967,12 +1393,11 @@ const validateRefusalDiagnosticObservation = (
   observation: ProcessObservation,
   stdout: readonly Record<string, unknown>[],
   stderr: readonly Record<string, unknown>[],
-  allRecords: readonly Record<string, unknown>[],
 ): PublicObservabilityOracle => {
   const eventRefusal = assertRefusalChannels(scenario, stdout)
+  assertNoRedactionLeak(scenario, [...stdout, ...stderr])
   const { event, usage } = assertRefusalDiagnosticRecords(scenario, stderr)
   const primaryEnvelopeChannel = assertRefusalPrimaryEnvelope(scenario, stderr, usage)
-  assertNoRedactionLeak(scenario, allRecords)
   const { sequences, eventSequenceGap } = refusalSequences(stderr, usage, eventRefusal)
   return summarizePublicObservation(scenario, observation, stdout, stderr, "empty", sequences, primaryEnvelopeChannel, eventSequenceGap)
 }
@@ -989,7 +1414,7 @@ const validateObservation = (
   if (scenario.expected.stdoutStatus === "ok" && !eventRefusal) {
     return validateHelpSuccessObservation(scenario, observation, stdout, stderr, allRecords)
   }
-  return validateRefusalDiagnosticObservation(scenario, observation, stdout, stderr, allRecords)
+  return validateRefusalDiagnosticObservation(scenario, observation, stdout, stderr)
 }
 
 const initialReceipt = (
@@ -1037,10 +1462,10 @@ type ProofContext = Readonly<{
 const publicBinaryManifestEntry = async (kitRoot: string): Promise<string> => {
   const rootManifest = await readJsonObject(join(kitRoot, "package.json"))
   const bin = rootManifest.bin
-  if (rootManifest.name !== "agent-plugin-kit" || bin === null || typeof bin !== "object" || Array.isArray(bin)) {
+  if (rootManifest.name !== "agent-plugin-kit" || !isRecord(bin)) {
     throw new Error("package-identity-invalid")
   }
-  const binEntries = Object.entries(bin as Record<string, unknown>)
+  const binEntries = Object.entries(bin)
   if (binEntries.length !== 1 || binEntries[0]?.[0] !== "agent-plugin-kit" || typeof binEntries[0][1] !== "string") {
     throw new Error("public-binary-invalid")
   }
@@ -1062,16 +1487,45 @@ const publicBinary = async (kitRoot: string, ledger: AuditLedgerEntry[] = []): P
   return { source: binarySource, shebang, mode }
 }
 
+const existingDirectory = async (path: string, failure: string): Promise<string> => {
+  const metadata = await lstat(path)
+  if (!metadata.isDirectory() || metadata.isSymbolicLink() || (metadata.mode & 0o777) !== 0o700) throw new Error(failure)
+  return realpath(path)
+}
+
+const proofOwnedDirectory = async (path: string): Promise<void> => {
+  try {
+    const metadata = await lstat(path)
+    if (!metadata.isDirectory() || metadata.isSymbolicLink() || (metadata.mode & 0o777) !== 0o700) {
+      throw new Error("proof-directory-unsafe")
+    }
+    return
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  await mkdir(path, { mode: 0o700 })
+  await chmod(path, 0o700)
+}
+
+const assertExecutableNetworkSafe = async (executable: string): Promise<void> => {
+  const source = await readFile(executable, "utf8")
+  if (/\b(?:fetch|WebSocket|Bun\.connect|net\.connect|https?:\/\/|https?\.request)\b/u.test(source)) {
+    throw new Error("network-primitive-detected")
+  }
+}
+
 const prepareProofContext = async (
   options: LocalLinkProofOptions,
   now: Date,
 ): Promise<ProofContext> => {
   if (!validRunId(options.runId)) throw new Error("run-id-invalid")
   if (!isAbsolute(options.stateRoot)) throw new Error("state-root-must-be-absolute")
+  assertApprovedScenarioCatalog(options.scenarios)
   const auditLedger: AuditLedgerEntry[] = []
   const kitRoot = await realpath(options.kitRoot)
   const consumerRoot = await realpath(options.consumerRoot)
   const binary = await publicBinary(kitRoot, auditLedger)
+  await assertExecutableNetworkSafe(binary.source)
   await assertOwnerLocalLogTape(kitRoot)
   const packageDestination = join(consumerRoot, "node_modules/agent-plugin-kit")
   const binaryDestination = join(consumerRoot, "node_modules/.bin/agent-plugin-kit")
@@ -1084,14 +1538,13 @@ const prepareProofContext = async (
     throw new Error("link-destination-preexists")
   }
   const before = { kit: await repositorySnapshot(kitRoot, auditLedger), consumer: await repositorySnapshot(consumerRoot, auditLedger) }
-  await mkdir(options.stateRoot, { recursive: true, mode: 0o700 })
-  await chmod(options.stateRoot, 0o700)
-  const stateRoot = await realpath(options.stateRoot)
+  const stateRoot = await existingDirectory(options.stateRoot, "state-root-unsafe")
   const proofRoot = join(stateRoot, "my-second-brain-vault/agent-plugin-kit/local-link-proof")
   if (!contained(stateRoot, proofRoot)) throw new Error("proof-root-escaped")
   const receiptDirectory = join(proofRoot, options.runId)
-  await mkdir(proofRoot, { recursive: true, mode: 0o700 })
-  await chmod(proofRoot, 0o700)
+  await proofOwnedDirectory(join(stateRoot, "my-second-brain-vault"))
+  await proofOwnedDirectory(join(stateRoot, "my-second-brain-vault/agent-plugin-kit"))
+  await proofOwnedDirectory(proofRoot)
   await pruneExpiredReceipts(proofRoot, now)
   await mkdir(receiptDirectory, { mode: 0o700 })
   await chmod(receiptDirectory, 0o700)
@@ -1110,6 +1563,8 @@ type ProofState = {
   publicObservability: PublicObservabilityOracle[]
   processCleanupReceipts: ProcessCleanupReceipt[]
   ownedLinks: Map<"package" | "binary", LinkIdentity>
+  unrecordedLinks: Set<"package" | "binary">
+  rolledBackLinks: Set<"package" | "binary">
 }
 
 type ReceiptUpdater = (update: Partial<OwnershipReceipt>) => Promise<void>
@@ -1118,6 +1573,7 @@ const createLinks = async (
   context: ProofContext,
   state: ProofState,
   updateReceipt: ReceiptUpdater,
+  fault: LocalLinkFault | undefined,
 ): Promise<void> => {
   for (const [kind, source, destination, ledgerEntry] of [
     ["package", context.sources.package, context.destinations.package, "ln:-s:package"],
@@ -1139,6 +1595,7 @@ const createLinks = async (
       created: { ...state.receipt.created, [kind]: true },
       command_ledger: [...state.actionLedger],
     })
+    if (fault === "partial-link" && kind === "package") throw new Error("partial-link-failure")
   }
 }
 
@@ -1156,45 +1613,153 @@ const assertLinkedState = async (context: ProofContext, state: ProofState): Prom
   if (binary.source !== context.binary.source || binary.mode !== 0o755 || binary.shebang !== "#!/usr/bin/env bun") {
     throw new Error("public-binary-identity-invalid")
   }
+  await assertOwnerLocalLogTape(context.kitRoot)
+}
+
+type PostLinkFaultHandler = (context: ProofContext, state: ProofState) => Promise<void>
+
+const retargetLink = async (context: ProofContext): Promise<void> => {
+  await unlink(context.destinations.binary)
+  await symlink(context.sources.package, context.destinations.binary)
+}
+
+const replacePackageIdentity = async (context: ProofContext): Promise<void> => {
+  await unlink(context.destinations.package)
+  await symlink(context.sources.package, context.destinations.package)
+}
+
+const removeExecutableIdentity = async (context: ProofContext): Promise<void> => {
+  const source = await readFile(context.sources.binary, "utf8")
+  await writeFile(context.sources.binary, source.replace(/^#!\/usr\/bin\/env bun/u, "#!/usr/bin/env sh"), { mode: 0o644 })
+  await chmod(context.sources.binary, 0o644)
+}
+
+const appendRepositoryDrift = async (context: ProofContext): Promise<void> => {
+  await appendFile(context.sources.binary, "\n// local-link repository drift negative control\n")
+}
+
+const appendManifestLockDrift = async (context: ProofContext): Promise<void> => {
+  await appendFile(join(context.kitRoot, "package.json"), "\n")
+  await appendFile(join(context.kitRoot, "bun.lock"), "\n# local-link manifest-lock drift negative control\n")
+}
+
+const stageIndexDrift = async (context: ProofContext, state: ProofState): Promise<void> => {
+  await appendFile(context.sources.binary, "\n// local-link staged-index drift negative control\n")
+  auditedSpawnSync({
+    kind: "fault",
+    executable: "git",
+    argv: [...exactGitFaultArgv.stagedIndex],
+    cwd: context.kitRoot,
+  }, state.auditLedger)
+}
+
+const moveCommitRef = async (context: ProofContext, state: ProofState): Promise<void> => {
+  auditedSpawnSync({
+    kind: "fault",
+    executable: "git",
+    argv: [...exactGitFaultArgv.commitRef],
+    cwd: context.consumerRoot,
+  }, state.auditLedger)
+}
+
+const removeDestinationParent = async (context: ProofContext): Promise<void> => {
+  await rm(dirname(context.destinations.package), { recursive: true, force: true })
+}
+
+const appendNetworkPrimitive = async (context: ProofContext): Promise<void> => {
+  await appendFile(context.binary.source, networkPrimitiveMutation)
+}
+
+const reorderDiagnosticSequence = async (context: ProofContext): Promise<void> => {
+  const facadePath = join(context.kitRoot, "src/adapters/maintenance-command-facade/implementation/maintenance-command-facade.ts")
+  const source = await readFile(facadePath, "utf8")
+  const needle = "    sequence += 1\n"
+  if (source.split(needle).length !== 2) throw new Error("diagnostic-order-control-unavailable")
+  await writeFile(facadePath, source.replace(needle, "    sequence += 2\n"))
+}
+
+const bypassDiagnosticRedaction = async (context: ProofContext): Promise<void> => {
+  const adapterPath = join(context.kitRoot, "src/adapters/maintenance-command-facade/implementation/logtape-diagnostic-adapter.ts")
+  const source = await readFile(adapterPath, "utf8")
+  const sinkNeedle = "const sink = redactByField(jsonlSink, {\n    fieldPatterns: diagnosticSensitiveFieldPatterns,\n    action: () => redactedDiagnosticValue,\n  })"
+  const recordNeedle = "properties: { [logTapeRecordProperty]: record },"
+  if (!source.includes(sinkNeedle) || !source.includes(recordNeedle)) {
+    throw new Error("redaction-bypass-control-unavailable")
+  }
+  const bypassed = source
+    .replace(sinkNeedle, "const sink = jsonlSink")
+    .replace(recordNeedle, `properties: { [logTapeRecordProperty]: { ...record, api_key: "${redactionControlSecret}" } },`)
+  await writeFile(adapterPath, bypassed)
+}
+
+const removeOwnerLocalDependency = async (context: ProofContext): Promise<void> => {
+  await rm(join(context.kitRoot, "src/adapters/maintenance-command-facade/node_modules/@logtape/redaction"), {
+    recursive: true,
+    force: true,
+  })
+}
+
+const addReceiptSchemaField = async (context: ProofContext): Promise<void> => {
+  const receipt = await readOwnershipReceipt(context.receiptPath)
+  await writeFile(context.receiptPath, `${JSON.stringify({ ...receipt, unexpected: true })}\n`, { mode: 0o600 })
+}
+
+const mistypeReceiptSchemaVersion = async (context: ProofContext): Promise<void> => {
+  const receipt = await readOwnershipReceipt(context.receiptPath)
+  await writeFile(context.receiptPath, `${JSON.stringify({ ...receipt, schema_version: "1" })}\n`, { mode: 0o600 })
+}
+
+const tamperReceiptCreatedState = async (context: ProofContext): Promise<void> => {
+  const receipt = await readOwnershipReceipt(context.receiptPath)
+  await writeFile(context.receiptPath, `${JSON.stringify({
+    ...receipt,
+    created: { ...receipt.created, package: false },
+  })}\n`, { mode: 0o600 })
+}
+
+const postLinkFaultHandlers: Partial<Record<LocalLinkFault, PostLinkFaultHandler>> = {
+  "retargeted-link": (context) => retargetLink(context),
+  "second-identity": (context) => replacePackageIdentity(context),
+  "mode-shebang-loss": (context) => removeExecutableIdentity(context),
+  "repository-drift": (context) => appendRepositoryDrift(context),
+  "manifest-lock-drift": (context) => appendManifestLockDrift(context),
+  "staged-index-drift": stageIndexDrift,
+  "commit-ref-drift": moveCommitRef,
+  "parent-deletion": (context) => removeDestinationParent(context),
+  "network-primitive": (context) => appendNetworkPrimitive(context),
+  "diagnostic-order": (context) => reorderDiagnosticSequence(context),
+  "redaction-bypass": (context) => bypassDiagnosticRedaction(context),
+  "missing-owner-local-dependency": (context) => removeOwnerLocalDependency(context),
+  "receipt-schema": (context) => addReceiptSchemaField(context),
+  "receipt-mistyped": (context) => mistypeReceiptSchemaVersion(context),
+  "receipt-tamper": (context) => tamperReceiptCreatedState(context),
 }
 
 const applyPostLinkFault = async (
   fault: LocalLinkFault,
   context: ProofContext,
+  state: ProofState,
 ): Promise<void> => {
-  if (fault === "retargeted-link") {
-    await unlink(context.destinations.binary)
-    await symlink(context.sources.package, context.destinations.binary)
-    return
-  }
-  if (fault === "second-identity") {
-    await unlink(context.destinations.package)
-    await symlink(context.sources.package, context.destinations.package)
-    return
-  }
-  if (fault === "mode-shebang-loss") {
-    const source = await readFile(context.sources.binary, "utf8")
-    await writeFile(context.sources.binary, source.replace(/^#!\/usr\/bin\/env bun/u, "#!/usr/bin/env sh"), { mode: 0o644 })
-    await chmod(context.sources.binary, 0o644)
-    return
-  }
-  if (fault === "repository-drift") {
-    await appendFile(context.sources.binary, "\n// local-link repository drift negative control\n")
-    return
-  }
-  if (fault === "receipt-tamper") {
-    const receipt = await readOwnershipReceipt(context.receiptPath)
-    await writeFile(context.receiptPath, `${JSON.stringify({
-      ...receipt,
-      created: { ...receipt.created, package: false },
-    })}\n`, { mode: 0o600 })
-    await chmod(context.receiptPath, 0o600)
-  }
+  const handler = postLinkFaultHandlers[fault]
+  if (handler !== undefined) await handler(context, state)
 }
 
-const forbiddenCommandNegativeControl = (cwd: string): true => {
+const forbiddenCommandNegativeControl = async (
+  context: ProofContext,
+  state: ProofState,
+): Promise<true> => {
+  const scenario = approvedScenarioCatalog[0]
+  if (scenario === undefined) throw new Error("public-process-scenario-catalog-invalid")
   try {
-    auditCommand({ kind: "read", executable: "npm", argv: ["install"], cwd }, [])
+    await invokeBoundedProcess(
+      ["/bin/echo", ...scenario.argv],
+      context.consumerRoot,
+      scenario.environment ?? {},
+      state.auditLedger,
+      "public-process",
+      scenario.argv,
+      context.destinations.binary,
+    )
   } catch (error) {
     if (error instanceof Error && error.message === "command-not-allowlisted") return true
     throw error
@@ -1216,6 +1781,7 @@ const executeScenarios = async (
       state.auditLedger,
       "public-process",
       scenario.argv,
+      context.destinations.binary,
     )
     const expectedLedger = `execute:${scenario.argv.join(" ")}`
     if (scenario.ledger !== expectedLedger) throw new Error("scenario-ledger-drift")
@@ -1230,6 +1796,43 @@ const executeScenarios = async (
   }
 }
 
+const assertReceiptContext = (
+  receipt: OwnershipReceipt,
+  context: ProofContext,
+  state: ProofState,
+): void => {
+  if (!receiptMatchesContext(receipt, context) || receipt.run_id !== state.receipt.run_id) {
+    throw new Error("ownership-receipt-context-drifted")
+  }
+}
+
+const cleanupReceiptLink = async (
+  context: ProofContext,
+  state: ProofState,
+  kind: "package" | "binary",
+): Promise<LinkIdentity | undefined> => {
+  const durable = await readOwnershipReceipt(context.receiptPath)
+  if (!durable.created[kind] && !state.ownedLinks.has(kind)) return undefined
+  assertReceiptContext(durable, context, state)
+  if (!durable.created[kind] || durable.cleaned[kind]) throw new Error(`ownership-receipt-state-drifted:${kind}`)
+  return receiptLink(durable, kind)
+}
+
+const recordCleanedLink = async (
+  context: ProofContext,
+  state: ProofState,
+  kind: "package" | "binary",
+): Promise<void> => {
+  const currentReceipt = await readOwnershipReceipt(context.receiptPath)
+  assertReceiptContext(currentReceipt, context, state)
+  state.receipt = {
+    ...currentReceipt,
+    cleaned: { ...currentReceipt.cleaned, [kind]: true },
+    command_ledger: [...state.actionLedger],
+  }
+  await writeReceipt(context.receiptPath, state.receipt)
+}
+
 const cleanupOwnedLink = async (
   context: ProofContext,
   state: ProofState,
@@ -1237,28 +1840,16 @@ const cleanupOwnedLink = async (
   destination: string,
   ledgerEntry: string,
 ): Promise<void> => {
-  const durable = await readOwnershipReceipt(context.receiptPath)
-  if (!receiptMatchesContext(durable, context) || durable.run_id !== state.receipt.run_id) {
-    throw new Error("ownership-receipt-context-drifted")
-  }
-  if (!durable.created[kind] || durable.cleaned[kind]) throw new Error(`ownership-receipt-state-drifted:${kind}`)
-  const owned = receiptLink(durable, kind)
+  if (state.rolledBackLinks.has(kind) && await pathState(destination) === "absent") return
+  const owned = await cleanupReceiptLink(context, state, kind)
+  if (owned === undefined) return
   const current = await linkIdentity(kind, destination)
   if (!sameLink(current, owned)) throw new Error(`owned-link-drifted:${kind}`)
   await unlink(destination)
   state.ledger.push(ledgerEntry)
   state.auditLedger.push({ operation: "unlink", kind })
   state.actionLedger.push({ operation: "unlink", kind })
-  const currentReceipt = await readOwnershipReceipt(context.receiptPath)
-  if (!receiptMatchesContext(currentReceipt, context) || currentReceipt.run_id !== state.receipt.run_id) {
-    throw new Error("ownership-receipt-context-drifted")
-  }
-  state.receipt = {
-    ...currentReceipt,
-    cleaned: { ...currentReceipt.cleaned, [kind]: true },
-    command_ledger: [...state.actionLedger],
-  }
-  await writeReceipt(context.receiptPath, state.receipt)
+  await recordCleanedLink(context, state, kind)
 }
 
 const cleanupLinks = async (
@@ -1277,6 +1868,99 @@ const cleanupLinks = async (
     }
   }
   return cleanupFailures
+}
+
+type DestinationState = Readonly<{
+  packageAbsent: boolean
+  binaryAbsent: boolean
+  packageParentPresent: boolean
+  binaryParentPresent: boolean
+}>
+
+const destinationState = async (context: ProofContext): Promise<DestinationState> => ({
+  packageAbsent: await pathState(context.destinations.package) === "absent",
+  binaryAbsent: await pathState(context.destinations.binary) === "absent",
+  packageParentPresent: await pathState(dirname(context.destinations.package)) === "present",
+  binaryParentPresent: await pathState(dirname(context.destinations.binary)) === "present",
+})
+
+const rollbackIdentityCheckedLink = async (
+  state: ProofState,
+  kind: "package" | "binary",
+  destination: string,
+): Promise<void> => {
+  if (state.rolledBackLinks.has(kind)) return
+  const expected = state.ownedLinks.get(kind)
+  if (expected === undefined) return
+  if (await pathState(destination) === "absent") {
+    state.rolledBackLinks.add(kind)
+    return
+  }
+  const current = await linkIdentity(kind, destination)
+  if (!sameLink(current, expected)) throw new Error(`owned-link-drifted:${kind}`)
+  await unlink(destination)
+  state.ledger.push(`rollback:unlink:${kind}`)
+  state.auditLedger.push({ operation: "unlink", kind })
+  state.actionLedger.push({ operation: "unlink", kind })
+  state.rolledBackLinks.add(kind)
+}
+
+const rollbackIdentityCheckedLinks = async (
+  context: ProofContext,
+  state: ProofState,
+  kinds: readonly ("package" | "binary")[],
+): Promise<unknown[]> => {
+  const failures: unknown[] = []
+  for (const kind of kinds) {
+    const destination = context.destinations[kind]
+    try {
+      await rollbackIdentityCheckedLink(state, kind, destination)
+    } catch (error) {
+      failures.push(error)
+    }
+  }
+  return failures
+}
+
+const failureReceiptCleanupReady = async (context: ProofContext): Promise<boolean> => {
+  const paths = await destinationState(context)
+  return paths.packageAbsent && paths.binaryAbsent && paths.packageParentPresent && paths.binaryParentPresent
+}
+
+const assertFailureReceiptOwnership = async (
+  context: ProofContext,
+  state: ProofState,
+  allowMalformed: boolean,
+): Promise<void> => {
+  if (allowMalformed) {
+    assertOwnershipReceiptMetadata(await lstat(context.receiptPath))
+    return
+  }
+  const durable = await readOwnershipReceipt(context.receiptPath)
+  assertReceiptContext(durable, context, state)
+}
+
+const removeReceiptDirectory = async (receiptDirectory: string): Promise<void> => {
+  try {
+    await rmdir(receiptDirectory)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT" && (error as NodeJS.ErrnoException).code !== "ENOTEMPTY") {
+      throw error
+    }
+  }
+}
+
+const removeFailureReceipt = async (
+  context: ProofContext,
+  state: ProofState,
+  allowMalformed: boolean,
+): Promise<boolean> => {
+  if (!await failureReceiptCleanupReady(context)) return false
+  if (await pathState(context.receiptPath) === "absent") return true
+  await assertFailureReceiptOwnership(context, state, allowMalformed)
+  await unlink(context.receiptPath)
+  await removeReceiptDirectory(context.receiptDirectory)
+  return true
 }
 
 const deleteSuccessfulReceipt = async (context: ProofContext, state: ProofState): Promise<true> => {
@@ -1298,93 +1982,240 @@ const proveRestoration = async (context: ProofContext): Promise<boolean> => {
   const digestsEqual = sameSnapshot(context.before.kit, after.kit) &&
     sameSnapshot(context.before.consumer, after.consumer)
   if (!digestsEqual) throw new Error("repository-state-drifted")
-  const packageAbsent = await pathState(context.destinations.package) === "absent"
-  const binaryAbsent = await pathState(context.destinations.binary) === "absent"
-  const packageParentPresent = await pathState(dirname(context.destinations.package)) === "present"
-  const binaryParentPresent = await pathState(dirname(context.destinations.binary)) === "present"
-  if (!packageAbsent || !binaryAbsent) throw new Error("owned-link-remained")
-  if (!packageParentPresent || !binaryParentPresent) throw new Error("destination-parent-removed")
+  const paths = await destinationState(context)
+  if (!paths.packageAbsent || !paths.binaryAbsent) throw new Error("owned-link-remained")
+  if (!paths.packageParentPresent || !paths.binaryParentPresent) throw new Error("destination-parent-removed")
   return true
+}
+
+const assertRepositoriesUnchanged = async (context: ProofContext): Promise<void> => {
+  const after = {
+    kit: await repositorySnapshot(context.kitRoot, context.auditLedger),
+    consumer: await repositorySnapshot(context.consumerRoot, context.auditLedger),
+  }
+  if (!sameSnapshot(context.before.kit, after.kit) || !sameSnapshot(context.before.consumer, after.consumer)) {
+    throw new Error("repository-state-drifted")
+  }
+}
+
+const assertDestinationParentsPresent = async (context: ProofContext): Promise<void> => {
+  const packageParent = dirname(context.destinations.package)
+  const binaryParent = dirname(context.destinations.binary)
+  if (await pathState(packageParent) !== "present" || await pathState(binaryParent) !== "present") {
+    throw new Error("destination-parent-removed")
+  }
+  await assertDirectory(context.consumerRoot, packageParent)
+  await assertDirectory(context.consumerRoot, binaryParent)
+}
+
+const assertPostLinkFault = async (
+  fault: LocalLinkFault,
+  context: ProofContext,
+  state: ProofState,
+): Promise<void> => {
+  if (fault === "parent-deletion") {
+    await assertDestinationParentsPresent(context)
+    return
+  }
+  if (fault === "network-primitive") {
+    await assertExecutableNetworkSafe(context.binary.source)
+    return
+  }
+  if (fault === "receipt-schema" || fault === "receipt-mistyped") {
+    await readOwnershipReceipt(context.receiptPath)
+    return
+  }
+  if (fault === "repository-drift" || fault === "manifest-lock-drift" ||
+    fault === "staged-index-drift" || fault === "commit-ref-drift") {
+    await assertRepositoriesUnchanged(context)
+    return
+  }
+  await assertLinkedState(context, state)
+}
+
+const createProofState = (
+  options: LocalLinkProofOptions,
+  context: ProofContext,
+  now: Date,
+): ProofState => ({
+  receipt: initialReceipt(
+    now,
+    options,
+    { kit: context.kitRoot, consumer: context.consumerRoot },
+    context.sources,
+    context.destinations,
+    context.before,
+  ),
+  ledger: [],
+  auditLedger: context.auditLedger,
+  actionLedger: [],
+  observations: [],
+  publicObservability: [],
+  processCleanupReceipts: [],
+  ownedLinks: new Map(),
+  unrecordedLinks: new Set(),
+  rolledBackLinks: new Set(),
+})
+
+const createReceiptUpdater = (
+  options: LocalLinkProofOptions,
+  context: ProofContext,
+  state: ProofState,
+): ReceiptUpdater => async (update) => {
+  if (options.fault === "receipt-write-failure" && update.created?.package === true) {
+    state.unrecordedLinks.add("package")
+    throw new Error("ownership-receipt-write-failure")
+  }
+  const durable = await readOwnershipReceipt(context.receiptPath)
+  exactJson(
+    {
+      links: durable.links,
+      created: durable.created,
+      cleaned: durable.cleaned,
+      command_ledger: durable.command_ledger,
+    },
+    {
+      links: state.receipt.links,
+      created: state.receipt.created,
+      cleaned: state.receipt.cleaned,
+      command_ledger: state.receipt.command_ledger,
+    },
+    "ownership-receipt-tampered",
+  )
+  state.receipt = { ...state.receipt, ...update }
+  await writeReceipt(context.receiptPath, state.receipt)
+}
+
+const applyOptionalFault = async (
+  options: LocalLinkProofOptions,
+  context: ProofContext,
+  state: ProofState,
+): Promise<void> => {
+  if (options.fault === undefined || options.fault === "receipt-write-failure") return
+  await applyPostLinkFault(options.fault, context, state)
+  await assertPostLinkFault(options.fault, context, state)
+}
+
+type PrimaryProofRun = Readonly<{
+  primaryFailure: unknown
+  timeoutDescriptorControl: ProcessCleanupReceipt | undefined
+  forbiddenCommandRefused: true
+}>
+
+const executePrimaryProofRun = async (
+  options: LocalLinkProofOptions,
+  context: ProofContext,
+  state: ProofState,
+  updateReceipt: ReceiptUpdater,
+): Promise<PrimaryProofRun> => {
+  let primaryFailure: unknown
+  let timeoutDescriptorControl: ProcessCleanupReceipt | undefined
+  let forbiddenCommandRefused: true = true
+  try {
+    timeoutDescriptorControl = (await invokeBoundedProcess(
+      [process.execPath, ...timeoutProbeArgv],
+      context.kitRoot,
+      {},
+      state.auditLedger,
+      "timeout-probe",
+    )).cleanup
+    await createLinks(context, state, updateReceipt, options.fault)
+    await applyOptionalFault(options, context, state)
+    forbiddenCommandRefused = await forbiddenCommandNegativeControl(context, state)
+    await executeScenarios(options, context, state, updateReceipt)
+  } catch (error) {
+    primaryFailure = error
+  }
+  return { primaryFailure, timeoutDescriptorControl, forbiddenCommandRefused }
+}
+
+const rollbackKindsFor = (
+  fault: LocalLinkFault | undefined,
+  state: ProofState,
+): ("package" | "binary")[] => (["binary", "package"] as const).filter((kind) =>
+  ((fault === "receipt-schema" || fault === "receipt-mistyped") && state.ownedLinks.has(kind)) ||
+  state.unrecordedLinks.has(kind))
+
+type CleanupProofRun = Readonly<{
+  allCleanupFailures: unknown[]
+  receiptFailure: unknown
+}>
+
+const tryRemoveFailureReceipt = async (
+  context: ProofContext,
+  state: ProofState,
+  allowMalformed: boolean,
+): Promise<unknown> => {
+  try {
+    await removeFailureReceipt(context, state, allowMalformed)
+    return undefined
+  } catch (error) {
+    return error
+  }
+}
+
+const cleanupFailedProofRun = async (
+  options: LocalLinkProofOptions,
+  context: ProofContext,
+  state: ProofState,
+  primaryFailure: unknown,
+): Promise<CleanupProofRun> => {
+  const rollbackFailures = await rollbackIdentityCheckedLinks(context, state, rollbackKindsFor(options.fault, state))
+  const cleanupFailures = await cleanupLinks(context, state)
+  const allCleanupFailures = [...rollbackFailures, ...cleanupFailures]
+  const receiptFailure = primaryFailure !== undefined || allCleanupFailures.length > 0
+    ? await tryRemoveFailureReceipt(
+      context,
+      state,
+      options.fault === "receipt-schema" || options.fault === "receipt-mistyped",
+    )
+    : undefined
+  return { allCleanupFailures, receiptFailure }
+}
+
+type RestorationProof = Readonly<{
+  digestsEqual: boolean
+  restorationFailure: unknown
+}>
+
+const proveRunRestoration = async (context: ProofContext): Promise<RestorationProof> => {
+  try {
+    return { digestsEqual: await proveRestoration(context), restorationFailure: undefined }
+  } catch (error) {
+    return { digestsEqual: false, restorationFailure: error }
+  }
+}
+
+const throwProofFailures = (
+  primaryFailure: unknown,
+  allCleanupFailures: readonly unknown[],
+  receiptFailure: unknown,
+  restorationFailure: unknown,
+): void => {
+  if (primaryFailure !== undefined) throw primaryFailure
+  if (allCleanupFailures[0] !== undefined) throw allCleanupFailures[0]
+  if (receiptFailure !== undefined) throw receiptFailure
+  if (restorationFailure !== undefined) throw restorationFailure
 }
 
 export async function runLocalLinkContractProof(options: LocalLinkProofOptions): Promise<LocalLinkProofResult> {
   const now = (options.now ?? (() => new Date()))()
   const context = await prepareProofContext(options, now)
-  const state: ProofState = {
-    receipt: initialReceipt(
-      now,
-      options,
-      { kit: context.kitRoot, consumer: context.consumerRoot },
-      context.sources,
-      context.destinations,
-      context.before,
-    ),
-    ledger: [],
-    auditLedger: context.auditLedger,
-    actionLedger: [],
-    observations: [],
-    publicObservability: [],
-    processCleanupReceipts: [],
-    ownedLinks: new Map(),
-  }
-  const updateReceipt: ReceiptUpdater = async (update) => {
-    if (options.fault === "receipt-write-failure" && update.created?.package === true) {
-      throw new Error("ownership-receipt-write-failure")
-    }
-    const durable = await readOwnershipReceipt(context.receiptPath)
-    exactJson(
-      {
-        links: durable.links,
-        created: durable.created,
-        cleaned: durable.cleaned,
-        command_ledger: durable.command_ledger,
-      },
-      {
-        links: state.receipt.links,
-        created: state.receipt.created,
-        cleaned: state.receipt.cleaned,
-        command_ledger: state.receipt.command_ledger,
-      },
-      "ownership-receipt-tampered",
-    )
-    state.receipt = { ...state.receipt, ...update }
-    await writeReceipt(context.receiptPath, state.receipt)
-  }
+  const state = createProofState(options, context, now)
+  const updateReceipt = createReceiptUpdater(options, context, state)
   await writeReceipt(context.receiptPath, state.receipt)
 
-  let primaryFailure: unknown
-  const timeoutDescriptorControl = (await invokeBoundedProcess(
-    [process.execPath, "-e", "setTimeout(() => {}, 10_000)"],
-    context.kitRoot,
-    {},
-    state.auditLedger,
-    "timeout-probe",
-  )).cleanup
-  const forbiddenCommandRefused = forbiddenCommandNegativeControl(context.kitRoot)
-  try {
-    await createLinks(context, state, updateReceipt)
-    if (options.fault !== undefined && options.fault !== "receipt-write-failure") {
-      await applyPostLinkFault(options.fault, context)
-      if (options.fault !== "repository-drift" && options.fault !== "receipt-tamper") {
-        await assertLinkedState(context, state)
-      }
-    }
-    await executeScenarios(options, context, state, updateReceipt)
-  } catch (error) {
-    primaryFailure = error
-  }
-  const cleanupFailures = await cleanupLinks(context, state)
-  let restorationFailure: unknown
-  let digestsEqual = false
-  try {
-    digestsEqual = await proveRestoration(context)
-  } catch (error) {
-    restorationFailure = error
-  }
-  if (primaryFailure !== undefined) throw primaryFailure
-  if (cleanupFailures[0] !== undefined) throw cleanupFailures[0]
-  if (restorationFailure !== undefined) throw restorationFailure
+  const primary = await executePrimaryProofRun(options, context, state, updateReceipt)
+  const cleanup = await cleanupFailedProofRun(options, context, state, primary.primaryFailure)
+  const restoration = await proveRunRestoration(context)
+  throwProofFailures(
+    primary.primaryFailure,
+    cleanup.allCleanupFailures,
+    cleanup.receiptFailure,
+    restoration.restorationFailure,
+  )
 
+  if (primary.timeoutDescriptorControl === undefined) throw new Error("timeout-control-missing")
   const directoryMode = (await stat(context.receiptDirectory)).mode & 0o777
   const fileMode = (await stat(context.receiptPath)).mode & 0o777
   const receiptDeleted = await deleteSuccessfulReceipt(context, state)
@@ -1405,8 +2236,8 @@ export async function runLocalLinkContractProof(options: LocalLinkProofOptions):
     cleanupLedger: state.ledger,
     auditLedger: state.auditLedger,
     publicObservability: state.publicObservability,
-    forbiddenCommandRefused,
-    timeoutDescriptorControl,
+    forbiddenCommandRefused: primary.forbiddenCommandRefused,
+    timeoutDescriptorControl: primary.timeoutDescriptorControl,
     parentsPreserved: true,
     receiptDeleted,
     receipt: {
@@ -1419,23 +2250,27 @@ export async function runLocalLinkContractProof(options: LocalLinkProofOptions):
       observed_public_cli_executions: state.observations.length,
       links_cleaned: true,
     },
-    digestsEqual,
+    digestsEqual: restoration.digestsEqual,
+    zeroNetworkAttempts: true,
+    gitStateEqual: true,
   }
 }
 
 export async function removeTemporaryProofRoot(root: string, runId: string): Promise<void> {
-  const canonicalRoot = await realpath(root)
-  const canonicalParent = dirname(canonicalRoot)
-  if (!basename(canonicalRoot).startsWith("agent-plugin-kit-local-link-") || !contained(canonicalParent, canonicalRoot)) {
-    throw new Error("temporary-proof-root-refused")
-  }
+  if (!validRunId(runId)) throw new Error("temporary-proof-run-id-invalid")
+  const canonicalRoot = await canonicalTemporaryRoot(root)
   const markerPath = join(canonicalRoot, ownershipMarkerName)
   const markerMetadata = await lstat(markerPath)
   if (!markerMetadata.isFile() || markerMetadata.isSymbolicLink() || (markerMetadata.mode & 0o777) !== 0o600) {
     throw new Error("temporary-proof-marker-invalid")
   }
-  const marker = await readJsonObject(markerPath)
-  if (marker.proof !== proofIdentity || marker.run_id !== runId || marker.root !== canonicalRoot) {
+  let markerValue: unknown
+  try {
+    markerValue = JSON.parse(await readFile(markerPath, "utf8"))
+  } catch {
+    throw new Error("temporary-proof-marker-invalid")
+  }
+  if (!isProofMarker(markerValue) || markerValue.run_id !== runId || markerValue.root !== canonicalRoot) {
     throw new Error("temporary-proof-marker-mismatch")
   }
   await rm(canonicalRoot, { recursive: true, force: true })
