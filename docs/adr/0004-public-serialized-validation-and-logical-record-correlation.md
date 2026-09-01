@@ -174,13 +174,15 @@ value, or public Implementation path.
   through an accepted package subpath.
 - `src/interface.ts` stays type-only. It exports no schema and no runtime
   value, so the root export gains no runtime surface and no Zod import.
-- Eight accepted package subpaths continue to resolve directly to declaration-
-  only `interface.ts` files. The existing `./admission-bootstrap` subpath is
-  the only exception: its ordered `types` condition resolves to the
-  declaration-only Interface, while `import` and final `default` resolve to the
-  same private Admission Implementation. The Interface declares
-  `admissionBootstrap` without importing or re-exporting Implementation, and
-  the private Implementation supplies that matching runtime value.
+- Seven accepted package subpaths continue to resolve directly to
+  `interface.ts` files. `./admission-bootstrap` and
+  `./qualification-evidence` are the two conditional-runtime exceptions: each
+  ordered `types` condition resolves to its Interface, while `import` and final
+  `default` resolve to the same owner-local private Implementation. Admission's
+  Interface declares `admissionBootstrap`, and its Implementation supplies that
+  runtime value. Qualification Evidence's Interface declares
+  `qualificationEvidence` and owns the `VerificationProfile` sentinel; its
+  Implementation supplies the reducer and preserves the sentinel.
   Owner-Local Validators add no exported name, compatibility surface, or
   subpath type-export catalog entry. Their sibling files enter the installed
   inventory only through the reviewed ADR 0003 respecification.
