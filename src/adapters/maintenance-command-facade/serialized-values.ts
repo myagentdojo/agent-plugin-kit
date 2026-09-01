@@ -111,7 +111,8 @@ const eventOutcomes = ["previewed", "completed", "refused", "failed"] as const
 const safeIdentifierPattern = /^[A-Za-z0-9._:-]{1,160}$/
 const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
 const maximumCredentialMatchLength = 4096
-const secretKeyPattern = /(?:password|passwd|secret|token|authorization|cookie|credential|private[-_]?key|api[-_]?key)/i
+const secretKeyPattern = /(?:password|passwd|secret|token|authorization|cookie|credential|private[-_ ]?key|api[-_ ]?key)/i
+const spaceSeparatedKeyPattern = /^(?:private|api)\s+key$/i
 const uriSchemePattern = "[A-Za-z][A-Za-z0-9+.-]*"
 const authUrlPattern = new RegExp(
   `(^|[^A-Za-z0-9])(?=${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@)${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@[^\\s]+`,
@@ -226,9 +227,6 @@ type SecretAssignmentRange = Readonly<{
 const isBareKeyCharacter = (character: string | undefined): boolean =>
   character !== undefined && /[A-Za-z0-9_-]/.test(character)
 
-const isKeyPhraseCharacter = (character: string | undefined): boolean =>
-  character !== undefined && /[A-Za-z0-9_ -]/.test(character)
-
 type AssignmentKey = Readonly<{ key: string; end: number }>
 
 const quotedAssignmentKeyAt = (
@@ -237,16 +235,22 @@ const quotedAssignmentKeyAt = (
   quote: string,
 ): AssignmentKey | undefined => {
   const end = value.indexOf(quote, start + 1)
-  if (end < 0 || end - start > 161) return undefined
+  if (end < 0) return undefined
   return { key: value.slice(start + 1, end), end: end + 1 }
 }
 
 const bareAssignmentKeyAt = (value: string, start: number): AssignmentKey | undefined => {
   if (!isBareKeyCharacter(value[start])) return undefined
   let end = start
-  while (end - start <= 160 && isKeyPhraseCharacter(value[end])) end += 1
-  while (end > start && /\s/.test(value[end - 1] ?? "")) end -= 1
-  return end === start ? undefined : { key: value.slice(start, end), end }
+  while (isBareKeyCharacter(value[end])) end += 1
+  const key = value.slice(start, end)
+  let separatedEnd = end
+  while (/\s/.test(value[separatedEnd] ?? "")) separatedEnd += 1
+  while (isBareKeyCharacter(value[separatedEnd])) separatedEnd += 1
+  const separatedKey = value.slice(start, separatedEnd)
+  return spaceSeparatedKeyPattern.test(separatedKey)
+    ? { key: separatedKey, end: separatedEnd }
+    : { key, end }
 }
 
 const assignmentKeyAt = (

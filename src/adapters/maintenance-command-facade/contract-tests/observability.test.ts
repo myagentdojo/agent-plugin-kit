@@ -495,6 +495,10 @@ test("redaction validates and freezes both seams before crossing", async () => {
   const malformedDoubleQuotedKeyAssignment = '"token=fixture-malformed-double-key-secret'
   const malformedJsonQuotedKeyAssignment = '{"token:fixture-malformed-json-key-secret'
   const malformedSingleQuotedKeyAssignment = "'password:fixture-malformed-single-key-secret"
+  const spacedPrivateKeyAssignment = "private key=fixture-spaced-private-key-secret"
+  const spacedApiKeyAssignment = "api key=fixture-spaced-api-key-secret"
+  const longPrefixedTokenKey = `${"x".repeat(200)}Token`
+  const longPrefixedTokenAssignment = `${longPrefixedTokenKey}=fixture-long-prefixed-token-secret`
   const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
   const incompleteAuthUrl = "https://fixtureUser:fixtureSecret@"
   const incompleteNoAtAuthUrl = "https://fixtureUser:fixtureSecret"
@@ -563,8 +567,13 @@ test("redaction validates and freezes both seams before crossing", async () => {
     ...diagnosticRecord(5, "error", "fixture.incomplete-no-at-auth-url"),
     message: incompleteNoAtAuthUrl,
   })
+  const assignmentVariantDiagnostic = diagnosticHarness("debug")
+  assignmentVariantDiagnostic.pipeline.record({
+    ...diagnosticRecord(6, "error", "fixture.assignment-variants"),
+    message: [spacedPrivateKeyAssignment, spacedApiKeyAssignment, longPrefixedTokenAssignment].join(" | "),
+  })
   const harness = await facadeHarness({ eventAcceptance: "refused" })
-  const serialized = JSON.stringify({ injectedDiagnostics: diagnostic.records, incompletePrivateKeyDiagnostics: incompletePrivateKeyDiagnostic.records, overlongAuthDiagnostics: overlongAuthDiagnostic.records, incompleteAuthDiagnostics: incompleteAuthDiagnostic.records, incompleteNoAtAuthDiagnostics: incompleteNoAtAuthDiagnostic.records, diagnostics: harness.diagnostics.records, events: harness.events.records })
+  const serialized = JSON.stringify({ injectedDiagnostics: diagnostic.records, incompletePrivateKeyDiagnostics: incompletePrivateKeyDiagnostic.records, overlongAuthDiagnostics: overlongAuthDiagnostic.records, incompleteAuthDiagnostics: incompleteAuthDiagnostic.records, incompleteNoAtAuthDiagnostics: incompleteNoAtAuthDiagnostic.records, assignmentVariantDiagnostics: assignmentVariantDiagnostic.records, diagnostics: harness.diagnostics.records, events: harness.events.records })
   const redactionSecrets = [
     "fixture-secret-must-not-cross",
     "fixture-diagnostic-secret",
@@ -613,6 +622,12 @@ test("redaction validates and freezes both seams before crossing", async () => {
     "fixture-malformed-double-key-secret",
     "fixture-malformed-json-key-secret",
     "fixture-malformed-single-key-secret",
+    spacedPrivateKeyAssignment,
+    spacedApiKeyAssignment,
+    longPrefixedTokenAssignment,
+    "fixture-spaced-private-key-secret",
+    "fixture-spaced-api-key-secret",
+    "fixture-long-prefixed-token-secret",
     overlongAuthUrl,
     incompleteAuthUrl,
     "fixture-empty-username-password",
@@ -622,9 +637,10 @@ test("redaction validates and freezes both seams before crossing", async () => {
   ]
   absent(
     {
-      recordsFrozen: [...diagnostic.records, ...harness.diagnostics.records, ...harness.events.records].every(Object.isFrozen),
+      recordsFrozen: [...diagnostic.records, ...assignmentVariantDiagnostic.records, ...harness.diagnostics.records, ...harness.events.records].every(Object.isFrozen),
       leakedSecret: redactionSecrets.some((secret) => serialized.includes(secret)),
       redactedMessage: diagnostic.records[0]?.message,
+      assignmentVariantMessage: assignmentVariantDiagnostic.records[0]?.message,
       incompletePrivateKeyRecords: incompletePrivateKeyDiagnostic.records,
       overlongAuthRecords: overlongAuthDiagnostic.records,
       incompleteAuthRecords: incompleteAuthDiagnostic.records,
@@ -632,7 +648,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
       order: redactionTrace,
     },
-    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | {\"token\":[REDACTED]} | {\"password\":[REDACTED]} | {\"accessToken\":[REDACTED]} | clientSecret=[REDACTED] | {\"token\":[REDACTED],\"mode\":\"safe\"} | \"token=[REDACTED] | {\"token:[REDACTED] | 'password:[REDACTED] | token=[REDACTED]", incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
+    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | {\"token\":[REDACTED]} | {\"password\":[REDACTED]} | {\"accessToken\":[REDACTED]} | clientSecret=[REDACTED] | {\"token\":[REDACTED],\"mode\":\"safe\"} | \"token=[REDACTED] | {\"token:[REDACTED] | 'password:[REDACTED] | token=[REDACTED]", assignmentVariantMessage: `private key=[REDACTED] | api key=[REDACTED] | ${longPrefixedTokenKey}=[REDACTED]`, incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
     "redaction must precede both seams without changing the fixed primary result",
   )
 })
