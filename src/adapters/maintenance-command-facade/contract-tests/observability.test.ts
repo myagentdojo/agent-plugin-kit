@@ -50,18 +50,32 @@ const diagnosticRecord = (
   category: ["agent-plugin-kit", "maintenance"] as const,
   event,
   run_id: "contract-help-literal",
-  command: "help",
   station_id: "maintenance.usage-refused",
   failure_class: "usage",
   result_code: "usage-refused",
   transaction_state: "unchanged",
   retry_safety: "safe",
+  ...(level === "error" || level === "fatal"
+    ? {
+        next_action: {
+          id: "maintenance.show-help",
+          action: "change_input" as const,
+          summary: "Choose a command from machine discovery.",
+          commandId: "help" as const,
+        },
+      }
+    : {}),
   message: 'Maintenance command failed with result code "usage-refused".',
 })
 
 const fixedCorrelation: FacadeCorrelationSources = {
   now: () => "2026-08-27T00:00:00.000Z",
   eventId: () => "opaque-event-id",
+}
+
+const withoutNextAction = ({ next_action, ...record }: DiagnosticRecord): DiagnosticRecord => {
+  void next_action
+  return record
 }
 
 function diagnosticHarness(
@@ -481,11 +495,34 @@ test("closed diagnostics fail closed and native field redaction protects the sin
     ...diagnosticRecord(3, "error", "fixture.configured-secret"),
     run_id: configuredSecret,
   })
+  const missingRepair = diagnosticHarness("debug")
+  missingRepair.pipeline.record(withoutNextAction(
+    diagnosticRecord(4, "error", "fixture.missing-repair"),
+  ))
+  const forgedEventRepair = diagnosticHarness("debug")
+  const eventRepair = {
+    ...diagnosticRecord(5, "error", "event.delivery-failed"),
+    command: "help" as const,
+    station_id: "help.previewed" as const,
+    failure_class: "event_delivery" as const,
+    result_code: "previewed" as const,
+    transaction_state: "completed" as const,
+    next_action: {
+      id: "events.inspect-configuration",
+      action: "repair_state" as const,
+      summary: "Inspect the configured event transport; do not repeat the command solely to replay its event.",
+      commandId: null,
+      retryAfterMs: 250,
+      idempotencyKey: "forged-event-repair",
+    },
+    message: "Inspect the configured event transport; do not repeat the command solely to replay its event." as const,
+  }
+  forgedEventRepair.pipeline.record(eventRepair)
 
   const writes: string[] = []
   const native = createLogTapeDiagnosticAdapter({ write: (line) => writes.push(line) })
   native.record({
-    ...diagnosticRecord(4, "error", "fixture.native-field-redaction"),
+    ...diagnosticRecord(6, "error", "fixture.native-field-redaction"),
     context: {
       api_key: structuredSecret,
       safe_label: "preserved",
@@ -502,6 +539,8 @@ test("closed diagnostics fail closed and native field redaction protects the sin
     diagnostics: diagnostic.records,
     noncanonicalDiagnostics: noncanonical.records,
     configuredDiagnostics: configured.records,
+    missingRepairDiagnostics: missingRepair.records,
+    forgedEventRepairDiagnostics: forgedEventRepair.records,
     nativeRecord,
     facadeDiagnostics: harness.diagnostics.records,
     events: harness.events.records,
@@ -512,6 +551,8 @@ test("closed diagnostics fail closed and native field redaction protects the sin
       acceptedMessages: diagnostic.records.map(({ message }) => message),
       noncanonicalRecords: noncanonical.records,
       configuredSecretRecords: configured.records,
+      missingRepairRecords: missingRepair.records,
+      forgedEventRepairRecords: forgedEventRepair.records,
       recordsFrozen: [...diagnostic.records, ...harness.diagnostics.records, ...harness.events.records]
         .every(Object.isFrozen),
       configuredSecretLeaked: serialized.includes(configuredSecret),
@@ -528,6 +569,8 @@ test("closed diagnostics fail closed and native field redaction protects the sin
       acceptedMessages: ['Maintenance command failed with result code "usage-refused".'],
       noncanonicalRecords: [],
       configuredSecretRecords: [],
+      missingRepairRecords: [],
+      forgedEventRepairRecords: [],
       recordsFrozen: true,
       configuredSecretLeaked: false,
       structuredSecretLeaked: false,

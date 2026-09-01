@@ -26,6 +26,7 @@ import { commandVocabulary } from "../../modules/maintenance-command-contract/co
 import {
   actionVocabulary,
   failureClassVocabulary,
+  failureNextActionProjection,
   resultVocabulary,
   retrySafetyVocabulary,
   transactionStateVocabulary,
@@ -135,6 +136,12 @@ const runIdSchema = z.string().regex(runIdPattern)
 const timestampSchema = z.iso.datetime()
 const eventDeliveryFailureMessage =
   "Inspect the configured event transport; do not repeat the command solely to replay its event." as const
+const eventDeliveryFailureProjection = failureNextActionProjection.find(
+  ({ failureClass }) => failureClass === "event_delivery",
+)
+if (eventDeliveryFailureProjection === undefined) {
+  throw new Error("missing event-delivery Next Action projection")
+}
 
 export const diagnosticFailureMessageFor = (resultCode: ResultCode): DiagnosticMessage =>
   `Maintenance command failed with result code "${resultCode}".`
@@ -143,10 +150,10 @@ export const diagnosticBufferMessageFor = (droppedRecordCount: number): Diagnost
   `Diagnostic buffer dropped ${droppedRecordCount} oldest record${droppedRecordCount === 1 ? "" : "s"}.`
 
 export const eventDeliveryFailureNextAction = Object.freeze({
-  id: "events.inspect-configuration",
-  action: "repair_state",
+  id: eventDeliveryFailureProjection.id,
+  action: eventDeliveryFailureProjection.action,
   summary: eventDeliveryFailureMessage,
-  commandId: null,
+  commandId: eventDeliveryFailureProjection.commandId,
 } satisfies NextAction)
 
 const nextActionSchema = z.strictObject({
@@ -161,9 +168,8 @@ const diagnosticMessageSchema = z.custom<DiagnosticMessage>(
   (value) => typeof value === "string",
 )
 
-const nextActionMeaningKeys = ["id", "action", "summary", "commandId"] as const
-const hasCanonicalNextActionMeaning = (actual: NextAction, canonical: NextAction): boolean =>
-  nextActionMeaningKeys.every((key) => actual[key] === canonical[key])
+const isExactCanonicalNextAction = (actual: NextAction, canonical: NextAction): boolean =>
+  nextActionKeys.every((key) => actual[key] === canonical[key])
 
 const diagnosticRecordBaseSchema = z.strictObject({
   schema_version: z.literal(1),
@@ -225,9 +231,11 @@ const expectedDiagnosticNextActionFor = (
 }
 
 const hasCanonicalDiagnosticNextAction = (record: DiagnosticRecordCandidate): boolean => {
-  if (record.next_action === undefined) return record.event !== "event.delivery-failed"
+  if (record.next_action === undefined) {
+    return record.level !== "error" && record.level !== "fatal"
+  }
   const expected = expectedDiagnosticNextActionFor(record)
-  return expected !== undefined && hasCanonicalNextActionMeaning(record.next_action, expected)
+  return expected !== undefined && isExactCanonicalNextAction(record.next_action, expected)
 }
 
 const refineDiagnosticRecord = (record: DiagnosticRecordCandidate, ctx: z.RefinementCtx): void => {

@@ -275,9 +275,14 @@ Two distinct paths exist and this decision keeps them distinct.
   arbitrary prose. Command failures derive it from `result_code`, event
   delivery uses one fixed repair message, and buffer truncation derives it from
   the declared `dropped_record_count`. A non-canonical message or mismatched
-  Next Action fails closed. Exact configured secret values are refused before
-  the Adapter Seam; LogTape field redaction remains defense in depth for
-  structured sensitive fields at the environmental sink.
+  Next Action fails closed. Every `error` or `fatal` Diagnostic Record carries
+  its exact canonical Next Action, including the presence or absence of retry
+  delay and idempotency metadata. The event-delivery action derives its ID,
+  action, and command binding from Maintenance-owned
+  `failureNextActionProjection`; the facade supplies only its diagnostic
+  summary. Exact configured secret values are refused before the Adapter Seam;
+  LogTape field redaction remains defense in depth for structured sensitive
+  fields at the environmental sink.
 - `@logtape/redaction` is an exact private production dependency of the
   Maintenance Command Facade Adapter. It creates no shared schema owner, root
   dependency, or Admission Bootstrap dependency.
