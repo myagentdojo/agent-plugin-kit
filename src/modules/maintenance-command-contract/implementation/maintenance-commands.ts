@@ -343,7 +343,7 @@ const helpAgent = () => ({
     result: 1,
     error: 1,
     hint: 1,
-    diagnostic: 1,
+    diagnostic: 2,
     event: 1,
   },
   global_options: [...globalOptions],
@@ -539,9 +539,9 @@ const facadeNextAction = (nextAction: NextAction): NextAction => ({
 })
 
 export const maintenanceSuccessEnvelopeDataFor = (
-  outcome: MaintenanceOutcome<unknown> & { status: "ok" },
+  outcome: Extract<MaintenanceOutcome<CommandPreview | CommandResult>, { status: "ok" }>,
 ): MaintenanceSuccessEnvelopeData => {
-  const value = outcome.value as CommandPreview | CommandResult
+  const value = outcome.value
   const descriptor = commandIdFor(value.command)
   const common = {
     contract_id: maintenanceCommandContractId,

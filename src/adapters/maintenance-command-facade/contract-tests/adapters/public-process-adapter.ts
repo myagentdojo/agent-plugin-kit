@@ -17,6 +17,7 @@ export async function invokeBoundedProcess(
     environment?: Readonly<Record<string, string>>
     deadlineMs?: number
     stdin?: string | ReadableStream<Uint8Array>
+    closeOutput?: "stdout" | "stderr"
   },
 ): Promise<{ observation: ProcessObservation; cleanup: ProcessCleanupReceipt }> {
   const deadlineMs = options.deadlineMs ?? 2_000
@@ -30,8 +31,12 @@ export async function invokeBoundedProcess(
     stdout: "pipe",
     stderr: "pipe",
   })
-  const stdout = new Response(processResult.stdout).text()
-  const stderr = new Response(processResult.stderr).text()
+  const stdout = options.closeOutput === "stdout"
+    ? processResult.stdout.cancel().then(() => "")
+    : new Response(processResult.stdout).text()
+  const stderr = options.closeOutput === "stderr"
+    ? processResult.stderr.cancel().then(() => "")
+    : new Response(processResult.stderr).text()
   let deadlineTriggered = false
   const natural = Promise.all([stdout, stderr, processResult.exited]).then(([stdout, stderr, exitCode]) => ({
     observation: { stdout, stderr, exitCode: deadlineTriggered ? 124 : exitCode },
@@ -69,6 +74,17 @@ export async function invokeBoundedProcess(
 export async function invokeRetainedDescriptorNegativeControl(): Promise<ProcessCleanupReceipt> {
   const script = 'const retained = Bun.spawn(["/bin/sleep", "10"], { stdout: "inherit", stderr: "inherit" }); retained.unref()'
   return (await invokeBoundedProcess([process.execPath, "-e", script], { cwd: import.meta.dir, deadlineMs: 100 })).cleanup
+}
+
+export async function invokeClosedStreamNegativeControl(
+  stream: "stdout" | "stderr",
+  argv: readonly string[],
+): Promise<ProcessObservation> {
+  const executable = resolve(import.meta.dir, "../../maintenance.ts")
+  return (await invokeBoundedProcess([executable, ...argv], {
+    cwd: import.meta.dir,
+    closeOutput: stream,
+  })).observation
 }
 
 export async function invokePublicProcess(

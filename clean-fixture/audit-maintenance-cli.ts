@@ -186,7 +186,7 @@ const report = {
   result_schema_version: resultSchemaVersion,
   error_schema_version: errorSchemaVersion,
   hint_version: hintVersion,
-  diagnostic_schema_version: 1,
+  diagnostic_schema_version: 2,
   event_schema_version: 1,
   surface_findings: findings,
   declared_branch_coverage: branchStationCatalog.length,
