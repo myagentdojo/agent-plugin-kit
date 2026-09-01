@@ -486,6 +486,9 @@ test("redaction validates and freezes both seams before crossing", async () => {
   const ftpAuthUrl = "ftp://fixtureUser:fixturePassword@fixture.example"
   const postgresAuthUrl = "postgres://fixtureUser:fixturePassword@fixture.example"
   const longPrefixedTokenKey = `${"x".repeat(200)}Token`
+  const keyAt511Characters = `token${"x".repeat(506)}`
+  const keyAt512Characters = `token${"x".repeat(507)}`
+  const keyAt513Characters = `token${"x".repeat(508)}`
   const assignmentCases = [
     { input: `x_token=${underscoreAssignment}`, expected: "x_token=[REDACTED]" },
     { input: "token=opaque-02", expected: "token=[REDACTED]" },
@@ -536,9 +539,24 @@ test("redaction validates and freezes both seams before crossing", async () => {
     { input: "tok%2565n=opaque-46", expected: "tok%2565n=[REDACTED]" },
     { input: "tokenized output | progress=100% complete", expected: "tokenized output | progress=100% complete" },
     { input: "auth token refreshed; progress=100% complete", expected: "auth token refreshed; progress=100% complete" },
+    { input: "auth token refreshed, progress=100% complete", expected: "auth token refreshed, progress=100% complete" },
+    { input: "auth token refreshed progress=100% complete", expected: "auth token refreshed progress=100% complete" },
     { input: "Token parsing failed: retry later", expected: "Token parsing failed: retry later" },
-    { input: 'mode="token: opaque"', expected: 'mode="token: opaque"' },
+    { input: 'mode="token: opaque"', expected: 'mode="token:[REDACTED]"' },
     { input: "context token=opaque-51 tail", expected: "context token=[REDACTED]" },
+    { input: '"token=opaque-52"', expected: '"token=[REDACTED]"' },
+    { input: 'context "token=opaque-53" tail', expected: 'context "token=[REDACTED]" tail' },
+    { input: "private key: opaque-54", expected: "private key:[REDACTED]" },
+    { input: "api key: opaque-55", expected: "api key:[REDACTED]" },
+    { input: "safe context | private key: opaque-56", expected: "safe context | private key:[REDACTED]" },
+    { input: "token=opaque-57; mode=safe", expected: "token=[REDACTED]; mode=safe" },
+    { input: "token=opaque-58\nmode=safe", expected: "token=[REDACTED]\nmode=safe" },
+    { input: `${keyAt511Characters}=opaque-59`, expected: `${keyAt511Characters}=[REDACTED]` },
+    { input: `${keyAt512Characters}=opaque-60`, expected: `${keyAt512Characters}=[REDACTED]` },
+    { input: `${keyAt513Characters}=opaque-61`, expected: `${keyAt513Characters}=[REDACTED]` },
+    { input: "t%256Fken=opaque-62", expected: "t%256Fken=[REDACTED]" },
+    { input: "%2574oken=opaque-63", expected: "%2574oken=[REDACTED]" },
+    { input: "t%5Cu006fken=opaque-64", expected: "t%5Cu006fken=[REDACTED]" },
   ] as const
   const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
   const incompleteAuthUrl = "https://fixtureUser:fixtureSecret@"

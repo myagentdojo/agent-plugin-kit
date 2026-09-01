@@ -221,22 +221,8 @@ const replaceConfiguredSecrets = (value: string, secrets: readonly string[]): st
 const maximumNormalizedAssignmentKeyTailLength = 64
 const maximumRawAssignmentKeyLength = 512
 const ambiguousAssignmentKeyCharacter = "?"
-const sensitiveAssignmentKeyTerms = [
-  "password",
-  "passwd",
-  "secret",
-  "token",
-  "authorization",
-  "cookie",
-  "credential",
-  "privatekey",
-  "apikey",
-] as const
-
-type AssignmentKeyScanState = {
-  normalizedTail: string
-  sensitive: boolean
-}
+const twoWordSensitiveAssignmentKeys = new Set(["privatekey", "apikey"])
+const assignmentKeyBoundaryCharacters = new Set([";", "\n", "\r", "{", "}", ":", "="])
 
 type AssignmentKeyCharacter = Readonly<{
   character: string
@@ -255,9 +241,17 @@ type SecretAssignmentRange = Readonly<{
 }>
 
 type AssignmentKey = Readonly<{
+  enclosingQuote?: number
   malformedQuote: boolean
   quoted: boolean
   raw: string
+  truncated: boolean
+}>
+
+type NormalizedAssignmentKeyWord = Readonly<{
+  ambiguous: boolean
+  sensitive: boolean
+  value: string
 }>
 
 const decodedHexCharacterAt = (
@@ -304,36 +298,6 @@ const percentEncodedKeyCharacterAt = (value: string, cursor: number): Assignment
     : { character, nextCursor: cursor + 3 }
 }
 
-const matchesSensitiveAssignmentChunks = (candidate: string, term: string): boolean => {
-  let matchedCharacters = 0
-  let termCursor = 0
-  for (const chunk of candidate.split(ambiguousAssignmentKeyCharacter)) {
-    if (chunk.length === 0) continue
-    const chunkStart = term.indexOf(chunk, termCursor)
-    if (chunkStart === -1) return false
-    matchedCharacters += chunk.length
-    termCursor = chunkStart + chunk.length
-  }
-  return matchedCharacters >= 3
-}
-
-const isSensitiveAssignmentKey = (candidate: string): boolean =>
-  secretKeyPattern.test(candidate)
-  || (
-    candidate.includes(ambiguousAssignmentKeyCharacter)
-    && sensitiveAssignmentKeyTerms.some((term) => matchesSensitiveAssignmentChunks(candidate, term))
-  )
-
-const appendAssignmentKeyCharacter = (
-  state: AssignmentKeyScanState,
-  character: string,
-): void => {
-  if (character !== ambiguousAssignmentKeyCharacter && !/[A-Za-z0-9]/.test(character)) return
-  state.normalizedTail = `${state.normalizedTail}${character.toLowerCase()}`
-    .slice(-maximumNormalizedAssignmentKeyTailLength)
-  state.sensitive ||= isSensitiveAssignmentKey(state.normalizedTail)
-}
-
 const encodedAssignmentKeyCharacterAt = (
   value: string,
   cursor: number,
@@ -356,18 +320,52 @@ const normalizedAssignmentKeyCharacterAt = (
   }
 }
 
-const sensitiveAssignmentKey = (raw: string): boolean => {
-  const key: AssignmentKeyScanState = {
-    normalizedTail: "",
-    sensitive: false,
-  }
+const normalizeAssignmentKeyWord = (raw: string): NormalizedAssignmentKeyWord => {
+  let normalized = ""
+  let ambiguous = false
+  let sensitive = false
   let cursor = 0
   while (cursor < raw.length) {
-    const normalized = normalizedAssignmentKeyCharacterAt(raw, cursor)
-    cursor = normalized.nextCursor
-    appendAssignmentKeyCharacter(key, normalized.character)
+    const character = normalizedAssignmentKeyCharacterAt(raw, cursor)
+    cursor = character.nextCursor
+    if (character.character === ambiguousAssignmentKeyCharacter) ambiguous = true
+    if (/[A-Za-z0-9]/.test(character.character)) {
+      normalized = `${normalized}${character.character.toLowerCase()}`
+        .slice(-maximumNormalizedAssignmentKeyTailLength)
+      sensitive ||= secretKeyPattern.test(normalized)
+    }
   }
-  return key.sensitive
+  return { ambiguous, sensitive, value: normalized }
+}
+
+const lastAssignmentKeyWords = (raw: string): readonly NormalizedAssignmentKeyWord[] =>
+  raw.trim().split(/\s+/).slice(-3).map(normalizeAssignmentKeyWord)
+
+const hasSensitiveAssignmentKeyTail = (
+  words: readonly NormalizedAssignmentKeyWord[],
+): boolean => words.slice(-2).some(({ ambiguous, sensitive }) => ambiguous || sensitive)
+
+const lastTwoAssignmentKeyWords = (
+  words: readonly NormalizedAssignmentKeyWord[],
+): string => words.slice(-2).map(({ value }) => value).join("")
+
+const hasSensitiveSigningKeyTail = (
+  words: readonly NormalizedAssignmentKeyWord[],
+  lastTwo: string,
+): boolean => {
+  const first = words.at(-3)
+  return lastTwo === "signingkey"
+    && first !== undefined
+    && (first.ambiguous || secretKeyPattern.test(first.value))
+}
+
+const sensitiveAssignmentKey = (key: AssignmentKey): boolean => {
+  if (key.truncated) return true
+  const words = lastAssignmentKeyWords(key.raw)
+  if (hasSensitiveAssignmentKeyTail(words)) return true
+  const lastTwo = lastTwoAssignmentKeyWords(words)
+  return twoWordSensitiveAssignmentKeys.has(lastTwo)
+    || hasSensitiveSigningKeyTail(words, lastTwo)
 }
 
 const assignmentSeparatorAt = (
@@ -393,11 +391,15 @@ const afterWhitespace = (value: string, start: number): number => {
 const isEscapedAt = (value: string, cursor: number): boolean => {
   let slashCount = 0
   let previous = cursor - 1
-  while (previous >= 0 && value[previous] === "\\") {
+  while (
+    previous >= 0
+    && slashCount <= maximumRawAssignmentKeyLength
+    && value[previous] === "\\"
+  ) {
     slashCount += 1
     previous -= 1
   }
-  return slashCount % 2 === 1
+  return slashCount > maximumRawAssignmentKeyLength || slashCount % 2 === 1
 }
 
 const closingQuoteAfter = (
@@ -421,18 +423,12 @@ const openingQuoteBefore = (
   const quote = value[closing]
   if (quote !== "\"" && quote !== "'") return undefined
   let cursor = closing - 1
-  while (cursor >= 0) {
+  const minimum = Math.max(0, closing - maximumRawAssignmentKeyLength)
+  while (cursor >= minimum) {
     if (value[cursor] === quote && !isEscapedAt(value, cursor)) return cursor
     cursor -= 1
   }
   return undefined
-}
-
-const isQuoteOpeningAt = (value: string, cursor: number): boolean => {
-  const quote = value[cursor]
-  if (quote !== "\"" && quote !== "'") return false
-  const previous = value[cursor - 1]
-  return previous === undefined || /[\s{[(,:=|;]/.test(previous)
 }
 
 const isSpacedPipeBoundaryBefore = (value: string, cursor: number): boolean =>
@@ -440,17 +436,23 @@ const isSpacedPipeBoundaryBefore = (value: string, cursor: number): boolean =>
   && /\s/.test(value[cursor - 2] ?? "")
   && /\s/.test(value[cursor] ?? "")
 
+const isSpacedCommaBoundaryBefore = (value: string, cursor: number): boolean =>
+  value[cursor - 1] === ","
+  && /\s/.test(value[cursor] ?? "")
+
 const isAssignmentKeyBoundaryBefore = (value: string, cursor: number): boolean => {
   const previous = value[cursor - 1]
   return previous === undefined
-    || previous === ";"
-    || previous === "\n"
-    || previous === "\r"
-    || previous === "{"
-    || previous === "}"
-    || previous === ":"
-    || previous === "="
+    || assignmentKeyBoundaryCharacters.has(previous)
     || isSpacedPipeBoundaryBefore(value, cursor)
+    || isSpacedCommaBoundaryBefore(value, cursor)
+}
+
+const isQuotedAssignmentKeyStart = (value: string, cursor: number): boolean => {
+  const quote = value[cursor]
+  if (quote !== "\"" && quote !== "'") return false
+  const previous = value[cursor - 1]
+  return previous === undefined || /[\s{[(,:=|;]/.test(previous)
 }
 
 const assignmentKeyEndBefore = (value: string, separatorStart: number): number => {
@@ -471,35 +473,44 @@ const quotedAssignmentKeyBefore = (
         malformedQuote: false,
         quoted: true,
         raw: value.slice(opening + 1, closing),
+        truncated: false,
       }
 }
 
-const assignmentKeyStartBefore = (value: string, end: number): number => {
+const assignmentKeyStartBefore = (
+  value: string,
+  end: number,
+): Readonly<{ start: number; truncated: boolean }> => {
   let start = end
   while (
     start > 0
     && end - start < maximumRawAssignmentKeyLength
     && !isAssignmentKeyBoundaryBefore(value, start)
+    && !isQuotedAssignmentKeyStart(value, start)
   ) {
     start -= 1
   }
+  const truncated = start > 0 && !isAssignmentKeyBoundaryBefore(value, start)
   while (start < end && /\s/.test(value[start] ?? "")) start += 1
-  return start
+  return { start, truncated }
 }
 
 const bareAssignmentKeyBefore = (
   value: string,
   end: number,
 ): AssignmentKey | undefined => {
-  const start = assignmentKeyStartBefore(value, end)
+  const { start, truncated } = assignmentKeyStartBefore(value, end)
   const leadingQuote = value[start] === "\"" || value[start] === "'"
   const raw = value.slice(leadingQuote ? start + 1 : start, end)
+  const enclosingQuote = leadingQuote ? closingQuoteAfter(value, start) : undefined
   return raw.length === 0
     ? undefined
     : {
-        malformedQuote: leadingQuote,
+        ...(enclosingQuote === undefined ? {} : { enclosingQuote }),
+        malformedQuote: leadingQuote && enclosingQuote === undefined,
         quoted: false,
         raw,
+        truncated,
       }
 }
 
@@ -515,23 +526,12 @@ const assignmentKeyBefore = (
 const isSyntacticAssignment = (
   value: string,
   separator: AssignmentSeparator,
-): boolean => {
-  const key = assignmentKeyBefore(value, separator)
-  if (key === undefined) return false
-  return separator.character !== ":"
-    || key.quoted
-    || key.malformedQuote
-    || !/\s/.test(key.raw)
-}
+): boolean => assignmentKeyBefore(value, separator) !== undefined
 
 const startsAssignment = (value: string, start: number): boolean => {
   const limit = Math.min(value.length, start + maximumRawAssignmentKeyLength)
   let cursor = afterWhitespace(value, start)
   while (cursor < limit) {
-    if (isQuoteOpeningAt(value, cursor)) {
-      const closing = closingQuoteAfter(value, cursor)
-      if (closing !== undefined) cursor = closing + 1
-    }
     const separator = assignmentSeparatorAt(value, cursor)
     if (separator !== undefined) return isSyntacticAssignment(value, separator)
     if (value.startsWith(" | ", cursor) || value[cursor] === ";") return false
@@ -563,13 +563,17 @@ const quotedValueEnd = (value: string, start: number, quote: string): number => 
     : nonWhitespaceEnd(value, closed)
 }
 
+const assignmentBoundaryWidthAt = (value: string, cursor: number): number => {
+  if (value.startsWith(" | ", cursor)) return 3
+  if (value.startsWith("| ", cursor)) return 2
+  return ",;\n\r".includes(value[cursor] ?? "") ? 1 : 0
+}
+
 const unquotedAssignmentValueEnd = (value: string, start: number): number => {
   let end = start
   while (end < value.length) {
-    const pipeBoundary = value.startsWith(" | ", end)
-    const commaBoundary = value[end] === ","
-    const nextStart = pipeBoundary ? end + 3 : end + 1
-    if ((pipeBoundary || commaBoundary) && startsAssignment(value, nextStart)) break
+    const boundaryWidth = assignmentBoundaryWidthAt(value, end)
+    if (boundaryWidth > 0 && startsAssignment(value, end + boundaryWidth)) break
     end += 1
   }
   while (end > start && /\s/.test(value[end - 1] ?? "")) end -= 1
@@ -579,11 +583,17 @@ const unquotedAssignmentValueEnd = (value: string, start: number): number => {
 const assignmentValueRangeAfter = (
   value: string,
   separator: AssignmentSeparator,
+  key: AssignmentKey,
 ): SecretAssignmentRange => {
   const valueStart = separator.end
+  if (key.enclosingQuote !== undefined) {
+    return { valueStart, valueEnd: key.enclosingQuote }
+  }
   const contentStart = afterWhitespace(value, valueStart)
   const quote = value[contentStart]
-  const emptyBeforeAssignment = quote === "|" && startsAssignment(value, contentStart + 1)
+  const emptyBoundaryWidth = assignmentBoundaryWidthAt(value, contentStart)
+  const emptyBeforeAssignment = emptyBoundaryWidth > 0
+    && startsAssignment(value, contentStart + emptyBoundaryWidth)
   if (emptyBeforeAssignment) return { valueStart, valueEnd: valueStart }
   if (quote === undefined) return { valueStart, valueEnd: contentStart }
   return {
@@ -600,13 +610,6 @@ const redactSecretAssignments = (value: string): string => {
   let cursor = 0
   let redacted = false
   while (cursor < value.length) {
-    if (isQuoteOpeningAt(value, cursor)) {
-      const closing = closingQuoteAfter(value, cursor)
-      if (closing !== undefined) {
-        cursor = closing + 1
-        continue
-      }
-    }
     const separator = assignmentSeparatorAt(value, cursor)
     if (separator === undefined) {
       cursor += 1
@@ -616,12 +619,12 @@ const redactSecretAssignments = (value: string): string => {
     if (
       key === undefined
       || !isSyntacticAssignment(value, separator)
-      || !sensitiveAssignmentKey(key.raw)
+      || !sensitiveAssignmentKey(key)
     ) {
       cursor = separator.end
       continue
     }
-    const assignment = assignmentValueRangeAfter(value, separator)
+    const assignment = assignmentValueRangeAfter(value, separator, key)
     output.push(value.slice(copiedThrough, assignment.valueStart), redactedDiagnosticValue)
     copiedThrough = assignment.valueEnd
     cursor = Math.max(separator.end, assignment.valueEnd)
