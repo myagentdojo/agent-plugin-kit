@@ -12,6 +12,7 @@ import type {
 } from "../../modules/maintenance-command-contract/interface"
 
 export type DiagnosticMessage =
+  | `Maintenance command reached result code "${ResultCode}".`
   | `Maintenance command failed with result code "${ResultCode}".`
   | "Inspect the configured event transport; do not repeat the command solely to replay its event."
   | `Diagnostic buffer dropped ${number} oldest record.`

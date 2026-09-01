@@ -21,7 +21,7 @@ import {
   maintenanceSuccessEnvelopeDataSchema,
   isPlainJsonTree,
 } from "../../modules/maintenance-command-contract/serialized-values"
-import { canonicalNextActionFor } from "../../modules/maintenance-command-contract/branch-stations"
+import { canonicalNextActionFor, stationSlugFor } from "../../modules/maintenance-command-contract/branch-stations"
 import { commandVocabulary } from "../../modules/maintenance-command-contract/command-vocabulary"
 import {
   actionVocabulary,
@@ -147,6 +147,9 @@ if (eventDeliveryFailureProjection === undefined) {
 export const diagnosticFailureMessageFor = (resultCode: ResultCode): DiagnosticMessage =>
   `Maintenance command failed with result code "${resultCode}".`
 
+export const diagnosticOutcomeContextMessageFor = (resultCode: ResultCode): DiagnosticMessage =>
+  `Maintenance command reached result code "${resultCode}".`
+
 export const diagnosticBufferMessageFor = (droppedRecordCount: number): DiagnosticMessage =>
   `Diagnostic buffer dropped ${droppedRecordCount} oldest record${droppedRecordCount === 1 ? "" : "s"}.`
 
@@ -209,6 +212,11 @@ const canonicalDiagnosticMessageFor = (
       ? undefined
       : diagnosticBufferMessageFor(record.dropped_record_count)
   }
+  if (record.event === "maintenance.outcome-context") {
+    return record.result_code === undefined
+      ? undefined
+      : diagnosticOutcomeContextMessageFor(record.result_code)
+  }
   if (record.dropped_record_count !== undefined) return undefined
   if (record.event === "event.delivery-failed") return eventDeliveryFailureMessage
   return record.result_code === undefined
@@ -247,6 +255,58 @@ const hasCanonicalDiagnosticNextAction = (record: DiagnosticRecordCandidate): bo
   return expected !== undefined && isExactCanonicalNextAction(record.next_action, expected)
 }
 
+const addOutcomeContextIssue = (
+  ctx: z.RefinementCtx,
+  condition: boolean,
+  message: string,
+  path: string,
+): void => {
+  if (condition) ctx.addIssue({ code: "custom", message, path: [path] })
+}
+
+const refineOutcomeContextShape = (
+  record: DiagnosticRecordCandidate,
+  ctx: z.RefinementCtx,
+): void => {
+  addOutcomeContextIssue(ctx, record.level !== "info", "outcome context must use info level", "level")
+  addOutcomeContextIssue(ctx, record.station_id === undefined, "outcome context requires station metadata", "station_id")
+  addOutcomeContextIssue(ctx, record.result_code === undefined, "outcome context requires result metadata", "result_code")
+  addOutcomeContextIssue(ctx, record.failure_class !== undefined, "outcome context cannot carry failure class", "failure_class")
+  addOutcomeContextIssue(ctx, record.next_action !== undefined, "outcome context cannot carry next action", "next_action")
+  addOutcomeContextIssue(ctx, record.dropped_record_count !== undefined, "outcome context cannot carry dropped record count", "dropped_record_count")
+}
+
+const expectedOutcomeContextStationIdFor = (
+  record: DiagnosticRecordCandidate,
+): string | undefined => {
+  if (record.command === undefined || record.result_code === undefined) return undefined
+  return `${stationSlugFor(record.command)}.${record.result_code}`
+}
+
+const refineOutcomeContextCommand = (
+  record: DiagnosticRecordCandidate,
+  ctx: z.RefinementCtx,
+): void => {
+  if (record.station_id === undefined || record.result_code === undefined) return
+  const usageRefusal = record.station_id === "maintenance.usage-refused"
+  addOutcomeContextIssue(ctx, usageRefusal && record.command !== undefined, "usage refusal context cannot carry a command", "command")
+  addOutcomeContextIssue(ctx, !usageRefusal && record.command === undefined, "selected command context requires a command", "command")
+  addOutcomeContextIssue(
+    ctx,
+    record.command !== undefined && record.station_id !== expectedOutcomeContextStationIdFor(record),
+    "outcome context command disagrees with station or result",
+    "command",
+  )
+  const resultSuffix = record.station_id.slice(record.station_id.lastIndexOf(".") + 1)
+  addOutcomeContextIssue(ctx, resultSuffix !== record.result_code, "outcome context station disagrees with result", "station_id")
+}
+
+const refineOutcomeContext = (record: DiagnosticRecordCandidate, ctx: z.RefinementCtx): void => {
+  if (record.event !== "maintenance.outcome-context") return
+  refineOutcomeContextShape(record, ctx)
+  refineOutcomeContextCommand(record, ctx)
+}
+
 const refineDiagnosticRecord = (record: DiagnosticRecordCandidate, ctx: z.RefinementCtx): void => {
   const canonicalMessage = canonicalDiagnosticMessageFor(record)
   if (canonicalMessage === undefined || record.message !== canonicalMessage) {
@@ -255,6 +315,7 @@ const refineDiagnosticRecord = (record: DiagnosticRecordCandidate, ctx: z.Refine
   if (!hasCanonicalDiagnosticNextAction(record)) {
     ctx.addIssue({ code: "custom", message: "invalid canonical diagnostic next action", path: ["next_action"] })
   }
+  refineOutcomeContext(record, ctx)
 }
 
 const diagnosticRecordSchema = diagnosticRecordBaseSchema.superRefine(refineDiagnosticRecord)

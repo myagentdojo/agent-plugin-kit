@@ -31,6 +31,7 @@ import {
 } from "../../../modules/maintenance-command-contract/implementation/maintenance-commands"
 import {
   diagnosticFailureMessageFor,
+  diagnosticOutcomeContextMessageFor,
   eventDeliveryFailureNextAction,
   serializeFacadeErrorEgress,
   serializeFacadeSuccessEgress,
@@ -348,6 +349,30 @@ const outcomeValueMetadata = (outcome: TrustedMaintenanceOutcome): OutcomeValueM
   }
 }
 
+const diagnosticOutcomeContextFor = (
+  timestamp: string,
+  runId: string,
+  outcome: TrustedMaintenanceOutcome,
+  command?: MaintenanceCommand["command"],
+): DiagnosticRecordWithoutSequence => {
+  const metadata = outcomeValueMetadata(outcome)
+  return {
+    schema_version: 2,
+    record_type: "diagnostic",
+    timestamp,
+    level: "info",
+    category: ["agent-plugin-kit", "maintenance"],
+    event: "maintenance.outcome-context",
+    run_id: runId,
+    ...(command === undefined ? {} : { command }),
+    station_id: outcome.stationId,
+    result_code: outcome.resultCode,
+    transaction_state: metadata.transactionState,
+    retry_safety: metadata.retrySafety,
+    message: diagnosticOutcomeContextMessageFor(outcome.resultCode),
+  }
+}
+
 const diagnosticWithoutSequenceFor = (
   timestamp: string,
   runId: string,
@@ -579,6 +604,11 @@ const usageRefusalFor = async (
   message: string,
 ): Promise<ProcessObservation> => {
   const usage = maintenanceUsageRefusalOutcome()
+  await runtime.record(diagnosticOutcomeContextFor(
+    timestampFor(correlation),
+    runId,
+    usage,
+  ))
   await runtime.record(diagnosticWithoutSequenceFor(
     timestampFor(correlation),
     runId,
@@ -597,6 +627,12 @@ const recordOutcomeDiagnostic = async (
   outcome: TrustedMaintenanceOutcome,
 ): Promise<void> => {
   if (outcome.status !== "error") return
+  await runtime.record(diagnosticOutcomeContextFor(
+    timestampFor(correlation),
+    runId,
+    outcome,
+    command.command,
+  ))
   await runtime.record(diagnosticWithoutSequenceFor(
     timestampFor(correlation),
     runId,
@@ -632,6 +668,12 @@ const acceptEventFor = async (
     acceptance = undefined
   }
   if (acceptance?.status !== "accepted") {
+    await runtime.record(diagnosticOutcomeContextFor(
+      timestampFor(correlation),
+      runId,
+      outcome,
+      command.command,
+    ))
     await runtime.record(eventFailureDiagnosticFor(
       timestampFor(correlation),
       runId,

@@ -18,6 +18,12 @@ export const fixedEventFailure = {
   failureClass: "event_delivery",
   nextActionId: "events.inspect-configuration",
 } as const
+export const outcomeContextContract = {
+  event: "maintenance.outcome-context",
+  level: "info",
+  usageRefusalMessage: 'Maintenance command reached result code "usage-refused".',
+  previewedMessage: 'Maintenance command reached result code "previewed".',
+} as const
 
 export const bufferedSequence = [1, 2, 3, 4] as const
 export const boundedBuffer = { maximum: 250, drop: "oldest", truncationRecords: 1 } as const

@@ -33,6 +33,7 @@ import {
   fixedEventFailure,
   hostileColorEnvironment,
   lifecycleContract,
+  outcomeContextContract,
 } from "./fixtures/literal-observability-cases"
 
 const absent = (actual: unknown, expected: unknown, claim: string) =>
@@ -136,9 +137,13 @@ async function facadeHarness(options: {
     options.throwOnDispose === undefined ? {} : { throwOnDispose: options.throwOnDispose },
   )
   const events = createEventRecordingAdapter({ status: options.eventAcceptance ?? "accepted" })
+  let diagnosticFactoryLoads = 0
   const facade = createMaintenanceCommandFacade({
     commands: commands.commands,
-    diagnosticFactory: async () => diagnostics.adapter,
+    diagnosticFactory: async () => {
+      diagnosticFactoryLoads += 1
+      return diagnostics.adapter
+    },
     ...(options.withoutEventFactory
       ? {}
       : {
@@ -154,7 +159,7 @@ async function facadeHarness(options: {
     },
     stdin: "",
   })
-  return { commands, diagnostics, events, observation }
+  return { commands, diagnostics, events, diagnosticFactoryLoads, observation }
 }
 
 const productionEventHarness = () => {
@@ -233,6 +238,29 @@ const overflowSummaryFor = (records: readonly DiagnosticRecord[]) => {
     truncationRecords: records.filter(({ event }) => event === "diagnostic.buffer-truncated").length,
     uniqueSequences: new Set(sequences).size === sequences.length,
   }
+}
+
+const outcomeContextRecord = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+  schema_version: 2,
+  record_type: "diagnostic",
+  timestamp: "2026-08-27T00:00:00.000Z",
+  sequence: 1,
+  level: outcomeContextContract.level,
+  category: ["agent-plugin-kit", "maintenance"],
+  event: outcomeContextContract.event,
+  run_id: "contract-help-literal",
+  station_id: "maintenance.usage-refused",
+  result_code: "usage-refused",
+  transaction_state: "unchanged",
+  retry_safety: "safe",
+  message: outcomeContextContract.usageRefusalMessage,
+  ...overrides,
+})
+
+const withoutField = (record: Record<string, unknown>, field: string): Record<string, unknown> => {
+  const copy = { ...record }
+  delete copy[field]
+  return copy
 }
 
 test("machine stdout contains only the primary success envelope", async () => {
@@ -318,15 +346,57 @@ test("buffer overflow drops oldest and emits one truncation record", () => {
   )
 })
 test("buffered context precedes trigger and primary error envelope is last", async () => {
-  const harness = await facadeHarness({ argv: ["--run-id", "contract-help-literal", "unknown"] })
-  absent(
-    {
-      diagnosticSequences: harness.diagnostics.records.map(({ sequence }) => sequence),
-      finalStderrRecord: harness.observation.stderr.split("\n").filter(Boolean).at(-1),
-    },
-    { diagnosticSequences: [1], finalStderrRecord: literalUsageProcess.stderr.trim() },
-    "stderr placement must keep the primary refusal last",
-  )
+  const cases = [
+    { label: "default", flag: undefined, written: [
+      { event: outcomeContextContract.event, level: outcomeContextContract.level, sequence: 1 },
+      { event: "maintenance.usage-refused", level: "error", sequence: 2 },
+    ] },
+    { label: "quiet", flag: "--quiet", written: [
+      { event: "maintenance.usage-refused", level: "error", sequence: 2 },
+    ] },
+    { label: "verbose", flag: "--verbose", written: [
+      { event: outcomeContextContract.event, level: outcomeContextContract.level, sequence: 1 },
+      { event: "maintenance.usage-refused", level: "error", sequence: 2 },
+    ] },
+    { label: "debug", flag: "--debug", written: [
+      { event: outcomeContextContract.event, level: outcomeContextContract.level, sequence: 1 },
+      { event: "maintenance.usage-refused", level: "error", sequence: 2 },
+    ] },
+  ] as const
+  for (const { label, flag, written } of cases) {
+    const argv = flag === undefined
+      ? ["--run-id", "contract-help-literal", "unknown"]
+      : [flag, "--run-id", "contract-help-literal", "unknown"]
+    const harness = await facadeHarness({ argv })
+    absent(
+      {
+        diagnosticRecords: harness.diagnostics.records.map(({ event, level, sequence }) => ({ event, level, sequence })),
+        finalStderrRecord: harness.observation.stderr.split("\n").filter(Boolean).at(-1),
+      },
+      { diagnosticRecords: written, finalStderrRecord: literalUsageProcess.stderr.trim() },
+      `${label} mode must preserve context, trigger, and primary refusal order`,
+    )
+    const context = harness.diagnostics.records.find(({ event }) => event === outcomeContextContract.event)
+    if (flag === "--quiet") {
+      expect(context, `${label} mode must suppress the contextual record`).toBeUndefined()
+    } else {
+      expect(context, `${label} mode must write the contextual record`).toEqual({
+        schema_version: 2,
+        record_type: "diagnostic",
+        timestamp: expect.any(String),
+        sequence: 1,
+        level: outcomeContextContract.level,
+        category: ["agent-plugin-kit", "maintenance"],
+        event: outcomeContextContract.event,
+        run_id: "contract-help-literal",
+        station_id: "maintenance.usage-refused",
+        result_code: "usage-refused",
+        transaction_state: "unchanged",
+        retry_safety: "safe",
+        message: outcomeContextContract.usageRefusalMessage,
+      })
+    }
+  }
 })
 test("pipeline reset and adapter dispose preserve host logging and primary result", async () => {
   const harness = diagnosticHarness("default")
@@ -365,7 +435,7 @@ test("pipeline reset and adapter dispose preserve host logging and primary resul
       facadeLifecycle: ["flush", "dispose"],
       directFacadeCorrelation: {
         runIds: ["contract-help-literal", "contract-help-literal"],
-        sequences: [1, 2],
+        sequences: [1, 3],
         uniqueSequences: true,
       },
       productionLogTape: {
@@ -410,24 +480,60 @@ test("event acceptance is synchronous and best effort", async () => {
   }
   absent(
     {
-      accepted: { eventCount: harness.events.records.length, ipv6LoopbackAccepted, primary: harness.observation },
-      off: { eventFactoryLoads: offFactoryLoads, commandCalls: off.commands.calls.length, primary: off.observation },
-      absentEndpoint: { commandCalls: absentEndpoint.commands.calls.length, primary: absentEndpoint.observation },
+      accepted: {
+        eventCount: harness.events.records.length,
+        diagnosticFactoryLoads: harness.diagnosticFactoryLoads,
+        diagnostics: harness.diagnostics.records,
+        ipv6LoopbackAccepted,
+        primary: harness.observation,
+      },
+      off: {
+        eventFactoryLoads: offFactoryLoads,
+        diagnosticFactoryLoads: off.diagnosticFactoryLoads,
+        commandCalls: off.commands.calls.length,
+        diagnostics: off.diagnostics.records,
+        primary: off.observation,
+      },
+      absentEndpoint: {
+        diagnosticFactoryLoads: absentEndpoint.diagnosticFactoryLoads,
+        commandCalls: absentEndpoint.commands.calls.length,
+        diagnostics: absentEndpoint.diagnostics.records,
+        primary: absentEndpoint.observation,
+      },
       invalid: {
         eventFactoryLoads: invalidFactoryLoads,
+        diagnosticFactoryLoads: invalid.diagnosticFactoryLoads,
         commandCalls: invalid.commands.calls,
         diagnostics: invalid.diagnostics.records.map(({ event }) => event),
         primary: invalid.observation,
       },
     },
     {
-      accepted: { eventCount: 1, ipv6LoopbackAccepted: true, primary: literalHelpProcess },
-      off: { eventFactoryLoads: 0, commandCalls: 1, primary: literalHelpProcess },
-      absentEndpoint: { commandCalls: 1, primary: literalHelpProcess },
+      accepted: {
+        eventCount: 1,
+        diagnosticFactoryLoads: 0,
+        diagnostics: [],
+        ipv6LoopbackAccepted: true,
+        primary: literalHelpProcess,
+      },
+      off: {
+        eventFactoryLoads: 0,
+        diagnosticFactoryLoads: 0,
+        commandCalls: 1,
+        diagnostics: [],
+        primary: literalHelpProcess,
+      },
+      absentEndpoint: {
+        diagnosticFactoryLoads: 0,
+        commandCalls: 1,
+        diagnostics: [],
+        primary: literalHelpProcess,
+      },
       invalid: {
         eventFactoryLoads: 1,
+        diagnosticFactoryLoads: 1,
         commandCalls: [],
-        diagnostics: ["maintenance.usage-refused"],
+        diagnostics: [outcomeContextContract.event, "maintenance.usage-refused"],
         primary: invalidPrimary,
       },
     },
@@ -457,7 +563,7 @@ test("event refusal retains run sequence event ID result and station correlation
       },
       correlation: {
         runIds: ["contract-help-literal", "contract-help-literal"],
-        sequences: [1, 2],
+        sequences: [1, 3],
         eventId: "opaque-event-id",
       },
       primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode },
@@ -550,6 +656,33 @@ test("closed diagnostics fail closed and native field redaction protects the sin
   }
   forgedEventRepair.pipeline.record(eventRepair)
 
+  const malformedContext = diagnosticHarness("debug")
+  const context = outcomeContextRecord()
+  const contextCases = [
+    withoutField(context, "station_id"),
+    withoutField(context, "result_code"),
+    { ...context, failure_class: "usage" },
+    { ...context, next_action: { id: "maintenance.show-help" } },
+    { ...context, dropped_record_count: 1 },
+    {
+      ...context,
+      station_id: "help.previewed",
+      result_code: "previewed",
+      message: outcomeContextContract.previewedMessage,
+    },
+    {
+      ...context,
+      command: "maintenance",
+      station_id: "help.previewed",
+      result_code: "previewed",
+      message: outcomeContextContract.previewedMessage,
+    },
+    { ...context, command: "help" },
+  ]
+  for (const [index, candidate] of contextCases.entries()) {
+    malformedContext.pipeline.record({ ...candidate, sequence: index + 7 } as unknown as DiagnosticRecord)
+  }
+
   const writes: string[] = []
   const native = createLogTapeDiagnosticAdapter({ write: (line) => writes.push(line) })
   native.record({
@@ -584,6 +717,7 @@ test("closed diagnostics fail closed and native field redaction protects the sin
       configuredSecretRecords: configured.records,
       missingRepairRecords: missingRepair.records,
       forgedEventRepairRecords: forgedEventRepair.records,
+      malformedContextRecords: malformedContext.records,
       recordsFrozen: [...diagnostic.records, ...harness.diagnostics.records, ...harness.events.records]
         .every(Object.isFrozen),
       configuredSecretLeaked: serialized.includes(configuredSecret),
@@ -602,6 +736,7 @@ test("closed diagnostics fail closed and native field redaction protects the sin
       configuredSecretRecords: [],
       missingRepairRecords: [],
       forgedEventRepairRecords: [],
+      malformedContextRecords: [],
       recordsFrozen: true,
       configuredSecretLeaked: false,
       structuredSecretLeaked: false,

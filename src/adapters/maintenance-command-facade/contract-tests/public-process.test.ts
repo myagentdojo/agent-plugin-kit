@@ -4,6 +4,7 @@ import { resolve } from "node:path"
 import { literalUsageProcess } from "../../../modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results"
 import { invokeClosedStreamNegativeControl, invokePublicProcess, invokeRetainedDescriptorNegativeControl } from "./adapters/public-process-adapter"
 import { fixedHelpScenarios, fixedRunId, fixedUsageScenario } from "./fixtures/literal-cli-scenarios"
+import { outcomeContextContract } from "./fixtures/literal-observability-cases"
 import type { ProcessObservation } from "../interface"
 
 const invokeAndExpect = async (argv: readonly string[], expected: ProcessObservation, claim: string) => {
@@ -20,12 +21,27 @@ const invokeUsageAndExpect = async (
   expect(actual.stdout, `contract-absent: ${claim} must not write stdout`).toBe("")
   expect(actual.exitCode, `contract-absent: ${claim} must preserve the usage exit`).toBe(literalUsageProcess.exitCode)
   const records = actual.stderr.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>)
-  expect(records, `contract-absent: ${claim} must emit diagnostic JSONL before the primary envelope`).toHaveLength(2)
-  const [diagnostic, primary] = records
+  expect(records, `contract-absent: ${claim} must emit diagnostic JSONL before the primary envelope`).toHaveLength(3)
+  const [context, diagnostic, primary] = records
+  expect(context).toEqual({
+    schema_version: 2,
+    record_type: "diagnostic",
+    timestamp: expect.any(String),
+    sequence: 1,
+    level: outcomeContextContract.level,
+    category: ["agent-plugin-kit", "maintenance"],
+    event: outcomeContextContract.event,
+    run_id: fixedRunId,
+    station_id: "maintenance.usage-refused",
+    result_code: "usage-refused",
+    transaction_state: "unchanged",
+    retry_safety: "safe",
+    message: outcomeContextContract.usageRefusalMessage,
+  })
   expect(diagnostic).toMatchObject({
     schema_version: 2,
     record_type: "diagnostic",
-    sequence: 1,
+    sequence: 2,
     level: "error",
     category: ["agent-plugin-kit", "maintenance"],
     event: "maintenance.usage-refused",
