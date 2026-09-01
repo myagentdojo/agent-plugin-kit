@@ -28,6 +28,7 @@ import {
 import {
   expectedBranchStationSourceSha256,
   expectedDependencyFreeHelpRuntimeTrace,
+  expectedQualificationConditionalExport,
   expectedRootTypeExports,
   expectedSubpathRuntimeExports,
   expectedSubpathTypeExports,
@@ -77,6 +78,9 @@ type InstalledPackageObservation = {
   readonly qualificationRuntimeTargetPerturbationControl: {
     readonly refused: true
     readonly baselineRestored: true
+    readonly descriptor: typeof expectedQualificationConditionalExport
+    readonly perturbationsRefused: readonly string[]
+    readonly restorationsProved: readonly string[]
   }
   readonly admittedExecutionOrder: readonly [
     "admission",
@@ -129,6 +133,8 @@ type InstalledPackageObservation = {
     readonly elapsedMs: number
     readonly withinDeadlineGrace: true
     readonly postKillGraceExpired: false
+    readonly readerCancellation: "not-required"
+    readonly readerCancellationMs: 100
     readonly descriptorHoldingSensitivity: {
       readonly refused: true
       readonly postKillGraceExpired: true
@@ -136,6 +142,8 @@ type InstalledPackageObservation = {
       readonly descendantTerminatedAfterRestoration: true
       readonly withinOuterBound: true
       readonly outerDeadlineMs: 1_650
+      readonly readerCancellation: "completed"
+      readonly readerCancellationMs: 100
     }
   }
 }
@@ -173,11 +181,13 @@ type SpawnResult = {
   readonly cleanup: {
     readonly deadlineMs: number
     readonly timedOut: boolean
-    readonly descriptorClosure: "closed" | "cancelled-after-grace"
+    readonly descriptorClosure: "closed" | "cancelled-after-grace" | "cancellation-deadline-expired"
     readonly cleanup: "natural" | "process-group-killed"
     readonly processGroupId: number
     readonly postKillGraceMs: number
     readonly postKillGraceExpired: boolean
+    readonly readerCancellation: "not-required" | "completed" | "deadline-expired"
+    readonly readerCancellationMs: number
   }
 }
 
@@ -225,6 +235,7 @@ class PhaseLedger {
 
 const defaultProcessDeadlineMs = 30_000
 const defaultPostKillGraceMs = 1_000
+const readerCancellationDeadlineMs = 100
 
 function timer(ms: number): { readonly elapsed: Promise<void>; readonly cancel: () => void } {
   let handle: ReturnType<typeof setTimeout> | undefined
@@ -277,7 +288,10 @@ async function settleAfterProcessKill(
   stdout: ReturnType<typeof captureStream>,
   stderr: ReturnType<typeof captureStream>,
   postKillGraceMs: number,
-): Promise<boolean> {
+): Promise<{
+  readonly graceExpired: boolean
+  readonly readerCancellation: "not-required" | "completed" | "deadline-expired"
+}> {
   const grace = timer(postKillGraceMs)
   const postKill = await Promise.race([
     settled.then(() => "settled" as const),
@@ -285,14 +299,27 @@ async function settleAfterProcessKill(
   ])
   grace.cancel()
   const graceExpired = postKill === "grace-expired"
-  if (graceExpired) await Promise.allSettled([stdout.cancel(), stderr.cancel()])
-  return graceExpired
+  if (!graceExpired) return { graceExpired: false, readerCancellation: "not-required" }
+  const cancellation = timer(readerCancellationDeadlineMs)
+  const cancellationResult = await Promise.race([
+    Promise.allSettled([stdout.cancel(), stderr.cancel()]).then(() => "completed" as const),
+    cancellation.elapsed.then(() => "deadline-expired" as const),
+  ])
+  cancellation.cancel()
+  return { graceExpired: true, readerCancellation: cancellationResult }
 }
 
 function optionalSpawnEnvironment(
   environment: Readonly<Record<string, string | undefined>> | undefined,
 ): {} | { readonly env: Readonly<Record<string, string | undefined>> } {
   return environment === undefined ? {} : { env: environment }
+}
+
+function descriptorClosureFor(
+  settlement: Awaited<ReturnType<typeof settleAfterProcessKill>>,
+): SpawnResult["cleanup"]["descriptorClosure"] {
+  if (settlement.readerCancellation === "deadline-expired") return "cancellation-deadline-expired"
+  return settlement.graceExpired ? "cancelled-after-grace" : "closed"
 }
 
 async function spawn(command: readonly string[], options: {
@@ -331,9 +358,10 @@ async function spawn(command: readonly string[], options: {
   deadline.cancel()
   const timedOut = first === "deadline"
   if (timedOut) killProcessGroup(child.pid, () => child.kill("SIGKILL"))
-  const postKillGraceExpired = timedOut
+  const postKillSettlement = timedOut
     ? await settleAfterProcessKill(settled, stdout, stderr, postKillGraceMs)
-    : false
+    : { graceExpired: false, readerCancellation: "not-required" as const }
+  const descriptorClosure = descriptorClosureFor(postKillSettlement)
   return {
     exitCode: timedOut ? 124 : (observedExitCode ?? 1),
     stdout: stdout.text(),
@@ -341,11 +369,13 @@ async function spawn(command: readonly string[], options: {
     cleanup: {
       deadlineMs,
       timedOut,
-      descriptorClosure: postKillGraceExpired ? "cancelled-after-grace" : "closed",
+      descriptorClosure,
       cleanup: timedOut ? "process-group-killed" : "natural",
       processGroupId: child.pid,
       postKillGraceMs,
-      postKillGraceExpired,
+      postKillGraceExpired: postKillSettlement.graceExpired,
+      readerCancellation: postKillSettlement.readerCancellation,
+      readerCancellationMs: readerCancellationDeadlineMs,
     },
   }
 }
@@ -1128,38 +1158,81 @@ async function qualificationPerturbationIsRefused(
 ): Promise<InstalledPackageObservation["qualificationRuntimeTargetPerturbationControl"]> {
   const manifestPath = join(packageRoot, "package.json")
   const original = readFileSync(manifestPath, "utf8")
-  const manifest = JSON.parse(original) as { exports: Record<string, unknown> }
-  const qualification = manifest.exports["./qualification-evidence"]
-  if (qualification === null || typeof qualification !== "object") {
-    throw new Error("qualification export is not conditional")
+  const baselineManifest = JSON.parse(original) as { exports: Record<string, unknown> }
+  const baselineDescriptor = qualificationConditionalDescriptor(baselineManifest.exports)
+  if (!qualificationDescriptorMatchesExpected(baselineDescriptor)) {
+    throw new Error("installed Qualification Evidence conditional descriptor is not exact")
   }
-  manifest.exports["./qualification-evidence"] = {
-    ...(qualification as Record<string, unknown>),
-    import: "./src/modules/qualification-evidence/interface.ts",
-    default: "./src/modules/qualification-evidence/interface.ts",
+  const targets = expectedQualificationConditionalExport.targets
+  const perturbations = [
+    ["remove-types", { import: targets.import, default: targets.default }],
+    ["remove-import", { types: targets.types, default: targets.default }],
+    ["remove-default", { types: targets.types, import: targets.import }],
+    ["reorder", { import: targets.import, types: targets.types, default: targets.default }],
+    ["redirect-types", { types: targets.import, import: targets.import, default: targets.default }],
+    ["redirect-import", { types: targets.types, import: targets.types, default: targets.default }],
+    ["redirect-default-only", { types: targets.types, import: targets.import, default: targets.types }],
+  ] as const
+  const perturbationsRefused: string[] = []
+  const restorationsProved: string[] = []
+  for (const [label, descriptor] of perturbations) {
+    const manifest = JSON.parse(original) as { exports: Record<string, unknown> }
+    manifest.exports["./qualification-evidence"] = descriptor
+    try {
+      writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 })
+      const installedPerturbation = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+        exports: Record<string, unknown>
+      }
+      if (!qualificationDescriptorMatchesExpected(
+        qualificationConditionalDescriptor(installedPerturbation.exports),
+      )) perturbationsRefused.push(label)
+    } finally {
+      writeFileSync(manifestPath, original, { mode: 0o600 })
+    }
+    const compilerRestored = await publicTypeResolutionSucceeds(consumerRoot, environment)
+    const catalogRestored = typeCatalogMatchesExpected(
+      installedTypeCatalog(packageRoot, baselineManifest.exports),
+    )
+    const runtimeRestored = readJsonOutput<QualificationProbeObservation>(
+      `restored Qualification descriptor after ${label}`,
+      await spawn(["bun", "--no-install", probePath, probeInputPath], {
+        cwd: consumerRoot,
+        env: environment,
+      }),
+    )
+    if (compilerRestored && catalogRestored && JSON.stringify(runtimeRestored) === JSON.stringify(baseline)) {
+      restorationsProved.push(label)
+    }
   }
-  let refused = false
-  try {
-    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 })
-    const result = await spawn(["bun", "--no-install", probePath, probeInputPath], {
-      cwd: consumerRoot,
-      env: environment,
-    })
-    refused = result.exitCode !== 0 && result.stderr.includes("qualification reducer unavailable")
-  } finally {
-    writeFileSync(manifestPath, original, { mode: 0o600 })
+  if (perturbationsRefused.length !== perturbations.length || restorationsProved.length !== perturbations.length) {
+    throw new Error("Qualification conditional descriptor perturbations were not refused and restored")
   }
-  const restored = readJsonOutput<QualificationProbeObservation>(
-    "restored installed public Qualification probe",
-    await spawn(["bun", "--no-install", probePath, probeInputPath], {
-      cwd: consumerRoot,
-      env: environment,
-    }),
-  )
-  if (!refused || JSON.stringify(restored) !== JSON.stringify(baseline)) {
-    throw new Error("qualification runtime target perturbation was not refused and restored")
+  return {
+    refused: true,
+    baselineRestored: true,
+    descriptor: expectedQualificationConditionalExport,
+    perturbationsRefused,
+    restorationsProved,
   }
-  return { refused: true, baselineRestored: true }
+}
+
+function qualificationConditionalDescriptor(exportsMap: Readonly<Record<string, unknown>>): {
+  readonly keys: readonly string[]
+  readonly targets: Readonly<Record<string, string>>
+} | undefined {
+  const value = exportsMap["./qualification-evidence"]
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined
+  const entries = Object.entries(value)
+  if (entries.some(([, target]) => typeof target !== "string")) return undefined
+  return { keys: entries.map(([key]) => key), targets: Object.fromEntries(entries) as Record<string, string> }
+}
+
+function qualificationDescriptorMatchesExpected(
+  descriptor: ReturnType<typeof qualificationConditionalDescriptor>,
+): boolean {
+  return descriptor !== undefined &&
+    JSON.stringify(descriptor.keys) === JSON.stringify(expectedQualificationConditionalExport.keys) &&
+    JSON.stringify(descriptor.targets) === JSON.stringify(expectedQualificationConditionalExport.targets)
 }
 
 function typeCatalogMatchesExpected(catalog: ReturnType<typeof installedTypeCatalog>): boolean {
@@ -1514,6 +1587,7 @@ async function proveBoundedProcessTreeTimeout(
     result.cleanup.timedOut,
     result.cleanup.descriptorClosure === "closed",
     !result.cleanup.postKillGraceExpired,
+    result.cleanup.readerCancellation === "not-required",
     !liveness.descendantExists,
     !liveness.processGroupExists,
     elapsedMs >= deadlineMs && elapsedMs <= deadlineMs + graceMs,
@@ -1561,6 +1635,7 @@ async function proveDescriptorHoldingSensitivity(
   const elapsedMs = performance.now() - startedAt
   const refused = result.exitCode === 124 && result.cleanup.postKillGraceExpired &&
     result.cleanup.descriptorClosure === "cancelled-after-grace" && !processExists(pid) &&
+    result.cleanup.readerCancellation === "completed" &&
     elapsedMs <= outerDeadlineMs
   if (!refused) {
     throw new Error("descriptor-holding descendant did not fail closed within the outer bound")
@@ -1572,6 +1647,8 @@ async function proveDescriptorHoldingSensitivity(
     descendantTerminatedAfterRestoration: true,
     withinOuterBound: true,
     outerDeadlineMs,
+    readerCancellation: "completed",
+    readerCancellationMs: readerCancellationDeadlineMs,
   }
 }
 
@@ -1607,6 +1684,8 @@ async function proveTimeoutCleanup(
     elapsedMs,
     withinDeadlineGrace: true,
     postKillGraceExpired: false,
+    readerCancellation: "not-required",
+    readerCancellationMs: readerCancellationDeadlineMs,
     descriptorHoldingSensitivity,
   }
 }

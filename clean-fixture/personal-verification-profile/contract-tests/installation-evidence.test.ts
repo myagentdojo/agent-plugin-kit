@@ -46,6 +46,8 @@ test("Git installation runs no lifecycle script", () => {
     graceMs: 1_000,
     withinDeadlineGrace: true,
     postKillGraceExpired: false,
+    readerCancellation: "not-required",
+    readerCancellationMs: 100,
     descriptorHoldingSensitivity: {
       refused: true,
       postKillGraceExpired: true,
@@ -53,6 +55,8 @@ test("Git installation runs no lifecycle script", () => {
       descendantTerminatedAfterRestoration: true,
       withinOuterBound: true,
       outerDeadlineMs: 1_650,
+      readerCancellation: "completed",
+      readerCancellationMs: 100,
     },
   })
   expect(installedPackage.processTimeoutControl.elapsedMs).toBeGreaterThanOrEqual(150)

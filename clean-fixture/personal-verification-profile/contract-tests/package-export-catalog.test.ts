@@ -4,6 +4,7 @@ import { installedPackage } from "./adapters/contract-subjects"
 import {
   expectedInstalledFiles,
   expectedPublicSubpaths,
+  expectedQualificationConditionalExport,
   expectedRootTypeExports,
   expectedSubpathRuntimeExports,
   expectedSubpathTypeExports,
@@ -48,5 +49,24 @@ test("Implementation and proof paths stay private from exports and complete in i
   expect(installedPackage.qualificationRuntimeTargetPerturbationControl).toEqual({
     refused: true,
     baselineRestored: true,
+    descriptor: expectedQualificationConditionalExport,
+    perturbationsRefused: [
+      "remove-types",
+      "remove-import",
+      "remove-default",
+      "reorder",
+      "redirect-types",
+      "redirect-import",
+      "redirect-default-only",
+    ],
+    restorationsProved: [
+      "remove-types",
+      "remove-import",
+      "remove-default",
+      "reorder",
+      "redirect-types",
+      "redirect-import",
+      "redirect-default-only",
+    ],
   })
 })

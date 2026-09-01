@@ -44,6 +44,15 @@ export const expectedPublicSubpaths = [
   "./reusable-workflow-adapter",
 ] as const
 
+export const expectedQualificationConditionalExport = {
+  keys: ["types", "import", "default"],
+  targets: {
+    types: "./src/modules/qualification-evidence/interface.ts",
+    import: "./src/modules/qualification-evidence/implementation/qualification-evidence.ts",
+    default: "./src/modules/qualification-evidence/implementation/qualification-evidence.ts",
+  },
+} as const
+
 export const expectedSubpathTypeExports = {
   "./admission-bootstrap": ["AdmissionRefusal", "AdmissionRequest", "AdmissionResult", "AdmissionBootstrap"],
   "./plugin-payload-production": ["PayloadProductionRequest", "PreparedPluginPayload", "PayloadProductionResult", "PluginPayloadProduction"],
