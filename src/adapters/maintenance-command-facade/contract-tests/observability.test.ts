@@ -542,7 +542,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
     { input: "auth token refreshed, progress=100% complete", expected: "auth token refreshed, progress=100% complete" },
     { input: "auth token refreshed progress=100% complete", expected: "auth token refreshed progress=100% complete" },
     { input: "Token parsing failed: retry later", expected: "Token parsing failed: retry later" },
-    { input: 'mode="token: opaque"', expected: 'mode="token:[REDACTED]"' },
+    { input: 'mode="token: opaque"', expected: 'mode="token: opaque"' },
     { input: "context token=opaque-51 tail", expected: "context token=[REDACTED]" },
     { input: '"token=opaque-52"', expected: '"token=[REDACTED]"' },
     { input: 'context "token=opaque-53" tail', expected: 'context "token=[REDACTED]" tail' },
@@ -557,6 +557,12 @@ test("redaction validates and freezes both seams before crossing", async () => {
     { input: "t%256Fken=opaque-62", expected: "t%256Fken=[REDACTED]" },
     { input: "%2574oken=opaque-63", expected: "%2574oken=[REDACTED]" },
     { input: "t%5Cu006fken=opaque-64", expected: "t%5Cu006fken=[REDACTED]" },
+    { input: "password=correct | horse: battery staple", expected: "password=[REDACTED]" },
+    { input: "password=correct, horse: battery staple", expected: "password=[REDACTED]" },
+    { input: "password=correct; horse: battery staple", expected: "password=[REDACTED]" },
+    { input: "password=correct\nhorse: battery staple", expected: "password=[REDACTED]" },
+    { input: "password=correct | horse=battery staple", expected: "password=[REDACTED]" },
+    { input: '{"token:mode":"opaque"}', expected: '{"token:mode":[REDACTED]}' },
   ] as const
   const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
   const incompleteAuthUrl = "https://fixtureUser:fixtureSecret@"

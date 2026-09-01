@@ -528,13 +528,56 @@ const isSyntacticAssignment = (
   separator: AssignmentSeparator,
 ): boolean => assignmentKeyBefore(value, separator) !== undefined
 
+const safeAssignmentBoundaryKeys = new Set(["mode", "progress"])
+
+const assignmentKeyStartingAt = (
+  value: string,
+  start: number,
+  separator: AssignmentSeparator,
+): AssignmentKey | undefined => {
+  const keyStart = afterWhitespace(value, start)
+  const keyEnd = assignmentKeyEndBefore(value, separator.start)
+  if (keyEnd <= keyStart || keyEnd - keyStart > maximumRawAssignmentKeyLength) return undefined
+  const opening = value[keyStart]
+  if (opening === "\"" || opening === "'") {
+    const closing = closingQuoteAfter(value, keyStart)
+    return closing === keyEnd - 1
+      ? {
+          malformedQuote: false,
+          quoted: true,
+          raw: value.slice(keyStart + 1, closing),
+          truncated: false,
+        }
+      : undefined
+  }
+  const raw = value.slice(keyStart, keyEnd)
+  return raw.includes("\"") || raw.includes("'")
+    ? undefined
+    : { malformedQuote: false, quoted: false, raw, truncated: false }
+}
+
+const isAdmissibleFollowingAssignment = (
+  value: string,
+  start: number,
+  separator: AssignmentSeparator,
+): boolean => {
+  const key = assignmentKeyStartingAt(value, start, separator)
+  if (key === undefined) return false
+  if (key.quoted || sensitiveAssignmentKey(key)) return true
+  if (/\s/.test(key.raw.trim())) return false
+  const normalized = normalizeAssignmentKeyWord(key.raw)
+  return !normalized.ambiguous && safeAssignmentBoundaryKeys.has(normalized.value)
+}
+
 const startsAssignment = (value: string, start: number): boolean => {
   const limit = Math.min(value.length, start + maximumRawAssignmentKeyLength)
   let cursor = afterWhitespace(value, start)
   while (cursor < limit) {
     const separator = assignmentSeparatorAt(value, cursor)
-    if (separator !== undefined) return isSyntacticAssignment(value, separator)
-    if (value.startsWith(" | ", cursor) || value[cursor] === ";") return false
+    if (separator !== undefined) {
+      return isAdmissibleFollowingAssignment(value, start, separator)
+    }
+    if (/[,;\n\r|]/.test(value[cursor] ?? "")) return false
     cursor += 1
   }
   return false
@@ -561,6 +604,30 @@ const quotedValueEnd = (value: string, start: number, quote: string): number => 
   return isQuotedValueDelimiter(value, closed)
     ? closed
     : nonWhitespaceEnd(value, closed)
+}
+
+const balancedQuotedValueEndAfter = (
+  value: string,
+  separator: AssignmentSeparator,
+): number | undefined => {
+  const start = afterWhitespace(value, separator.end)
+  const quote = value[start]
+  if (quote !== "\"" && quote !== "'") return undefined
+  const closing = closingQuoteAfter(value, start)
+  return closing !== undefined && isQuotedValueDelimiter(value, closing + 1)
+    ? closing + 1
+    : undefined
+}
+
+const quotedAssignmentSeparatorAfter = (
+  value: string,
+  opening: number,
+): AssignmentSeparator | undefined => {
+  if (!isQuotedAssignmentKeyStart(value, opening)) return undefined
+  const closing = closingQuoteAfter(value, opening)
+  return closing === undefined
+    ? undefined
+    : assignmentSeparatorAt(value, afterWhitespace(value, closing + 1))
 }
 
 const assignmentBoundaryWidthAt = (value: string, cursor: number): number => {
@@ -610,18 +677,23 @@ const redactSecretAssignments = (value: string): string => {
   let cursor = 0
   let redacted = false
   while (cursor < value.length) {
+    const quotedKeySeparator = quotedAssignmentSeparatorAfter(value, cursor)
+    if (quotedKeySeparator !== undefined) {
+      cursor = quotedKeySeparator.start
+      continue
+    }
     const separator = assignmentSeparatorAt(value, cursor)
     if (separator === undefined) {
       cursor += 1
       continue
     }
     const key = assignmentKeyBefore(value, separator)
-    if (
-      key === undefined
-      || !isSyntacticAssignment(value, separator)
-      || !sensitiveAssignmentKey(key)
-    ) {
+    if (key === undefined || !isSyntacticAssignment(value, separator)) {
       cursor = separator.end
+      continue
+    }
+    if (!sensitiveAssignmentKey(key)) {
+      cursor = balancedQuotedValueEndAfter(value, separator) ?? separator.end
       continue
     }
     const assignment = assignmentValueRangeAfter(value, separator, key)
