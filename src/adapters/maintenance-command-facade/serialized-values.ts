@@ -113,7 +113,7 @@ const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
 const maximumCredentialMatchLength = 4096
 const secretKeyPattern = /(?:password|passwd|secret|token|authorization|cookie|credential|private[-_]?key|api[-_]?key)/i
 const uriSchemePattern = "[A-Za-z][A-Za-z0-9+.-]*"
-const secretAssignmentPattern = /(^|[^A-Za-z0-9"'])(["']?)(secret|password|passwd|token|credential|authorization|cookie|private[-_ ]?key|api[-_ ]?key)\2(\s*)([:=])(\s*)("(?:\\.|[^"\\])*"[^\s]*|'(?:\\.|[^'\\])*'[^\s]*|"(?:(?:\\.|[^"\\])*)$|'(?:(?:\\.|[^'\\])*)$|[^\s]+)/gi
+const secretAssignmentPattern = /(^|[^A-Za-z0-9])(?:(["'])(secret|password|passwd|token|credential|authorization|cookie|private[-_ ]?key|api[-_ ]?key)\2|(secret|password|passwd|token|credential|authorization|cookie|private[-_ ]?key|api[-_ ]?key))(\s*)([:=])(\s*)("(?:\\.|[^"\\])*"[^\s]*|'(?:\\.|[^'\\])*'[^\s]*|"(?:(?:\\.|[^"\\])*)$|'(?:(?:\\.|[^'\\])*)$|[^\s]+)/gi
 const authUrlPattern = new RegExp(
   `(^|[^A-Za-z0-9])(?=${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@)${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@[^\\s]+`,
   "gi",
@@ -219,6 +219,22 @@ const replaceConfiguredSecrets = (value: string, secrets: readonly string[]): st
   return redacted
 }
 
+const redactSecretAssignment = (
+  _match: string,
+  boundary: string,
+  quote: string | undefined,
+  quotedKey: string | undefined,
+  bareKey: string | undefined,
+  beforeSeparator: string,
+  separator: string,
+  afterSeparator: string,
+): string => {
+  const key = quotedKey ?? bareKey
+  if (key === undefined) return redactedDiagnosticValue
+  const renderedKey = quote === undefined ? key : `${quote}${key}${quote}`
+  return `${boundary}${renderedKey}${beforeSeparator}${separator}${afterSeparator}${redactedDiagnosticValue}`
+}
+
 const redactString = (value: string, secrets: readonly string[]): string => {
   const configured = replaceConfiguredSecrets(value, secrets)
   const privateKeyRedacted = configured.replace(privateKeyPattern, redactedDiagnosticValue)
@@ -226,7 +242,7 @@ const redactString = (value: string, secrets: readonly string[]): string => {
   const urlRedacted = privateKeyRedacted.replace(authUrlPattern, preserveBoundaryAndRedact)
   const bearerRedacted = urlRedacted.replace(bearerCredentialPattern, preserveBoundaryAndRedact)
   const opReferenceRedacted = bearerRedacted.replace(opReferencePattern, preserveBoundaryAndRedact)
-  return opReferenceRedacted.replace(secretAssignmentPattern, (_match, boundary: string, quote: string, key: string, beforeSeparator: string, separator: string, afterSeparator: string) => `${boundary}${quote}${key}${quote}${beforeSeparator}${separator}${afterSeparator}${redactedDiagnosticValue}`)
+  return opReferenceRedacted.replace(secretAssignmentPattern, redactSecretAssignment)
 }
 
 const isRedactionBlocked = (key: string, depth: number): boolean =>

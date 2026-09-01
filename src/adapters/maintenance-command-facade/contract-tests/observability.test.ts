@@ -458,6 +458,9 @@ test("redaction validates and freezes both seams before crossing", async () => {
   const quotedAssignmentWithSuffix = 'token="fixture head";fixtureTail'
   const quotedJsonTokenAssignment = '{"token":"fixture-json-token-secret"}'
   const quotedJsonPasswordAssignment = '{"password":"fixture-json-password-secret"}'
+  const malformedDoubleQuotedKeyAssignment = '"token=fixture-malformed-double-key-secret'
+  const malformedJsonQuotedKeyAssignment = '{"token:fixture-malformed-json-key-secret'
+  const malformedSingleQuotedKeyAssignment = "'password:fixture-malformed-single-key-secret"
   const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
   const incompleteAuthUrl = "https://fixtureUser:fixtureSecret@"
   const incompleteNoAtAuthUrl = "https://fixtureUser:fixtureSecret"
@@ -496,6 +499,9 @@ test("redaction validates and freezes both seams before crossing", async () => {
       quotedAssignmentWithSuffix,
       quotedJsonTokenAssignment,
       quotedJsonPasswordAssignment,
+      malformedDoubleQuotedKeyAssignment,
+      malformedJsonQuotedKeyAssignment,
+      malformedSingleQuotedKeyAssignment,
       'token="fixtureHead;fixtureTail',
     ].join(" | "),
     secret_token: "fixture-diagnostic-secret",
@@ -558,6 +564,12 @@ test("redaction validates and freezes both seams before crossing", async () => {
     quotedJsonPasswordAssignment,
     "fixture-json-token-secret",
     "fixture-json-password-secret",
+    malformedDoubleQuotedKeyAssignment,
+    malformedJsonQuotedKeyAssignment,
+    malformedSingleQuotedKeyAssignment,
+    "fixture-malformed-double-key-secret",
+    "fixture-malformed-json-key-secret",
+    "fixture-malformed-single-key-secret",
     overlongAuthUrl,
     incompleteAuthUrl,
     "fixture-empty-username-password",
@@ -577,7 +589,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
       order: redactionTrace,
     },
-    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | {\"token\":[REDACTED] | {\"password\":[REDACTED] | token=[REDACTED]", incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
+    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | {\"token\":[REDACTED] | {\"password\":[REDACTED] | \"token=[REDACTED] | {\"token:[REDACTED] | 'password:[REDACTED] | token=[REDACTED]", incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
     "redaction must precede both seams without changing the fixed primary result",
   )
 })
