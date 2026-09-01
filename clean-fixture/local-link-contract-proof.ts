@@ -611,6 +611,7 @@ const sameLink = (left: LinkIdentity, right: LinkIdentity): boolean =>
 
 type ReceiptWriteOptions = Readonly<{
   failAfterTemporaryWrite?: boolean
+  previousReceiptBytes?: string
 }>
 
 const removeTemporaryReceipt = async (temporary: string): Promise<void> => {
@@ -630,7 +631,20 @@ const writeReceipt = async (
   try {
     await writeFile(temporary, `${JSON.stringify(receipt)}\n`, { mode: 0o600 })
     await chmod(temporary, 0o600)
-    if (options.failAfterTemporaryWrite === true) throw new Error("ownership-receipt-write-failure")
+    if (options.failAfterTemporaryWrite === true) {
+      let durableReceiptBytes: string | undefined
+      try {
+        durableReceiptBytes = await readFile(path, "utf8")
+      } catch {
+        durableReceiptBytes = undefined
+      }
+      throw new Error("ownership-receipt-write-failure", {
+        cause: {
+          previousReceiptBytes: options.previousReceiptBytes,
+          durableReceiptBytes,
+        },
+      })
+    }
     await rename(temporary, path)
   } catch (error) {
     await removeTemporaryReceipt(temporary)
@@ -1664,7 +1678,7 @@ type ProofState = {
   publicObservability: PublicObservabilityOracle[]
   processCleanupReceipts: ProcessCleanupReceipt[]
   ownedLinks: Map<"package" | "binary", LinkIdentity>
-  unrecordedLinks: Set<"package" | "binary">
+  rollbackPendingLinks: Set<"package" | "binary">
   rolledBackLinks: Set<"package" | "binary">
 }
 
@@ -1687,6 +1701,7 @@ const createLinks = async (
     state.ledger.push(ledgerEntry)
     const identity = await linkIdentity(kind, destination)
     state.ownedLinks.set(kind, identity)
+    state.rollbackPendingLinks.add(kind)
     const expectedCanonicalTarget = await realpath(source)
     if (identity.rawTarget !== source || identity.canonicalTarget !== expectedCanonicalTarget) {
       throw new Error("created-link-identity-invalid")
@@ -1696,6 +1711,7 @@ const createLinks = async (
       created: { ...state.receipt.created, [kind]: true },
       command_ledger: [...state.actionLedger],
     })
+    state.rollbackPendingLinks.delete(kind)
     if (fault === "partial-link" && kind === "package") throw new Error("partial-link-failure")
   }
 }
@@ -2176,7 +2192,7 @@ const createProofState = (
   publicObservability: [],
   processCleanupReceipts: [],
   ownedLinks: new Map(),
-  unrecordedLinks: new Set(),
+  rollbackPendingLinks: new Set(),
   rolledBackLinks: new Set(),
 })
 
@@ -2203,8 +2219,11 @@ const createReceiptUpdater = (
   )
   const nextReceipt = { ...state.receipt, ...update }
   const writerFault = options.fault === "receipt-write-failure" && update.created?.package === true
-  if (writerFault) state.unrecordedLinks.add("package")
-  await writeReceipt(context.receiptPath, nextReceipt, { failAfterTemporaryWrite: writerFault })
+  const previousReceiptBytes = writerFault ? await readFile(context.receiptPath, "utf8") : undefined
+  await writeReceipt(context.receiptPath, nextReceipt, {
+    failAfterTemporaryWrite: writerFault,
+    ...(previousReceiptBytes === undefined ? {} : { previousReceiptBytes }),
+  })
   state.receipt = nextReceipt
 }
 
@@ -2264,7 +2283,7 @@ const executePrimaryProofRun = async (
 }
 
 const rollbackKindsFor = (state: ProofState): ("package" | "binary")[] =>
-  (["binary", "package"] as const).filter((kind) => state.unrecordedLinks.has(kind))
+  (["binary", "package"] as const).filter((kind) => state.rollbackPendingLinks.has(kind))
 
 type CleanupProofRun = Readonly<{
   allCleanupFailures: unknown[]

@@ -179,6 +179,25 @@ const pathPresent = async (path: string): Promise<boolean> => {
   }
 }
 
+const receiptWritePreserved = (error: unknown): boolean => {
+  if (!(error instanceof Error) || error.message !== "ownership-receipt-write-failure") return false
+  const cause = error.cause
+  if (cause === null || typeof cause !== "object") return false
+  const previous = Reflect.get(cause, "previousReceiptBytes")
+  const durable = Reflect.get(cause, "durableReceiptBytes")
+  return typeof previous === "string" && typeof durable === "string" && previous === durable
+}
+
+const assertReceiptWriteControl = (
+  fault: LocalLinkFault,
+  refusal: unknown,
+  temporaryReceiptRemaining: boolean,
+): void => {
+  if (fault !== "receipt-write-failure") return
+  if (!receiptWritePreserved(refusal)) throw new Error("receipt-writer-did-not-preserve-durable-receipt")
+  if (temporaryReceiptRemaining) throw new Error("receipt-writer-left-temporary-file")
+}
+
 const failureResultFor = async (
   roots: FixtureRoots,
   fault: LocalLinkFault,
@@ -211,9 +230,7 @@ const failureResultFor = async (
   const linksRemain = (await pathPresent(packageDestination)) || (await pathPresent(binaryDestination))
   const receiptRemaining = await pathPresent(receiptPath)
   const temporaryReceiptRemaining = await pathPresent(`${receiptPath}.tmp`)
-  if (fault === "receipt-write-failure" && temporaryReceiptRemaining) {
-    throw new Error("receipt-writer-left-temporary-file")
-  }
+  assertReceiptWriteControl(fault, refusal, temporaryReceiptRemaining)
   if (!(refusal instanceof Error)) throw new Error(`failure-control-not-refused:${fault}`)
   return { refused: true, reason: refusal.message, parentsPreserved, linksRemain, receiptRemaining }
 }
