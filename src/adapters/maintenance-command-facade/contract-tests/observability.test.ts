@@ -509,6 +509,12 @@ test("redaction validates and freezes both seams before crossing", async () => {
   const malformedMultiwordTokenKeyAssignment = '{"token signing key:fixture-malformed-multiword-secret'
   const escapedJsonTokenKeyAssignment = '{"to\\"ken":"fixture-escaped-json-key-secret","mode":"safe"}'
   const punctuatedTokenKeyAssignment = '{"to:ken":"fixture-punctuated-key-secret","mode":"safe"}'
+  const unicodeEscapedTokenKeyAssignment = '{"tok\\u0065n":"fixture-unicode-token-key-secret","mode":"safe"}'
+  const unicodeEscapedPasswordKeyAssignment = '{"pass\\u0077ord":"fixture-unicode-password-key-secret","mode":"safe"}'
+  const percentEncodedTokenKeyAssignment = "tok%65n=fixture-percent-token-key-secret"
+  const commaSeparatedApiKeyAssignment = '{"api,key":"fixture-comma-api-key-secret","mode":"safe"}'
+  const bracketSeparatedPrivateKeyAssignment = '{"pri[vate]key":"fixture-bracket-private-key-secret","mode":"safe"}'
+  const pipeSeparatedAuthorizationAssignment = '{"auth|orization":"fixture-pipe-authorization-secret","mode":"safe"}'
   const apostropheTokenKeyAssignment = "token'=fixture-apostrophe-key-secret"
   const longPrefixedTokenKey = `${"x".repeat(200)}Token`
   const longPrefixedTokenAssignment = `${longPrefixedTokenKey}=fixture-long-prefixed-token-secret`
@@ -598,6 +604,12 @@ test("redaction validates and freezes both seams before crossing", async () => {
       malformedMultiwordTokenKeyAssignment,
       escapedJsonTokenKeyAssignment,
       punctuatedTokenKeyAssignment,
+      unicodeEscapedTokenKeyAssignment,
+      unicodeEscapedPasswordKeyAssignment,
+      percentEncodedTokenKeyAssignment,
+      commaSeparatedApiKeyAssignment,
+      bracketSeparatedPrivateKeyAssignment,
+      pipeSeparatedAuthorizationAssignment,
       apostropheTokenKeyAssignment,
       longPrefixedTokenAssignment,
     ].join(" | "),
@@ -665,6 +677,12 @@ test("redaction validates and freezes both seams before crossing", async () => {
     malformedMultiwordTokenKeyAssignment,
     escapedJsonTokenKeyAssignment,
     punctuatedTokenKeyAssignment,
+    unicodeEscapedTokenKeyAssignment,
+    unicodeEscapedPasswordKeyAssignment,
+    percentEncodedTokenKeyAssignment,
+    commaSeparatedApiKeyAssignment,
+    bracketSeparatedPrivateKeyAssignment,
+    pipeSeparatedAuthorizationAssignment,
     apostropheTokenKeyAssignment,
     longPrefixedTokenAssignment,
     "fixture-spaced-private-key-secret",
@@ -680,6 +698,12 @@ test("redaction validates and freezes both seams before crossing", async () => {
     "fixture-malformed-multiword-secret",
     "fixture-escaped-json-key-secret",
     "fixture-punctuated-key-secret",
+    "fixture-unicode-token-key-secret",
+    "fixture-unicode-password-key-secret",
+    "fixture-percent-token-key-secret",
+    "fixture-comma-api-key-secret",
+    "fixture-bracket-private-key-secret",
+    "fixture-pipe-authorization-secret",
     "fixture-apostrophe-key-secret",
     "fixture-long-prefixed-token-secret",
     overlongAuthUrl,
@@ -702,7 +726,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
       order: redactionTrace,
     },
-    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | {\"token\":[REDACTED]} | {\"password\":[REDACTED]} | {\"accessToken\":[REDACTED]} | clientSecret=[REDACTED] | {\"token\":[REDACTED],\"mode\":\"safe\"} | \"token=[REDACTED] | {\"token:[REDACTED] | 'password:[REDACTED] | token=[REDACTED]", assignmentVariantMessage: `private key=[REDACTED] | api key=[REDACTED] | private  key=[REDACTED] | api\tkey=[REDACTED] | password=[REDACTED] | {\"private.key\":[REDACTED],\"mode\":\"safe\"} | {\"api/key\":[REDACTED],\"mode\":\"safe\"} | password=[REDACTED] | token=[REDACTED] | token= | mode=safe | token signing key=[REDACTED] | {\"token signing key:[REDACTED] | {\"to\\\"ken\":[REDACTED],\"mode\":\"safe\"} | {\"to:ken\":[REDACTED],\"mode\":\"safe\"} | token'=[REDACTED] | ${longPrefixedTokenKey}=[REDACTED]`, incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
+    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | {\"token\":[REDACTED]} | {\"password\":[REDACTED]} | {\"accessToken\":[REDACTED]} | clientSecret=[REDACTED] | {\"token\":[REDACTED],\"mode\":\"safe\"} | \"token=[REDACTED] | {\"token:[REDACTED] | 'password:[REDACTED] | token=[REDACTED]", assignmentVariantMessage: `private key=[REDACTED] | api key=[REDACTED] | private  key=[REDACTED] | api\tkey=[REDACTED] | password=[REDACTED] | {\"private.key\":[REDACTED],\"mode\":\"safe\"} | {\"api/key\":[REDACTED],\"mode\":\"safe\"} | password=[REDACTED] | token=[REDACTED] | token= | mode=safe | token signing key=[REDACTED] | {\"token signing key:[REDACTED] | {\"to\\\"ken\":[REDACTED],\"mode\":\"safe\"} | {\"to:ken\":[REDACTED],\"mode\":\"safe\"} | {\"tok\\u0065n\":[REDACTED],\"mode\":\"safe\"} | {\"pass\\u0077ord\":[REDACTED],\"mode\":\"safe\"} | tok%65n=[REDACTED] | {\"api,key\":[REDACTED],\"mode\":\"safe\"} | {\"pri[vate]key\":[REDACTED],\"mode\":\"safe\"} | {\"auth|orization\":[REDACTED],\"mode\":\"safe\"} | token'=[REDACTED] | ${longPrefixedTokenKey}=[REDACTED]`, incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
     "redaction must precede both seams without changing the fixed primary result",
   )
 })

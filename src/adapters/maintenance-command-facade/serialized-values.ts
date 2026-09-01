@@ -229,11 +229,123 @@ const afterWhitespace = (value: string, start: number): number => {
   return end
 }
 
-const isSensitiveAssignmentKey = (key: string): boolean =>
-  secretKeyPattern.test(key.replace(/[^A-Za-z0-9]/g, ""))
-
 const isAssignmentKeyBoundary = (character: string | undefined): boolean =>
   character !== undefined && "|,;{}[]()\n\r".includes(character)
+
+const maximumNormalizedAssignmentKeyTailLength = 64
+
+type AssignmentKeyScanState = {
+  normalizedTail: string
+  sensitive: boolean
+  quote: '"' | "'" | undefined
+}
+
+type EncodedKeyCharacter = Readonly<{
+  character: string | undefined
+  nextCursor: number
+}>
+
+type AssignmentKeyScanStep =
+  | Readonly<{ kind: "advance"; nextCursor: number }>
+  | Readonly<{ kind: "separator"; nextCursor: number; separator: number }>
+
+const decodedHexCharacterAt = (
+  value: string,
+  start: number,
+  length: number,
+): string | undefined => {
+  const digits = value.slice(start, start + length)
+  return digits.length === length && /^[0-9A-Fa-f]+$/.test(digits)
+    ? String.fromCodePoint(Number.parseInt(digits, 16))
+    : undefined
+}
+
+const escapedKeyCharacterAt = (value: string, cursor: number): EncodedKeyCharacter | undefined => {
+  if (value[cursor] !== "\\") return undefined
+  const character = value[cursor + 1] === "u"
+    ? decodedHexCharacterAt(value, cursor + 2, 4)
+    : undefined
+  return {
+    character,
+    nextCursor: cursor + (character === undefined ? Math.min(2, value.length - cursor) : 6),
+  }
+}
+
+const percentEncodedKeyCharacterAt = (value: string, cursor: number): EncodedKeyCharacter | undefined => {
+  if (value[cursor] !== "%") return undefined
+  const character = decodedHexCharacterAt(value, cursor + 1, 2)
+  return character === undefined ? undefined : { character, nextCursor: cursor + 3 }
+}
+
+const resetAssignmentKey = (state: AssignmentKeyScanState): void => {
+  state.normalizedTail = ""
+  state.sensitive = false
+  state.quote = undefined
+}
+
+const appendAssignmentKeyCharacter = (
+  state: AssignmentKeyScanState,
+  character: string,
+): void => {
+  if (!/[A-Za-z0-9]/.test(character)) return
+  state.normalizedTail = `${state.normalizedTail}${character.toLowerCase()}`
+    .slice(-maximumNormalizedAssignmentKeyTailLength)
+  state.sensitive ||= secretKeyPattern.test(state.normalizedTail)
+}
+
+const assignmentKeyQuoteStepAt = (
+  character: string,
+  cursor: number,
+  state: AssignmentKeyScanState,
+): AssignmentKeyScanStep | undefined => {
+  if (state.quote !== undefined) {
+    if (character !== state.quote) return undefined
+    state.quote = undefined
+    return { kind: "advance", nextCursor: cursor + 1 }
+  }
+  if (state.normalizedTail.length > 0 || (character !== '"' && character !== "'")) return undefined
+  state.quote = character
+  return { kind: "advance", nextCursor: cursor + 1 }
+}
+
+const encodedAssignmentKeyStepAt = (
+  value: string,
+  cursor: number,
+  state: AssignmentKeyScanState,
+): AssignmentKeyScanStep | undefined => {
+  const encoded = escapedKeyCharacterAt(value, cursor)
+    ?? percentEncodedKeyCharacterAt(value, cursor)
+  if (encoded === undefined) return undefined
+  if (encoded.character !== undefined) appendAssignmentKeyCharacter(state, encoded.character)
+  return { kind: "advance", nextCursor: encoded.nextCursor }
+}
+
+const appendOrResetAssignmentKey = (
+  state: AssignmentKeyScanState,
+  character: string,
+): void => {
+  if (state.quote === undefined && isAssignmentKeyBoundary(character)) resetAssignmentKey(state)
+  else appendAssignmentKeyCharacter(state, character)
+}
+
+const scanAssignmentKeyStep = (
+  value: string,
+  cursor: number,
+  state: AssignmentKeyScanState,
+): AssignmentKeyScanStep => {
+  const encodedStep = encodedAssignmentKeyStepAt(value, cursor, state)
+  if (encodedStep !== undefined) return encodedStep
+
+  const character = value[cursor]
+  if (character === undefined) return { kind: "advance", nextCursor: cursor + 1 }
+  const quoteStep = assignmentKeyQuoteStepAt(character, cursor, state)
+  if (quoteStep !== undefined) return quoteStep
+  if (character === ":" || character === "=") {
+    return { kind: "separator", nextCursor: cursor + 1, separator: cursor }
+  }
+  appendOrResetAssignmentKey(state, character)
+  return { kind: "advance", nextCursor: cursor + 1 }
+}
 
 const nonWhitespaceEnd = (value: string, start: number): number => {
   let end = start
@@ -296,33 +408,27 @@ const assignmentValueRangeAt = (
 const redactSecretAssignments = (value: string): string => {
   const output: string[] = []
   let copiedThrough = 0
-  let keyStart = 0
+  const key: AssignmentKeyScanState = {
+    normalizedTail: "",
+    sensitive: false,
+    quote: undefined,
+  }
   let cursor = 0
   while (cursor < value.length) {
-    const character = value[cursor]
-    if (isAssignmentKeyBoundary(character)) {
-      keyStart = cursor + 1
-      cursor += 1
-      continue
-    }
-    if (character !== ":" && character !== "=") {
-      cursor += 1
-      continue
-    }
-    const key = value.slice(keyStart, cursor)
-    if (!isSensitiveAssignmentKey(key)) {
-      cursor += 1
-      continue
-    }
-    const assignment = assignmentValueRangeAt(value, cursor)
+    const step = scanAssignmentKeyStep(value, cursor, key)
+    cursor = step.nextCursor
+    if (step.kind === "advance") continue
+    const assignment = key.sensitive
+      ? assignmentValueRangeAt(value, step.separator)
+      : undefined
     if (assignment === undefined) {
-      cursor += 1
+      if (key.quote === undefined) resetAssignmentKey(key)
       continue
     }
     output.push(value.slice(copiedThrough, assignment.valueStart), redactedDiagnosticValue)
     copiedThrough = assignment.valueEnd
     cursor = assignment.valueEnd
-    keyStart = cursor
+    resetAssignmentKey(key)
   }
   return copiedThrough === 0
     ? value
