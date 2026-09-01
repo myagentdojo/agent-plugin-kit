@@ -607,8 +607,13 @@ const quotedValueEnd = (value: string, start: number, quote: string): number => 
   const closing = closingQuoteAfter(value, start)
   if (closing === undefined) return value.length
   const closed = closing + 1
-  const boundaryWidth = assignmentBoundaryWidthAt(value, closed)
-  if (boundaryWidth > 0 && startsAssignment(value, closed + boundaryWidth)) return closed
+  let boundary = closed
+  while (value[boundary] === "\\") boundary += 1
+  const boundaryWidth = assignmentBoundaryWidthAt(value, boundary)
+  if (boundaryWidth > 0) {
+    if ((boundary - closed) % 2 !== 0) return value.length
+    if (startsAssignment(value, boundary + boundaryWidth)) return boundary
+  }
   return isQuotedValueDelimiter(value, closed)
     ? closed
     : nonWhitespaceEnd(value, closed)

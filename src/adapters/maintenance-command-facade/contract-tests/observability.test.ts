@@ -581,6 +581,12 @@ test("redaction validates and freezes both seams before crossing", async () => {
     { input: String.raw`password=opaque\\, mode=safe`, expected: "password=[REDACTED], mode=safe" },
     { input: String.raw`password=opaque\;mode=safe, hidden-tail`, expected: "password=[REDACTED]" },
     { input: String.raw`password=opaque\\;mode=safe`, expected: "password=[REDACTED];mode=safe" },
+    { input: String.raw`private key="opaque"\| mode=safe, hidden-tail`, expected: "private key=[REDACTED]" },
+    { input: String.raw`private key="opaque"\\| mode=safe`, expected: "private key=[REDACTED]| mode=safe" },
+    { input: String.raw`private key="opaque"\, mode=safe, hidden-tail`, expected: "private key=[REDACTED]" },
+    { input: String.raw`private key="opaque"\\, mode=safe`, expected: "private key=[REDACTED], mode=safe" },
+    { input: String.raw`private key="opaque"\;mode=safe, hidden-tail`, expected: "private key=[REDACTED]" },
+    { input: String.raw`private key="opaque"\\;mode=safe`, expected: "private key=[REDACTED];mode=safe" },
   ] as const
   const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
   const incompleteAuthUrl = "https://fixtureUser:fixtureSecret@"
