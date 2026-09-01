@@ -609,19 +609,21 @@ const backslashRunEnd = (value: string, start: number): number => {
   return end
 }
 
-const isHorizontalWhitespace = (character: string | undefined): boolean =>
-  character === " " || character === "\t"
+const inlineWhitespacePattern = /[^\S\r\n]/u
 
-const boundedHorizontalWhitespaceEnd = (value: string, start: number): number | undefined => {
+const isInlineWhitespace = (character: string | undefined): boolean =>
+  inlineWhitespacePattern.test(character ?? "")
+
+const boundedInlineWhitespaceEnd = (value: string, start: number): number | undefined => {
   let end = start
   const limit = Math.min(value.length, start + maximumRawAssignmentKeyLength)
-  while (end < limit && isHorizontalWhitespace(value[end])) end += 1
-  return isHorizontalWhitespace(value[end]) ? undefined : end
+  while (end < limit && isInlineWhitespace(value[end])) end += 1
+  return isInlineWhitespace(value[end]) ? undefined : end
 }
 
 const quotedAssignmentBoundaryEnd = (value: string, closed: number): number | undefined => {
   const boundary = backslashRunEnd(value, closed)
-  const separator = boundedHorizontalWhitespaceEnd(value, boundary)
+  const separator = boundedInlineWhitespaceEnd(value, boundary)
   if (separator === undefined) return value.length
   const boundaryWidth = assignmentBoundaryWidthAt(value, separator)
   if (boundaryWidth === 0) return undefined

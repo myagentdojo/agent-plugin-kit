@@ -489,6 +489,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
   const keyAt511Characters = `token${"x".repeat(506)}`
   const keyAt512Characters = `token${"x".repeat(507)}`
   const keyAt513Characters = `token${"x".repeat(508)}`
+  const overlongInlineWhitespace = "\u00A0".repeat(513)
   const assignmentCases = [
     { input: `x_token=${underscoreAssignment}`, expected: "x_token=[REDACTED]" },
     { input: "token=opaque-02", expected: "token=[REDACTED]" },
@@ -609,6 +610,18 @@ test("redaction validates and freezes both seams before crossing", async () => {
     { input: 'private key="opaque" \nmode=safe', expected: "private key=[REDACTED] \nmode=safe" },
     { input: 'private key="opaque" ordinary prose', expected: "private key=[REDACTED] ordinary prose" },
     { input: 'private key="opaque-a". password=opaque-b', expected: "private key=[REDACTED]. password=[REDACTED]" },
+    { input: 'private key="opaque"\u00A0;horse: battery staple', expected: "private key=[REDACTED]" },
+    { input: 'private key="opaque"\f, horse: battery staple', expected: "private key=[REDACTED]" },
+    { input: 'private key="opaque"\v| horse: battery staple', expected: "private key=[REDACTED]" },
+    { input: 'private key="opaque"\u2003;horse: battery staple', expected: "private key=[REDACTED]" },
+    { input: `private key="opaque"${overlongInlineWhitespace};horse: battery staple`, expected: "private key=[REDACTED]" },
+    { input: 'private key="opaque"\u00A0;mode=safe', expected: "private key=[REDACTED]\u00A0;mode=safe" },
+    { input: 'private key="opaque"\f, mode=safe', expected: "private key=[REDACTED]\f, mode=safe" },
+    { input: 'private key="opaque"\v| mode=safe', expected: "private key=[REDACTED]\v| mode=safe" },
+    { input: 'private key="opaque"\u2003;mode=safe', expected: "private key=[REDACTED]\u2003;mode=safe" },
+    { input: 'private key="opaque"\u00A0ordinary prose', expected: "private key=[REDACTED]\u00A0ordinary prose" },
+    { input: 'private key="opaque"\rhorse: battery staple', expected: "private key=[REDACTED]" },
+    { input: 'private key="opaque"\rmode=safe', expected: "private key=[REDACTED]\rmode=safe" },
   ] as const
   const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
   const incompleteAuthUrl = "https://fixtureUser:fixtureSecret@"
