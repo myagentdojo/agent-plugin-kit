@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test"
 import { installedPackage } from "./adapters/contract-subjects"
-import { expectedInstalledFiles } from "./fixtures/plugin-consumer"
+import {
+  expectedCommandObservationReceiptDigest,
+  expectedInstalledFiles,
+  expectedInstalledSymlinks,
+  expectedRuntimeObservationReceiptDigest,
+} from "./fixtures/plugin-consumer"
 
 test("Git installation resolves one complete Full Commit Pin", () => {
   expect(installedPackage.sourceCommit).toMatch(/^[0-9a-f]{40}$/)
@@ -40,6 +45,14 @@ test("Git installation runs no lifecycle script", () => {
     deadlineMs: 150,
     graceMs: 1_000,
     withinDeadlineGrace: true,
+    postKillGraceExpired: false,
+    descriptorHoldingSensitivity: {
+      refused: true,
+      postKillGraceExpired: true,
+      descriptorClosure: "cancelled-after-grace",
+      descendantTerminatedAfterRestoration: true,
+      withinOuterBound: true,
+    },
   })
   expect(installedPackage.processTimeoutControl.elapsedMs).toBeGreaterThanOrEqual(150)
   expect(installedPackage.processTimeoutControl.elapsedMs).toBeLessThanOrEqual(1_150)
@@ -48,12 +61,23 @@ test("Git installation runs no lifecycle script", () => {
 test("installed bytes match the literal package inventory", () => {
   expect(installedPackage?.regularFiles, "contract-absent: installed regular files must match the admitted inventory").toEqual(expectedInstalledFiles)
   expect(installedPackage?.installedBytesSha256).toMatch(/^sha256:[0-9a-f]{64}$/)
+  expect(installedPackage.symlinks).toEqual(expectedInstalledSymlinks)
   expect(installedPackage.installedInventoryPerturbationControl).toEqual({
     roguePath: "rogue.js",
     exactInventoryRefused: true,
     digestChanged: true,
     inventoryRestored: true,
     digestRestored: true,
+    symlinkTargetMutationRefused: true,
+    symlinkReplacementRefused: true,
+    symlinkRestored: true,
+  })
+  expect(installedPackage.observationBindingControl).toEqual({
+    baselineProvedClaims: ["kit.command.invoked", "runtime.supported-platform"],
+    missingObservationRefused: true,
+    poisonedObservationRefused: true,
+    commandReceiptDigest: expectedCommandObservationReceiptDigest,
+    runtimeReceiptDigest: expectedRuntimeObservationReceiptDigest,
   })
   expect(installedPackage.outsideRepository).toBeTrue()
   expect(installedPackage.fixtureRemoved).toBeTrue()

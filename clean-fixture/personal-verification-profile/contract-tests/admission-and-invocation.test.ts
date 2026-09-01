@@ -41,7 +41,12 @@ test("public Admission source is dependency-free before maintenance execution", 
       workflow: { commit: installedPackage.resolvedCommit },
     },
   })
-  expect(installedPackage.admittedExecutionOrder).toEqual(["admission", "qualification", "maintenance-cli"])
+  expect(installedPackage.admittedExecutionOrder).toEqual([
+    "admission",
+    "maintenance-cli",
+    "observation-cells",
+    "qualification",
+  ])
   expect(installedPackage.admissionRefusalControl).toEqual({
     admission: {
       kind: "refused",

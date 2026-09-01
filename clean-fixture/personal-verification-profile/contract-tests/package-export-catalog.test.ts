@@ -23,12 +23,17 @@ test("the Git package exposes exactly nine accepted public subpaths", () => {
   expect(installedPackage?.subpathTypeExports, "contract-absent: public subpaths must expose exact accepted names").toEqual(expectedSubpathTypeExports)
   expect(installedPackage.publicSurfacePerturbationControl).toEqual({
     typeFormsRefused: ["direct", "named-type", "default-interface", "wildcard"],
+    typeBaselineRestored: true,
     runtimeSubpathsRefused: [...expectedPublicSubpaths],
+    runtimeSubpathsRestored: [...expectedPublicSubpaths],
   })
 })
 
 test("Implementation and proof paths stay private from exports and complete in inventory", () => {
   expect(Object.keys(packageMetadata.exports).some((path) => /implementation|contract-tests|fixtures/.test(path))).toBeFalse()
   expect(installedPackage?.regularFiles, "contract-absent: installed bytes must expose only the accepted package inventory").toEqual(expectedInstalledFiles)
-  expect(installedPackage.qualificationRuntimeTargetPerturbationRefused).toBeTrue()
+  expect(installedPackage.qualificationRuntimeTargetPerturbationControl).toEqual({
+    refused: true,
+    baselineRestored: true,
+  })
 })

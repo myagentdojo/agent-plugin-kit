@@ -11,6 +11,7 @@ export type InstalledPackageObservation = {
   subpathTypeExports: Readonly<Record<string, readonly string[]>>
   subpathRuntimeExports: Readonly<Record<string, readonly string[]>>
   regularFiles: readonly string[]
+  symlinks: typeof installedFoundation.installedPackage.symlinks
   sourceCommit: string
   remoteCommit: string
   resolvedCommit: string
@@ -27,10 +28,11 @@ export type InstalledPackageObservation = {
   installedInventoryPerturbationControl: typeof installedFoundation.installedPackage.installedInventoryPerturbationControl
   outsideRepository: boolean
   fixtureRemoved: boolean
-  qualificationRuntimeTargetPerturbationRefused: boolean
+  qualificationRuntimeTargetPerturbationControl: typeof installedFoundation.installedPackage.qualificationRuntimeTargetPerturbationControl
   admittedExecutionOrder: typeof installedFoundation.installedPackage.admittedExecutionOrder
   admissionRefusalControl: typeof installedFoundation.installedPackage.admissionRefusalControl
   publicSurfacePerturbationControl: typeof installedFoundation.installedPackage.publicSurfacePerturbationControl
+  observationBindingControl: typeof installedFoundation.installedPackage.observationBindingControl
   qualificationInputBindings: typeof installedFoundation.installedPackage.qualificationInputBindings
   processTimeoutControl: typeof installedFoundation.installedPackage.processTimeoutControl
 }

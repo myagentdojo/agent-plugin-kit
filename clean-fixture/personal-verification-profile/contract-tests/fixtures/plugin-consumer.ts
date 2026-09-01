@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 export const expectedRootTypeExports = [
   "AdmissionBootstrap",
   "AdmissionResult",
@@ -143,17 +145,32 @@ export function expectedPersonalQualification(
       profileId: "personal",
       claims: [
         provedClaim("kit.identity.admitted", "cell:personal-admitted", "clean-fixture"),
-        provedClaim("kit.command.invoked", "cell:personal-command", "clean-fixture"),
+        provedClaim(
+          "kit.command.invoked",
+          "cell:personal-command",
+          "clean-fixture",
+          expectedCommandObservationReceiptDigest,
+        ),
         provedClaim("kit.package.full-commit-pin", "cell:personal-package", "clean-fixture"),
         provedClaim("kit.workflow.full-commit-pin", "cell:personal-workflow", "clean-fixture"),
         provedClaim("plugin-payload.installed", "cell:personal-payload", "clean-fixture", installedBytesSha256),
-        provedClaim("runtime.supported-platform", "cell:personal-runtime", "public-process"),
+        provedClaim(
+          "runtime.supported-platform",
+          "cell:personal-runtime",
+          "public-process",
+          expectedRuntimeObservationReceiptDigest,
+        ),
         skippedClaim("harness.claude.fresh-native", "cell:personal-claude", "fresh-native-proof-not-run"),
         skippedClaim("harness.codex.fresh-native", "cell:personal-codex", "fresh-native-proof-not-run"),
       ],
       counts: { selected: 8, covered: 6, skipped: 2, proved: 6, notProved: 0, unknown: 0 },
       nonClaims: ["harness.claude.fresh-native", "harness.codex.fresh-native"],
-      receiptDigests: [fixtureReceiptDigest, installedBytesSha256],
+      receiptDigests: [
+        fixtureReceiptDigest,
+        expectedCommandObservationReceiptDigest,
+        installedBytesSha256,
+        expectedRuntimeObservationReceiptDigest,
+      ],
     },
   }
 }
@@ -167,7 +184,12 @@ export function expectedPublicQualification(candidate: CandidateIdentity): Quali
       profileId: "public",
       claims: [
         provedClaim("kit.identity.admitted", "cell:public-admitted", "clean-fixture"),
-        provedClaim("kit.command.invoked", "cell:public-command", "clean-fixture"),
+        provedClaim(
+          "kit.command.invoked",
+          "cell:public-command",
+          "clean-fixture",
+          expectedCommandObservationReceiptDigest,
+        ),
         provedClaim("kit.package.full-commit-pin", "cell:public-package", "clean-fixture"),
         provedClaim("kit.workflow.full-commit-pin", "cell:public-workflow", "clean-fixture"),
         skippedClaim("plugin-payload.installed", "cell:public-payload", "hosted-proof-not-run"),
@@ -188,7 +210,7 @@ export function expectedPublicQualification(candidate: CandidateIdentity): Quali
         "harness.claude.fresh-native",
         "harness.codex.fresh-native",
       ],
-      receiptDigests: [fixtureReceiptDigest],
+      receiptDigests: [fixtureReceiptDigest, expectedCommandObservationReceiptDigest],
     },
   }
 }
@@ -309,6 +331,19 @@ export const expectedInstalledFiles = [
   "tsconfig.json",
 ] as const
 
+export const expectedInstalledSymlinks = [
+  {
+    path: ".agents/skills/logtape",
+    kind: "symlink",
+    linkText: "../../src/adapters/maintenance-command-facade/node_modules/@logtape/logtape/skills/logtape",
+  },
+  {
+    path: ".claude/skills/logtape",
+    kind: "symlink",
+    linkText: "../../src/adapters/maintenance-command-facade/node_modules/@logtape/logtape/skills/logtape",
+  },
+] as const
+
 export const expectedDependencyFreeHelpRuntimeTrace = [
   "external:zod",
   "src/adapters/maintenance-command-facade/implementation/maintenance-command-facade.ts",
@@ -346,5 +381,22 @@ export const literalProcessResult = {
   stderr: "",
   exitCode: 0,
 } as const
+
+const testOwnedSha256 = (value: string): `sha256:${string}` =>
+  `sha256:${createHash("sha256").update(value).digest("hex")}`
+
+// Independent oracle: the actual harness hashes its captured process and host
+// observations. This fixture hashes the accepted literal process result.
+export const expectedCommandObservationReceiptDigest = testOwnedSha256(JSON.stringify({
+  schemaVersion: 1,
+  argv: ["--run-id", "contract-help-literal"],
+  observation: literalProcessResult,
+}))
+
+export const expectedRuntimeObservationReceiptDigest = testOwnedSha256(JSON.stringify({
+  schemaVersion: 1,
+  platform: { os: "darwin", arch: "arm64" },
+  commandReceiptDigest: expectedCommandObservationReceiptDigest,
+}))
 import type { QualificationOutcome } from "agent-plugin-kit/qualification-evidence"
 import type { CandidateIdentity } from "agent-plugin-kit/release-and-git-engine"

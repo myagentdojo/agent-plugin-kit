@@ -1,13 +1,16 @@
 import { createHash } from "node:crypto"
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   readdirSync,
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -54,6 +57,7 @@ type InstalledPackageObservation = {
   readonly publicSubpaths: readonly string[]
   readonly subpathTypeExports: Readonly<Record<string, readonly string[]>>
   readonly regularFiles: readonly string[]
+  readonly symlinks: readonly InstalledSymlink[]
   readonly lifecycleScriptLedger: readonly string[]
   readonly installedBytesSha256: `sha256:${string}`
   readonly installedInventoryPerturbationControl: {
@@ -62,18 +66,38 @@ type InstalledPackageObservation = {
     readonly digestChanged: true
     readonly inventoryRestored: true
     readonly digestRestored: true
+    readonly symlinkTargetMutationRefused: true
+    readonly symlinkReplacementRefused: true
+    readonly symlinkRestored: true
   }
   readonly outsideRepository: boolean
   readonly fixtureRemoved: boolean
-  readonly qualificationRuntimeTargetPerturbationRefused: boolean
-  readonly admittedExecutionOrder: readonly ["admission", "qualification", "maintenance-cli"]
+  readonly qualificationRuntimeTargetPerturbationControl: {
+    readonly refused: true
+    readonly baselineRestored: true
+  }
+  readonly admittedExecutionOrder: readonly [
+    "admission",
+    "maintenance-cli",
+    "observation-cells",
+    "qualification",
+  ]
   readonly admissionRefusalControl: {
     readonly admission: AdmissionResult
     readonly startedProcesses: readonly string[]
   }
   readonly publicSurfacePerturbationControl: {
     readonly typeFormsRefused: readonly string[]
+    readonly typeBaselineRestored: true
     readonly runtimeSubpathsRefused: readonly string[]
+    readonly runtimeSubpathsRestored: readonly string[]
+  }
+  readonly observationBindingControl: {
+    readonly baselineProvedClaims: readonly ["kit.command.invoked", "runtime.supported-platform"]
+    readonly missingObservationRefused: true
+    readonly poisonedObservationRefused: true
+    readonly commandReceiptDigest: `sha256:${string}`
+    readonly runtimeReceiptDigest: `sha256:${string}`
   }
   readonly qualificationInputBindings: {
     readonly provedInstalledPayloadCells: readonly {
@@ -96,6 +120,14 @@ type InstalledPackageObservation = {
     readonly graceMs: 1_000
     readonly elapsedMs: number
     readonly withinDeadlineGrace: true
+    readonly postKillGraceExpired: false
+    readonly descriptorHoldingSensitivity: {
+      readonly refused: true
+      readonly postKillGraceExpired: true
+      readonly descriptorClosure: "cancelled-after-grace"
+      readonly descendantTerminatedAfterRestoration: true
+      readonly withinOuterBound: true
+    }
   }
 }
 
@@ -105,7 +137,11 @@ type InstalledMaintenanceCliObservation = {
   readonly cwd: string
   readonly installedFiles: readonly string[]
   readonly externalDependencyPerturbationRefused: boolean
+  readonly externalDependencyBaselineRestored: boolean
   readonly escapedRuntimePerturbationRefused: boolean
+  readonly escapedRuntimeBaselineRestored: boolean
+  readonly nonJavaScriptRuntimePerturbationRefused: boolean
+  readonly nonJavaScriptRuntimeBaselineRestored: boolean
   readonly stationMap: {
     readonly declared_branch_coverage: number
     readonly required_station_ids: readonly string[]
@@ -128,60 +164,163 @@ type SpawnResult = {
   readonly cleanup: {
     readonly deadlineMs: number
     readonly timedOut: boolean
-    readonly descriptorClosure: "closed"
+    readonly descriptorClosure: "closed" | "cancelled-after-grace"
     readonly cleanup: "natural" | "process-group-killed"
     readonly processGroupId: number
+    readonly postKillGraceMs: number
+    readonly postKillGraceExpired: boolean
   }
 }
 
+type InstalledSymlink = {
+  readonly path: string
+  readonly kind: "symlink"
+  readonly linkText: string
+}
+
+type InstalledEntry =
+  | { readonly path: string; readonly kind: "regular-file" }
+  | InstalledSymlink
+
+type HostObservation = {
+  readonly os: "darwin" | "linux"
+  readonly arch: "arm64" | "x64"
+}
+
+type PublicProcessEvidence = {
+  readonly commandReceiptDigest: `sha256:${string}`
+  readonly runtimeReceiptDigest: `sha256:${string}`
+  readonly platform: HostObservation
+}
+
+type QualificationProbeObservation = {
+  readonly rootRuntimeExports: readonly string[]
+  readonly runtimeExports: Readonly<Record<string, readonly string[]>>
+  readonly personalQualification: QualificationOutcome
+  readonly publicQualification: QualificationOutcome
+}
+
 const defaultProcessDeadlineMs = 30_000
+const defaultPostKillGraceMs = 1_000
+
+function timer(ms: number): { readonly elapsed: Promise<void>; readonly cancel: () => void } {
+  let handle: ReturnType<typeof setTimeout> | undefined
+  const elapsed = new Promise<void>((resolveTimer) => {
+    handle = setTimeout(resolveTimer, ms)
+  })
+  return {
+    elapsed,
+    cancel: () => {
+      if (handle !== undefined) clearTimeout(handle)
+    },
+  }
+}
+
+function captureStream(stream: ReadableStream<Uint8Array>): {
+  readonly completed: Promise<void>
+  readonly cancel: () => Promise<void>
+  readonly text: () => string
+} {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let captured = ""
+  const completed = (async () => {
+    while (true) {
+      const item = await reader.read()
+      if (item.done) break
+      captured += decoder.decode(item.value, { stream: true })
+    }
+    captured += decoder.decode()
+  })()
+  return {
+    completed,
+    cancel: async () => {
+      await reader.cancel()
+    },
+    text: () => captured,
+  }
+}
+
+function killProcessGroup(pid: number, killChild: () => void): void {
+  try {
+    process.kill(-pid, "SIGKILL")
+  } catch {
+    killChild()
+  }
+}
+
+async function settleAfterProcessKill(
+  settled: Promise<unknown>,
+  stdout: ReturnType<typeof captureStream>,
+  stderr: ReturnType<typeof captureStream>,
+  postKillGraceMs: number,
+): Promise<boolean> {
+  const grace = timer(postKillGraceMs)
+  const postKill = await Promise.race([
+    settled.then(() => "settled" as const),
+    grace.elapsed.then(() => "grace-expired" as const),
+  ])
+  grace.cancel()
+  const graceExpired = postKill === "grace-expired"
+  if (graceExpired) await Promise.allSettled([stdout.cancel(), stderr.cancel()])
+  return graceExpired
+}
+
+function optionalSpawnEnvironment(
+  environment: Readonly<Record<string, string | undefined>> | undefined,
+): {} | { readonly env: Readonly<Record<string, string | undefined>> } {
+  return environment === undefined ? {} : { env: environment }
+}
 
 async function spawn(command: readonly string[], options: {
   readonly cwd: string
   readonly env?: Readonly<Record<string, string | undefined>>
   readonly deadlineMs?: number
+  readonly postKillGraceMs?: number
 }): Promise<SpawnResult> {
   const deadlineMs = options.deadlineMs ?? defaultProcessDeadlineMs
+  const postKillGraceMs = options.postKillGraceMs ?? defaultPostKillGraceMs
   const child = Bun.spawn([...command], {
     cwd: options.cwd,
-    ...(options.env === undefined ? {} : { env: options.env }),
+    ...optionalSpawnEnvironment(options.env),
     detached: true,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
   })
-  const stdout = new Response(child.stdout).text()
-  const stderr = new Response(child.stderr).text()
-  let timedOut = false
-  let deadlineHandle: ReturnType<typeof setTimeout> | undefined
-  const deadline = new Promise<void>((resolveDeadline) => {
-    deadlineHandle = setTimeout(() => {
-      timedOut = true
-      try {
-        process.kill(-child.pid, "SIGKILL")
-      } catch {
-        child.kill("SIGKILL")
-      }
-      resolveDeadline()
-    }, deadlineMs)
-  })
-  await Promise.race([child.exited.then(() => undefined), deadline])
-  const [exitCode, capturedStdout, capturedStderr] = await Promise.all([
-    child.exited,
-    stdout,
-    stderr,
+  const stdout = captureStream(child.stdout)
+  const stderr = captureStream(child.stderr)
+  let observedExitCode: number | undefined
+  const settled = Promise.all([
+    child.exited.then((exitCode) => {
+      observedExitCode = exitCode
+    }),
+    stdout.completed,
+    stderr.completed,
   ])
-  if (deadlineHandle !== undefined) clearTimeout(deadlineHandle)
+  const deadline = timer(deadlineMs)
+  const first = await Promise.race([
+    settled.then(() => "settled" as const),
+    deadline.elapsed.then(() => "deadline" as const),
+  ])
+  deadline.cancel()
+  const timedOut = first === "deadline"
+  if (timedOut) killProcessGroup(child.pid, () => child.kill("SIGKILL"))
+  const postKillGraceExpired = timedOut
+    ? await settleAfterProcessKill(settled, stdout, stderr, postKillGraceMs)
+    : false
   return {
-    exitCode: timedOut ? 124 : exitCode,
-    stdout: capturedStdout,
-    stderr: capturedStderr,
+    exitCode: timedOut ? 124 : (observedExitCode ?? 1),
+    stdout: stdout.text(),
+    stderr: stderr.text(),
     cleanup: {
       deadlineMs,
       timedOut,
-      descriptorClosure: "closed",
+      descriptorClosure: postKillGraceExpired ? "cancelled-after-grace" : "closed",
       cleanup: timedOut ? "process-group-killed" : "natural",
       processGroupId: child.pid,
+      postKillGraceMs,
+      postKillGraceExpired,
     },
   }
 }
@@ -197,25 +336,38 @@ function sha256(bytes: string | Uint8Array): `sha256:${string}` {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`
 }
 
-function walkRegularFiles(root: string, prefix = ""): string[] {
+function walkInstalledEntries(root: string, prefix = ""): InstalledEntry[] {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
     const path = prefix === "" ? entry.name : `${prefix}/${entry.name}`
     const absolute = join(root, entry.name)
-    if (entry.isDirectory()) return walkRegularFiles(absolute, path)
-    return entry.isFile() || entry.isSymbolicLink() && statSync(absolute).isFile() ? [path] : []
-  })
+    const identity = lstatSync(absolute)
+    if (identity.isDirectory()) return walkInstalledEntries(absolute, path)
+    if (identity.isFile()) return [{ path, kind: "regular-file" as const }]
+    if (identity.isSymbolicLink()) {
+      return [{ path, kind: "symlink" as const, linkText: readlinkSync(absolute) }]
+    }
+    return []
+  }).sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
 }
 
 function installedRegularFiles(packageRoot: string): string[] {
-  return walkRegularFiles(packageRoot).sort()
+  return walkInstalledEntries(packageRoot)
+    .filter((entry) => entry.kind === "regular-file")
+    .map((entry) => entry.path)
 }
 
-function installedFilesDigest(packageRoot: string, files: readonly string[]): `sha256:${string}` {
+function installedEntriesDigest(
+  packageRoot: string,
+  entries: readonly InstalledEntry[],
+): `sha256:${string}` {
   const hash = createHash("sha256")
-  for (const file of files) {
-    hash.update(file)
+  for (const entry of entries) {
+    hash.update(entry.path)
     hash.update("\0")
-    hash.update(readFileSync(join(packageRoot, file)))
+    hash.update(entry.kind)
+    hash.update("\0")
+    if (entry.kind === "regular-file") hash.update(readFileSync(join(packageRoot, entry.path)))
+    else hash.update(entry.linkText)
     hash.update("\0")
   }
   return `sha256:${hash.digest("hex")}`
@@ -223,29 +375,77 @@ function installedFilesDigest(packageRoot: string, files: readonly string[]): `s
 
 function proveCompleteInstalledInventory(
   packageRoot: string,
-  expectedFiles: readonly string[],
+  expectedEntries: readonly InstalledEntry[],
   expectedDigest: `sha256:${string}`,
 ): InstalledPackageObservation["installedInventoryPerturbationControl"] {
   const roguePath = "rogue.js" as const
   const absoluteRoguePath = join(packageRoot, roguePath)
-  let perturbedFiles: readonly string[] = []
+  let perturbedEntries: readonly InstalledEntry[] = []
   let perturbedDigest: `sha256:${string}` = expectedDigest
   try {
     writeFileSync(absoluteRoguePath, "export const escapedInventory = true\n", { mode: 0o600 })
-    perturbedFiles = installedRegularFiles(packageRoot)
-    perturbedDigest = installedFilesDigest(packageRoot, perturbedFiles)
+    perturbedEntries = walkInstalledEntries(packageRoot)
+    perturbedDigest = installedEntriesDigest(packageRoot, perturbedEntries)
   } finally {
     rmSync(absoluteRoguePath, { force: true })
   }
-  const restoredFiles = installedRegularFiles(packageRoot)
-  const restoredDigest = installedFilesDigest(packageRoot, restoredFiles)
-  const exactInventoryRefused = JSON.stringify(perturbedFiles) !== JSON.stringify(expectedFiles) &&
-    perturbedFiles.includes(roguePath)
+  const restoredEntries = walkInstalledEntries(packageRoot)
+  const restoredDigest = installedEntriesDigest(packageRoot, restoredEntries)
+  const exactInventoryRefused = JSON.stringify(perturbedEntries) !== JSON.stringify(expectedEntries) &&
+    perturbedEntries.some((entry) => entry.path === roguePath && entry.kind === "regular-file")
   const digestChanged = perturbedDigest !== expectedDigest
-  const inventoryRestored = JSON.stringify(restoredFiles) === JSON.stringify(expectedFiles)
+  const inventoryRestored = JSON.stringify(restoredEntries) === JSON.stringify(expectedEntries)
   const digestRestored = restoredDigest === expectedDigest
-  if (!exactInventoryRefused || !digestChanged || !inventoryRestored || !digestRestored) {
-    throw new Error("complete installed inventory perturbation was not refused and restored")
+
+  const symlink = expectedEntries.find((entry): entry is InstalledSymlink => entry.kind === "symlink")
+  if (symlink === undefined) throw new Error("installed symlink oracle is empty")
+  const symlinkPath = join(packageRoot, symlink.path)
+  let mutatedTargetEntries: readonly InstalledEntry[] = []
+  let mutatedTargetDigest: `sha256:${string}` = expectedDigest
+  let replacementEntries: readonly InstalledEntry[] = []
+  let replacementDigest: `sha256:${string}` = expectedDigest
+  try {
+    rmSync(symlinkPath, { force: true })
+    symlinkSync(`${symlink.linkText}-mutated`, symlinkPath)
+    mutatedTargetEntries = walkInstalledEntries(packageRoot)
+    mutatedTargetDigest = installedEntriesDigest(packageRoot, mutatedTargetEntries)
+    rmSync(symlinkPath, { force: true })
+    writeFileSync(symlinkPath, "not-a-symlink\n", { mode: 0o600 })
+    replacementEntries = walkInstalledEntries(packageRoot)
+    replacementDigest = installedEntriesDigest(packageRoot, replacementEntries)
+  } finally {
+    rmSync(symlinkPath, { force: true })
+    symlinkSync(symlink.linkText, symlinkPath)
+  }
+  const symlinkRestoredEntries = walkInstalledEntries(packageRoot)
+  const symlinkRestoredDigest = installedEntriesDigest(packageRoot, symlinkRestoredEntries)
+  const symlinkTargetMutationRefused = JSON.stringify(mutatedTargetEntries) !==
+      JSON.stringify(expectedEntries) && mutatedTargetDigest !== expectedDigest
+  const symlinkReplacementRefused = JSON.stringify(replacementEntries) !==
+      JSON.stringify(expectedEntries) && replacementDigest !== expectedDigest
+  const symlinkRestored = JSON.stringify(symlinkRestoredEntries) === JSON.stringify(expectedEntries) &&
+    symlinkRestoredDigest === expectedDigest
+
+  if (
+    [
+      exactInventoryRefused,
+      digestChanged,
+      inventoryRestored,
+      digestRestored,
+      symlinkTargetMutationRefused,
+      symlinkReplacementRefused,
+      symlinkRestored,
+    ].includes(false)
+  ) {
+    throw new Error(`complete installed inventory perturbation was not refused and restored: ${JSON.stringify({
+      exactInventoryRefused,
+      digestChanged,
+      inventoryRestored,
+      digestRestored,
+      symlinkTargetMutationRefused,
+      symlinkReplacementRefused,
+      symlinkRestored,
+    })}`)
   }
   return {
     roguePath,
@@ -253,6 +453,9 @@ function proveCompleteInstalledInventory(
     digestChanged: true,
     inventoryRestored: true,
     digestRestored: true,
+    symlinkTargetMutationRefused: true,
+    symlinkReplacementRefused: true,
+    symlinkRestored: true,
   }
 }
 
@@ -434,13 +637,28 @@ function writeConsumerFiles(consumerRoot: string, remoteRoot: string, commit: st
   )
 }
 
+function receiptDigestFor(
+  cell: ReturnType<typeof personalProfileCells>[number],
+  installedBytesSha256: `sha256:${string}`,
+  processEvidence: PublicProcessEvidence,
+): `sha256:${string}` | undefined {
+  if (cell.assertedStatus !== "proved" || cell.receipt === null) return undefined
+  if (cell.claim === "plugin-payload.installed") return installedBytesSha256
+  if (cell.claim === "kit.command.invoked") return processEvidence.commandReceiptDigest
+  if (cell.claim === "runtime.supported-platform") return processEvidence.runtimeReceiptDigest
+  return cell.receipt.digest
+}
+
 function projectProfileCell(
   cell: ReturnType<typeof personalProfileCells>[number],
   candidate: ReturnType<typeof candidateAtCommit>["candidate"],
   installedBytesSha256: `sha256:${string}`,
+  processEvidence: PublicProcessEvidence,
 ) {
   const candidateIdentitySha256 = independentCandidateIdentityDigest(candidate)
   const installedPayload = cell.assertedStatus === "proved" && cell.claim === "plugin-payload.installed"
+  const runtimeObserved = cell.assertedStatus === "proved" && cell.claim === "runtime.supported-platform"
+  const receiptDigest = receiptDigestFor(cell, installedBytesSha256, processEvidence)
   return {
     ...cell,
     candidate,
@@ -451,8 +669,8 @@ function projectProfileCell(
       package: candidate.package,
       workflow: candidate.workflow,
       ...(installedPayload ? { installedPayloadSha256: installedBytesSha256 } : {}),
-      ...(cell.assertedStatus !== "unknown" && cell.claim === "runtime.supported-platform"
-        ? { platform: { os: "darwin", arch: "arm64" } }
+      ...(runtimeObserved
+        ? { platform: processEvidence.platform }
         : {}),
     },
     receipt: cell.receipt === null
@@ -460,9 +678,95 @@ function projectProfileCell(
       : {
           ...cell.receipt,
           candidateIdentitySha256,
-          digest: installedPayload ? installedBytesSha256 : cell.receipt.digest,
+          digest: receiptDigest ?? cell.receipt.digest,
         },
   }
+}
+
+function derivePublicProcessEvidence(
+  commandObservation: ProcessObservation | undefined,
+  hostObservation: HostObservation | undefined,
+): PublicProcessEvidence | undefined {
+  if (commandObservation === undefined || hostObservation === undefined) return undefined
+  if (commandObservation.exitCode !== 0 || commandObservation.stderr !== "") return undefined
+  try {
+    const envelope = JSON.parse(commandObservation.stdout) as { status?: unknown }
+    if (envelope.status !== "ok") return undefined
+  } catch {
+    return undefined
+  }
+  const commandReceiptDigest = sha256(JSON.stringify({
+    schemaVersion: 1,
+    argv: cleanFixtureHelpScenarios[0]?.argv ?? [],
+    observation: {
+      stdout: commandObservation.stdout,
+      stderr: commandObservation.stderr,
+      exitCode: commandObservation.exitCode,
+    },
+  }))
+  return {
+    commandReceiptDigest,
+    runtimeReceiptDigest: sha256(JSON.stringify({
+      schemaVersion: 1,
+      platform: hostObservation,
+      commandReceiptDigest,
+    })),
+    platform: hostObservation,
+  }
+}
+
+async function observeHost(
+  consumerRoot: string,
+  environment: Readonly<Record<string, string>>,
+): Promise<HostObservation> {
+  const result = readJsonOutput<{ readonly os: string; readonly arch: string }>(
+    "Clean Fixture host observation",
+    await spawn([
+      "bun",
+      "--no-install",
+      "-e",
+      "console.log(JSON.stringify({ os: process.platform, arch: process.arch }))",
+    ], { cwd: consumerRoot, env: environment }),
+  )
+  if (!(["darwin", "linux"] as const).includes(result.os as "darwin" | "linux")) {
+    throw new Error(`unsupported observed operating system: ${result.os}`)
+  }
+  if (!(["arm64", "x64"] as const).includes(result.arch as "arm64" | "x64")) {
+    throw new Error(`unsupported observed architecture: ${result.arch}`)
+  }
+  return result as HostObservation
+}
+
+function proveObservationBinding(
+  commandObservation: ProcessObservation,
+  hostObservation: HostObservation,
+): InstalledPackageObservation["observationBindingControl"] {
+  const baseline = derivePublicProcessEvidence(commandObservation, hostObservation)
+  const missing = derivePublicProcessEvidence(undefined, hostObservation)
+  const poisoned = derivePublicProcessEvidence(
+    { ...commandObservation, exitCode: 1 },
+    hostObservation,
+  )
+  if (baseline === undefined || missing !== undefined || poisoned !== undefined) {
+    throw new Error("command and runtime evidence construction did not fail closed")
+  }
+  return {
+    baselineProvedClaims: ["kit.command.invoked", "runtime.supported-platform"],
+    missingObservationRefused: true,
+    poisonedObservationRefused: true,
+    commandReceiptDigest: baseline.commandReceiptDigest,
+    runtimeReceiptDigest: baseline.runtimeReceiptDigest,
+  }
+}
+
+function writeAdmissionInput(
+  consumerRoot: string,
+  name: string,
+  request: ReturnType<typeof candidateAtCommit>,
+): string {
+  const inputPath = join(consumerRoot, `${name}-admission-input.json`)
+  writeFileSync(inputPath, `${JSON.stringify({ request })}\n`, { mode: 0o600 })
+  return inputPath
 }
 
 function writeProbeInput(
@@ -470,10 +774,11 @@ function writeProbeInput(
   name: string,
   request: ReturnType<typeof candidateAtCommit>,
   installedBytesSha256: `sha256:${string}`,
+  processEvidence: PublicProcessEvidence,
 ): string {
   const candidate = request.candidate
   const projectCell = (cell: ReturnType<typeof personalProfileCells>[number]) =>
-    projectProfileCell(cell, candidate, installedBytesSha256)
+    projectProfileCell(cell, candidate, installedBytesSha256, processEvidence)
   const inputPath = join(consumerRoot, `${name}-input.json`)
   writeFileSync(inputPath, `${JSON.stringify({
     request,
@@ -607,8 +912,8 @@ function writeRuntimeTracePreload(
   const preload = join(observerRoot, "runtime-trace-preload.ts")
   writeFileSync(
     preload,
-      `import { appendFileSync, realpathSync } from "node:fs"\n` +
-      `import { basename, relative } from "node:path"\n` +
+      `import { appendFileSync, existsSync, realpathSync } from "node:fs"\n` +
+      `import { basename, dirname, isAbsolute, relative, resolve } from "node:path"\n` +
       `const packageRoot = ${JSON.stringify(packageRoot)}\n` +
       `const consumerRoot = ${JSON.stringify(consumerRoot)}\n` +
       `const tracePath = ${JSON.stringify(tracePath)}\n` +
@@ -617,9 +922,10 @@ function writeRuntimeTracePreload(
       `const append = (identity) => appendFileSync(tracePath, identity + "\\n")\n` +
       `const record = (path) => { const resolved = realpathSync(path); if (resolved === instrumentationPath) return; if (resolved.startsWith(packageRoot + "/")) append(relative(packageRoot, resolved)); else { const packageName = externalPackage(resolved); append(packageName ? "external:" + packageName : "outside-package:" + basename(resolved)) } }\n` +
       `const recordBare = (specifier) => { if (specifier.startsWith("node:") || specifier.startsWith("bun:")) return; const parts = specifier.split("/"); const packageName = specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]; if (packageName && packageName !== ${JSON.stringify(packageName)}) append("external:" + packageName) }\n` +
+      `const recordSpecifier = (specifier, importer) => { if (!specifier.startsWith(".") && !specifier.startsWith("/")) return recordBare(specifier); const candidate = isAbsolute(specifier) ? specifier : resolve(dirname(importer), specifier); if (existsSync(candidate)) record(candidate) }\n` +
       `record(process.argv[1])\n` +
       `const loaderFor = (path) => path.endsWith(".tsx") ? "tsx" : path.endsWith(".jsx") ? "jsx" : path.endsWith(".js") || path.endsWith(".mjs") || path.endsWith(".cjs") ? "js" : "ts"\n` +
-      `Bun.plugin({ name: "clean-fixture-runtime-trace", setup(builder) { builder.onResolve({ filter: /^[^./]/ }, ({ path }) => { recordBare(path); return undefined }); builder.onLoad({ filter: /\\.[cm]?[jt]sx?$/ }, async ({ path }) => { record(path); return { contents: await Bun.file(path).text(), loader: loaderFor(path) } }) } })\n`,
+      `Bun.plugin({ name: "clean-fixture-runtime-trace", setup(builder) { builder.onResolve({ filter: /.*/ }, ({ path, importer }) => { recordSpecifier(path, importer); return undefined }); builder.onLoad({ filter: /\\.[cm]?[jt]sx?$/ }, async ({ path }) => { record(path); return { contents: await Bun.file(path).text(), loader: loaderFor(path) } }) } })\n`,
     { mode: 0o600 },
   )
   return preload
@@ -655,7 +961,12 @@ async function observeCli(
   environment: Readonly<Record<string, string>>,
 ): Promise<Omit<
   InstalledMaintenanceCliObservation,
-  "externalDependencyPerturbationRefused" | "escapedRuntimePerturbationRefused"
+  | "externalDependencyPerturbationRefused"
+  | "externalDependencyBaselineRestored"
+  | "escapedRuntimePerturbationRefused"
+  | "escapedRuntimeBaselineRestored"
+  | "nonJavaScriptRuntimePerturbationRefused"
+  | "nonJavaScriptRuntimeBaselineRestored"
 >> {
   mkdirSync(observerRoot, { recursive: true, mode: 0o700 })
   const tracePath = join(observerRoot, "runtime-load-trace.txt")
@@ -685,13 +996,37 @@ async function observeCli(
   }
 }
 
+function cliObservationMatchesBaseline(
+  observation: Omit<
+    InstalledMaintenanceCliObservation,
+    | "externalDependencyPerturbationRefused"
+    | "externalDependencyBaselineRestored"
+    | "escapedRuntimePerturbationRefused"
+    | "escapedRuntimeBaselineRestored"
+    | "nonJavaScriptRuntimePerturbationRefused"
+    | "nonJavaScriptRuntimeBaselineRestored"
+  >,
+  baseline: Omit<
+    InstalledMaintenanceCliObservation,
+    | "externalDependencyPerturbationRefused"
+    | "externalDependencyBaselineRestored"
+    | "escapedRuntimePerturbationRefused"
+    | "escapedRuntimeBaselineRestored"
+    | "nonJavaScriptRuntimePerturbationRefused"
+    | "nonJavaScriptRuntimeBaselineRestored"
+  >,
+): boolean {
+  return JSON.stringify(observation) === JSON.stringify(baseline)
+}
+
 async function qualificationPerturbationIsRefused(
   consumerRoot: string,
   packageRoot: string,
   probePath: string,
   probeInputPath: string,
   environment: Readonly<Record<string, string>>,
-): Promise<boolean> {
+  baseline: QualificationProbeObservation,
+): Promise<InstalledPackageObservation["qualificationRuntimeTargetPerturbationControl"]> {
   const manifestPath = join(packageRoot, "package.json")
   const original = readFileSync(manifestPath, "utf8")
   const manifest = JSON.parse(original) as { exports: Record<string, unknown> }
@@ -704,16 +1039,28 @@ async function qualificationPerturbationIsRefused(
     import: "./src/modules/qualification-evidence/interface.ts",
     default: "./src/modules/qualification-evidence/interface.ts",
   }
+  let refused = false
   try {
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 })
     const result = await spawn(["bun", "--no-install", probePath, probeInputPath], {
       cwd: consumerRoot,
       env: environment,
     })
-    return result.exitCode !== 0 && result.stderr.includes("qualification reducer unavailable")
+    refused = result.exitCode !== 0 && result.stderr.includes("qualification reducer unavailable")
   } finally {
     writeFileSync(manifestPath, original, { mode: 0o600 })
   }
+  const restored = readJsonOutput<QualificationProbeObservation>(
+    "restored installed public Qualification probe",
+    await spawn(["bun", "--no-install", probePath, probeInputPath], {
+      cwd: consumerRoot,
+      env: environment,
+    }),
+  )
+  if (!refused || JSON.stringify(restored) !== JSON.stringify(baseline)) {
+    throw new Error("qualification runtime target perturbation was not refused and restored")
+  }
+  return { refused: true, baselineRestored: true }
 }
 
 function typeCatalogMatchesExpected(catalog: ReturnType<typeof installedTypeCatalog>): boolean {
@@ -738,14 +1085,14 @@ async function observeRuntimeExportKeys(
   )
 }
 
-async function provePublicSurfacePerturbations(
-  consumerRoot: string,
+function proveTypeSurfacePerturbations(
   packageRoot: string,
   exportsMap: Readonly<Record<string, unknown>>,
-  environment: Readonly<Record<string, string>>,
-): Promise<InstalledPackageObservation["publicSurfacePerturbationControl"]> {
-  const typeSubpath = "./runtime-custody"
-  const typeTarget = join(packageRoot, exportTarget(exportsMap[typeSubpath]).replace(/^\.\//u, ""))
+): { readonly refused: readonly string[]; readonly restored: true } {
+  const typeTarget = join(
+    packageRoot,
+    exportTarget(exportsMap["./runtime-custody"]).replace(/^\.\//u, ""),
+  )
   const originalTypeTarget = readFileSync(typeTarget, "utf8")
   const wildcardTarget = join(packageRoot, "src/modules/runtime-custody/clean-fixture-extra-types.ts")
   const typeForms = [
@@ -754,36 +1101,69 @@ async function provePublicSurfacePerturbations(
     ["default-interface", "\nexport default interface CleanFixtureUnexpected {}\n"],
     ["wildcard", "\nexport type * from \"./clean-fixture-extra-types.ts\"\n"],
   ] as const
-  const typeFormsRefused: string[] = []
+  const refused: string[] = []
   try {
     writeFileSync(wildcardTarget, "export type CleanFixtureUnexpected = string\n", { mode: 0o600 })
     for (const [label, source] of typeForms) {
       writeFileSync(typeTarget, `${originalTypeTarget}${source}`, { mode: 0o600 })
-      if (!typeCatalogMatchesExpected(installedTypeCatalog(packageRoot, exportsMap))) {
-        typeFormsRefused.push(label)
-      }
+      if (!typeCatalogMatchesExpected(installedTypeCatalog(packageRoot, exportsMap))) refused.push(label)
     }
   } finally {
     writeFileSync(typeTarget, originalTypeTarget, { mode: 0o600 })
     rmSync(wildcardTarget, { force: true })
   }
+  if (!typeCatalogMatchesExpected(installedTypeCatalog(packageRoot, exportsMap))) {
+    throw new Error("type export baseline was not restored")
+  }
+  return { refused, restored: true }
+}
 
-  const runtimeSubpathsRefused: string[] = []
+async function proveRuntimeSurfacePerturbations(
+  consumerRoot: string,
+  packageRoot: string,
+  exportsMap: Readonly<Record<string, unknown>>,
+  environment: Readonly<Record<string, string>>,
+): Promise<{ readonly refused: readonly string[]; readonly restored: readonly string[] }> {
+  const refused: string[] = []
+  const restored: string[] = []
   for (const [subpath, exportValue] of Object.entries(exportsMap)) {
     const target = join(packageRoot, runtimeExportTarget(exportValue).replace(/^\.\//u, ""))
     const original = readFileSync(target, "utf8")
+    const specifier = subpath === "." ? packageName : `${packageName}${subpath.slice(1)}`
+    const expected = expectedSubpathRuntimeExports[subpath]
+    if (expected === undefined) throw new Error(`missing expected runtime catalog for ${subpath}`)
     try {
       writeFileSync(target, `${original}\nexport const cleanFixtureUnexpectedRuntime = true\n`, { mode: 0o600 })
-      const specifier = subpath === "." ? packageName : `${packageName}${subpath.slice(1)}`
       const observed = await observeRuntimeExportKeys(consumerRoot, specifier, environment)
-      const expected = expectedSubpathRuntimeExports[subpath]
-      if (expected === undefined) throw new Error(`missing expected runtime catalog for ${subpath}`)
-      if (JSON.stringify(observed) !== JSON.stringify(expected)) runtimeSubpathsRefused.push(subpath)
+      if (JSON.stringify(observed) !== JSON.stringify(expected)) refused.push(subpath)
     } finally {
       writeFileSync(target, original, { mode: 0o600 })
     }
+    const baseline = await observeRuntimeExportKeys(consumerRoot, specifier, environment)
+    if (JSON.stringify(baseline) === JSON.stringify(expected)) restored.push(subpath)
   }
-  return { typeFormsRefused, runtimeSubpathsRefused }
+  return { refused, restored }
+}
+
+async function provePublicSurfacePerturbations(
+  consumerRoot: string,
+  packageRoot: string,
+  exportsMap: Readonly<Record<string, unknown>>,
+  environment: Readonly<Record<string, string>>,
+): Promise<InstalledPackageObservation["publicSurfacePerturbationControl"]> {
+  const type = proveTypeSurfacePerturbations(packageRoot, exportsMap)
+  const runtime = await proveRuntimeSurfacePerturbations(
+    consumerRoot,
+    packageRoot,
+    exportsMap,
+    environment,
+  )
+  return {
+    typeFormsRefused: type.refused,
+    typeBaselineRestored: type.restored,
+    runtimeSubpathsRefused: runtime.refused,
+    runtimeSubpathsRestored: runtime.restored,
+  }
 }
 
 async function proveExternalRuntimePerturbation(
@@ -792,9 +1172,14 @@ async function proveExternalRuntimePerturbation(
   packageRoot: string,
   foreignCwd: string,
   environment: Readonly<Record<string, string>>,
+  baseline: Parameters<typeof cliObservationMatchesBaseline>[1],
 ): Promise<{
   readonly externalDependencyPerturbationRefused: boolean
+  readonly externalDependencyBaselineRestored: boolean
   readonly escapedRuntimePerturbationRefused: boolean
+  readonly escapedRuntimeBaselineRestored: boolean
+  readonly nonJavaScriptRuntimePerturbationRefused: boolean
+  readonly nonJavaScriptRuntimeBaselineRestored: boolean
 }> {
   const dependencyRoot = join(consumerRoot, "node_modules", "clean-fixture-foreign-dependency")
   const target = join(packageRoot, "src/adapters/maintenance-command-facade/maintenance.ts")
@@ -822,6 +1207,16 @@ async function proveExternalRuntimePerturbation(
     writeFileSync(target, original, { mode: 0o600 })
     rmSync(dependencyRoot, { recursive: true, force: true })
   }
+  const externalDependencyBaselineRestored = cliObservationMatchesBaseline(
+    await observeCli(
+      consumerRoot,
+      join(observerRoot, "external-restoration"),
+      packageRoot,
+      foreignCwd,
+      environment,
+    ),
+    baseline,
+  )
 
   const escapedPath = join(foreignCwd, "escaped-runtime.ts")
   let escapedRuntimePerturbationRefused = false
@@ -843,10 +1238,59 @@ async function proveExternalRuntimePerturbation(
     writeFileSync(target, original, { mode: 0o600 })
     rmSync(escapedPath, { force: true })
   }
+  const escapedRuntimeBaselineRestored = cliObservationMatchesBaseline(
+    await observeCli(
+      consumerRoot,
+      join(observerRoot, "escaped-runtime-restoration"),
+      packageRoot,
+      foreignCwd,
+      environment,
+    ),
+    baseline,
+  )
+
+  const escapedJsonPath = join(foreignCwd, "escaped-runtime.json")
+  let nonJavaScriptRuntimePerturbationRefused = false
+  try {
+    writeFileSync(escapedJsonPath, "{\"escaped\":true}\n", { mode: 0o600 })
+    writeFileSync(
+      target,
+      `${original}\nimport escapedRuntime from ${JSON.stringify(escapedJsonPath)} with { type: "json" }\nvoid escapedRuntime\n`,
+      { mode: 0o600 },
+    )
+    const observation = await observeCli(
+      consumerRoot,
+      join(observerRoot, "non-javascript-runtime-perturbation"),
+      packageRoot,
+      foreignCwd,
+      environment,
+    )
+    nonJavaScriptRuntimePerturbationRefused = observation.importedFiles.includes(
+      `outside-package:${basename(escapedJsonPath)}`,
+    ) && JSON.stringify(observation.importedFiles) !==
+      JSON.stringify(expectedDependencyFreeHelpRuntimeTrace)
+  } finally {
+    writeFileSync(target, original, { mode: 0o600 })
+    rmSync(escapedJsonPath, { force: true })
+  }
+  const nonJavaScriptRuntimeBaselineRestored = cliObservationMatchesBaseline(
+    await observeCli(
+      consumerRoot,
+      join(observerRoot, "non-javascript-runtime-restoration"),
+      packageRoot,
+      foreignCwd,
+      environment,
+    ),
+    baseline,
+  )
 
   return {
     externalDependencyPerturbationRefused,
+    externalDependencyBaselineRestored,
     escapedRuntimePerturbationRefused,
+    escapedRuntimeBaselineRestored,
+    nonJavaScriptRuntimePerturbationRefused,
+    nonJavaScriptRuntimeBaselineRestored,
   }
 }
 
@@ -887,13 +1331,13 @@ async function waitForProcessTreeExit(
   return liveness
 }
 
-async function proveTimeoutCleanup(
+async function proveBoundedProcessTreeTimeout(
   fixtureRoot: string,
   environment: Readonly<Record<string, string>>,
-): Promise<InstalledPackageObservation["processTimeoutControl"]> {
+  deadlineMs: 150,
+  graceMs: 1_000,
+): Promise<{ readonly elapsedMs: number }> {
   const childPidPath = join(fixtureRoot, "timeout-descendant.pid")
-  const deadlineMs = 150 as const
-  const graceMs = 1_000 as const
   const script = [
     `const child = Bun.spawn(["/bin/sleep", "30"], { stdout: "inherit", stderr: "inherit" })`,
     `await Bun.write(${JSON.stringify(childPidPath)}, String(child.pid))`,
@@ -908,23 +1352,91 @@ async function proveTimeoutCleanup(
   const descendantPid = Number(readFileSync(childPidPath, "utf8"))
   const liveness = await waitForProcessTreeExit(descendantPid, result.cleanup.processGroupId)
   const elapsedMs = performance.now() - startedAt
-  const descendantTerminated = !liveness.descendantExists
-  const processGroupTerminated = !liveness.processGroupExists
-  const withinDeadlineGrace = elapsedMs >= deadlineMs && elapsedMs <= deadlineMs + graceMs
-  const proofChecks = [
+  const checks = [
     result.exitCode === 124,
     result.cleanup.timedOut,
-    descendantTerminated,
-    processGroupTerminated,
-    withinDeadlineGrace,
+    result.cleanup.descriptorClosure === "closed",
+    !result.cleanup.postKillGraceExpired,
+    !liveness.descendantExists,
+    !liveness.processGroupExists,
+    elapsedMs >= deadlineMs && elapsedMs <= deadlineMs + graceMs,
   ]
-  if (proofChecks.includes(false)) {
-    throw new Error("bounded process timeout did not terminate its process tree")
+  if (checks.includes(false)) throw new Error("bounded process timeout did not terminate its process tree")
+  return { elapsedMs }
+}
+
+function killDescriptorHolder(pid: number): void {
+  try {
+    process.kill(-pid, "SIGKILL")
+  } catch {
+    try {
+      process.kill(pid, "SIGKILL")
+    } catch {
+      // The descendant may already have exited after proving descriptor sensitivity.
+    }
   }
+}
+
+async function proveDescriptorHoldingSensitivity(
+  fixtureRoot: string,
+  environment: Readonly<Record<string, string>>,
+  deadlineMs: 150,
+  graceMs: 1_000,
+): Promise<InstalledPackageObservation["processTimeoutControl"]["descriptorHoldingSensitivity"]> {
+  const pidPath = join(fixtureRoot, "descriptor-holder.pid")
+  const script = [
+    `const child = Bun.spawn(["/bin/sleep", "30"], { detached: true, stdout: "inherit", stderr: "inherit" })`,
+    "child.unref()",
+    `await Bun.write(${JSON.stringify(pidPath)}, String(child.pid))`,
+  ].join("\n")
+  const startedAt = performance.now()
+  const result = await spawn([process.execPath, "-e", script], {
+    cwd: fixtureRoot,
+    env: environment,
+    deadlineMs,
+    postKillGraceMs: graceMs,
+  })
+  const elapsedMs = performance.now() - startedAt
+  const pid = Number(readFileSync(pidPath, "utf8"))
+  const refused = result.exitCode === 124 && result.cleanup.postKillGraceExpired &&
+    result.cleanup.descriptorClosure === "cancelled-after-grace" &&
+    elapsedMs <= deadlineMs + graceMs + 250
+  killDescriptorHolder(pid)
+  for (let attempt = 0; attempt < 50 && processExists(pid); attempt += 1) await Bun.sleep(10)
+  if (!refused || processExists(pid)) {
+    throw new Error("descriptor-holding descendant did not fail closed within the outer bound")
+  }
+  return {
+    refused: true,
+    postKillGraceExpired: true,
+    descriptorClosure: "cancelled-after-grace",
+    descendantTerminatedAfterRestoration: true,
+    withinOuterBound: true,
+  }
+}
+
+async function proveTimeoutCleanup(
+  fixtureRoot: string,
+  environment: Readonly<Record<string, string>>,
+): Promise<InstalledPackageObservation["processTimeoutControl"]> {
+  const deadlineMs = 150 as const
+  const graceMs = 1_000 as const
+  const { elapsedMs } = await proveBoundedProcessTreeTimeout(
+    fixtureRoot,
+    environment,
+    deadlineMs,
+    graceMs,
+  )
+  const descriptorHoldingSensitivity = await proveDescriptorHoldingSensitivity(
+    fixtureRoot,
+    environment,
+    deadlineMs,
+    graceMs,
+  )
   return {
     exitCode: 124,
     timedOut: true,
-    descriptorClosure: result.cleanup.descriptorClosure,
+    descriptorClosure: "closed",
     cleanup: "process-group-killed",
     descendantPidObserved: true,
     descendantTerminated: true,
@@ -934,7 +1446,14 @@ async function proveTimeoutCleanup(
     graceMs,
     elapsedMs,
     withinDeadlineGrace: true,
+    postKillGraceExpired: false,
+    descriptorHoldingSensitivity,
   }
+}
+
+function readLifecycleLedger(path: string): readonly string[] {
+  if (!existsSync(path)) return []
+  return readFileSync(path, "utf8").split("\n").filter(Boolean)
 }
 
 async function observeInstalledFoundation(): Promise<InstalledFoundationObservation> {
@@ -973,13 +1492,13 @@ async function observeInstalledFoundation(): Promise<InstalledFoundationObservat
     writeConsumerFiles(consumerRoot, remoteRoot, sourceCommit)
 
     const gitDependency = `git+file://${remoteRoot}#${sourceCommit}`
-    const lockCreation = await spawn(["bun", "add", "--ignore-scripts", "--exact", "--backend=copyfile", gitDependency], {
+    const lockCreation = await spawn(["bun", "add", "--ignore-scripts", "--exact", gitDependency], {
       cwd: consumerRoot,
       env: environment,
     })
     requireSuccess("Clean Fixture lock creation", lockCreation)
     rmSync(join(consumerRoot, "node_modules"), { recursive: true, force: true })
-    const frozenInstall = await spawn(["bun", "install", "--ignore-scripts", "--production", "--frozen-lockfile", "--backend=copyfile"], {
+    const frozenInstall = await spawn(["bun", "install", "--ignore-scripts", "--production", "--frozen-lockfile"], {
       cwd: consumerRoot,
       env: environment,
     })
@@ -1005,22 +1524,24 @@ async function observeInstalledFoundation(): Promise<InstalledFoundationObservat
     const publicSubpaths = Object.keys(installedManifest.exports)
     const publicTypeResolution = await observePublicTypeResolution(consumerRoot, environment)
     const typeCatalog = installedTypeCatalog(packageRoot, installedManifest.exports)
-    const regularFiles = installedRegularFiles(packageRoot)
-    const installedBytesSha256 = installedFilesDigest(packageRoot, regularFiles)
+    const installedEntries = walkInstalledEntries(packageRoot)
+    const regularFiles = installedEntries
+      .filter((entry) => entry.kind === "regular-file")
+      .map((entry) => entry.path)
+    const symlinks = installedEntries.filter((entry) => entry.kind === "symlink")
+    const installedBytesSha256 = installedEntriesDigest(packageRoot, installedEntries)
     const installedInventoryPerturbationControl = proveCompleteInstalledInventory(
       packageRoot,
-      regularFiles,
+      installedEntries,
       installedBytesSha256,
     )
     const request = candidateAtCommit(sourceCommit)
-    const mainInputPath = writeProbeInput(consumerRoot, "admitted", request, installedBytesSha256)
-    const qualificationInputBindings = observeQualificationInputBindings(mainInputPath)
+    const admissionInputPath = writeAdmissionInput(consumerRoot, "admitted", request)
     const admissionProbePath = writeAdmissionProbe(consumerRoot)
-    const qualificationProbePath = writeQualificationProbe(consumerRoot, publicSubpaths)
     const admittedExecutionOrder: string[] = ["admission"]
     const admission = readJsonOutput<AdmissionResult>(
       "installed public Admission probe",
-      await spawn(["bun", "--no-install", admissionProbePath, mainInputPath], {
+      await spawn(["bun", "--no-install", admissionProbePath, admissionInputPath], {
         cwd: consumerRoot,
         env: environment,
       }),
@@ -1028,19 +1549,6 @@ async function observeInstalledFoundation(): Promise<InstalledFoundationObservat
     if (admission.kind !== "admitted") {
       throw new Error(`installed Candidate was refused before downstream execution: ${JSON.stringify(admission)}`)
     }
-    admittedExecutionOrder.push("qualification")
-    const qualificationProbe = readJsonOutput<{
-      rootRuntimeExports: readonly string[]
-      runtimeExports: Readonly<Record<string, readonly string[]>>
-      personalQualification: QualificationOutcome
-      publicQualification: QualificationOutcome
-    }>(
-      "installed public Qualification probe",
-      await spawn(["bun", "--no-install", qualificationProbePath, mainInputPath], {
-        cwd: consumerRoot,
-        env: environment,
-      }),
-    )
     admittedExecutionOrder.push("maintenance-cli")
     const installedMaintenanceCliBase = await observeCli(
       consumerRoot,
@@ -1049,33 +1557,68 @@ async function observeInstalledFoundation(): Promise<InstalledFoundationObservat
       foreignCwd,
       environment,
     )
+    const hostObservation = await observeHost(consumerRoot, environment)
+    const commandObservation = installedMaintenanceCliBase.observations[0]
+    if (commandObservation === undefined) {
+      throw new Error("accepted maintenance CLI scenarios produced no command observation")
+    }
+    const observationBindingControl = proveObservationBinding(
+      commandObservation,
+      hostObservation,
+    )
+    const processEvidence = derivePublicProcessEvidence(
+      commandObservation,
+      hostObservation,
+    )
+    if (processEvidence === undefined) {
+      throw new Error("accepted CLI and host observations did not produce qualification evidence")
+    }
+    admittedExecutionOrder.push("observation-cells")
+    const mainInputPath = writeProbeInput(
+      consumerRoot,
+      "admitted",
+      request,
+      installedBytesSha256,
+      processEvidence,
+    )
+    const qualificationInputBindings = observeQualificationInputBindings(mainInputPath)
+    const qualificationProbePath = writeQualificationProbe(consumerRoot, publicSubpaths)
+    admittedExecutionOrder.push("qualification")
+    const qualificationProbe = readJsonOutput<QualificationProbeObservation>(
+      "installed public Qualification probe",
+      await spawn(["bun", "--no-install", qualificationProbePath, mainInputPath], {
+        cwd: consumerRoot,
+        env: environment,
+      }),
+    )
     const runtimePerturbationControl = await proveExternalRuntimePerturbation(
       consumerRoot,
       observerRoot,
       packageRoot,
       foreignCwd,
       environment,
+      installedMaintenanceCliBase,
     )
     const installedMaintenanceCli = {
       ...installedMaintenanceCliBase,
       ...runtimePerturbationControl,
     }
-    const qualificationRuntimeTargetPerturbationRefused = await qualificationPerturbationIsRefused(
+    const qualificationRuntimeTargetPerturbationControl = await qualificationPerturbationIsRefused(
       consumerRoot,
       packageRoot,
       qualificationProbePath,
       mainInputPath,
       environment,
+      qualificationProbe,
     )
     const mismatchedRequest = {
       ...request,
       package: { ...request.package, commit: "cccccccccccccccccccccccccccccccccccccccc" },
     }
-    const refusedInputPath = writeProbeInput(
+    const refusedInputPath = writeAdmissionInput(
       consumerRoot,
       "refused",
       mismatchedRequest,
-      installedBytesSha256,
     )
     const startedProcesses = ["admission"]
     const refusedAdmission = readJsonOutput<AdmissionResult>(
@@ -1086,11 +1629,6 @@ async function observeInstalledFoundation(): Promise<InstalledFoundationObservat
       }),
     )
     if (refusedAdmission.kind === "admitted") {
-      startedProcesses.push("qualification")
-      await spawn(["bun", "--no-install", qualificationProbePath, refusedInputPath], {
-        cwd: consumerRoot,
-        env: environment,
-      })
       startedProcesses.push("maintenance-cli")
       await observeCli(
         consumerRoot,
@@ -1099,6 +1637,12 @@ async function observeInstalledFoundation(): Promise<InstalledFoundationObservat
         foreignCwd,
         environment,
       )
+      startedProcesses.push("observation-cells")
+      startedProcesses.push("qualification")
+      await spawn(["bun", "--no-install", qualificationProbePath, refusedInputPath], {
+        cwd: consumerRoot,
+        env: environment,
+      })
     }
     const publicSurfacePerturbationControl = await provePublicSurfacePerturbations(
       consumerRoot,
@@ -1123,19 +1667,24 @@ async function observeInstalledFoundation(): Promise<InstalledFoundationObservat
       subpathRuntimeExports: qualificationProbe.runtimeExports,
       publicSubpaths,
       regularFiles,
-      lifecycleScriptLedger: existsSync(lifecycleLedgerPath)
-        ? readFileSync(lifecycleLedgerPath, "utf8").split("\n").filter(Boolean)
-        : [],
+      symlinks,
+      lifecycleScriptLedger: readLifecycleLedger(lifecycleLedgerPath),
       installedBytesSha256,
       installedInventoryPerturbationControl,
       outsideRepository: relative(repositoryRoot, fixtureRoot).startsWith(".."),
-      qualificationRuntimeTargetPerturbationRefused,
-      admittedExecutionOrder: admittedExecutionOrder as ["admission", "qualification", "maintenance-cli"],
+      qualificationRuntimeTargetPerturbationControl,
+      admittedExecutionOrder: admittedExecutionOrder as [
+        "admission",
+        "maintenance-cli",
+        "observation-cells",
+        "qualification",
+      ],
       admissionRefusalControl: {
         admission: refusedAdmission,
         startedProcesses,
       },
       publicSurfacePerturbationControl,
+      observationBindingControl,
       qualificationInputBindings,
       processTimeoutControl,
       installedMaintenanceCli,
