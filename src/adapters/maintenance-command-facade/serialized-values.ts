@@ -111,7 +111,7 @@ const eventOutcomes = ["previewed", "completed", "refused", "failed"] as const
 const safeIdentifierPattern = /^[A-Za-z0-9._:-]{1,160}$/
 const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
 const maximumCredentialMatchLength = 4096
-const secretKeyPattern = /(?:password|passwd|secret|token|authorization|cookie|credential|private[-_]?key|api[-_]?key)/i
+const secretKeyPattern = /(?:password|passwd|secret|token|authorization|cookie|credential|privatekey|apikey)/i
 const uriSchemePattern = "[A-Za-z][A-Za-z0-9+.-]*"
 const authUrlPattern = new RegExp(
   `(^|[^A-Za-z0-9])(?=${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@)${uriSchemePattern}:\\/\\/[^\\s@]{1,${maximumCredentialMatchLength}}@[^\\s]+`,
@@ -223,13 +223,19 @@ type SecretAssignmentRange = Readonly<{
   valueEnd: number
 }>
 
+const afterWhitespace = (value: string, start: number): number => {
+  let end = start
+  while (/\s/.test(value[end] ?? "")) end += 1
+  return end
+}
+
 const isBareKeyCharacter = (character: string | undefined): boolean =>
-  character !== undefined && /[A-Za-z0-9_-]/.test(character)
+  character !== undefined && /[A-Za-z0-9_./-]/.test(character)
 
 type SensitiveAssignmentKey = Readonly<{ end: number }>
 
 const isSensitiveAssignmentKey = (key: string): boolean =>
-  secretKeyPattern.test(key.trim().replace(/\s+/g, "_"))
+  secretKeyPattern.test(key.replace(/[^A-Za-z0-9]/g, ""))
 
 const quotedAssignmentKeyAt = (
   value: string,
@@ -247,8 +253,7 @@ const bareAssignmentKeyAt = (value: string, start: number): SensitiveAssignmentK
   let end = start
   while (isBareKeyCharacter(value[end])) end += 1
   const key = value.slice(start, end)
-  let separatedEnd = end
-  while (/\s/.test(value[separatedEnd] ?? "")) separatedEnd += 1
+  let separatedEnd = afterWhitespace(value, end)
   while (isBareKeyCharacter(value[separatedEnd])) separatedEnd += 1
   const separatedKey = value.slice(start, separatedEnd)
   if (isSensitiveAssignmentKey(separatedKey)) return { end: separatedEnd }
@@ -273,7 +278,7 @@ const nonWhitespaceEnd = (value: string, start: number): number => {
 }
 
 const isUnquotedAssignmentBoundary = (value: string, index: number): boolean =>
-  value.startsWith(" | ", index) || ",}]".includes(value[index] ?? "")
+  value.startsWith(" | ", index)
 
 const unquotedAssignmentValueEnd = (value: string, start: number): number => {
   let end = start
@@ -307,12 +312,6 @@ const quotedValueEnd = (value: string, start: number, quote: string): number => 
     end += 1
   }
   return value.length
-}
-
-const afterWhitespace = (value: string, start: number): number => {
-  let end = start
-  while (/\s/.test(value[end] ?? "")) end += 1
-  return end
 }
 
 const assignmentValueRangeAt = (

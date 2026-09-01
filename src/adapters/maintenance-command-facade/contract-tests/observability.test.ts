@@ -500,6 +500,10 @@ test("redaction validates and freezes both seams before crossing", async () => {
   const repeatedSpacePrivateKeyAssignment = "private  key=fixture-repeated-space-private-key-secret"
   const tabSeparatedApiKeyAssignment = "api\tkey=fixture-tab-separated-api-key-secret"
   const multiwordPasswordAssignment = "password=correct horse battery staple"
+  const dotSeparatedPrivateKeyAssignment = '{"private.key":"fixture-dot-private-key-secret","mode":"safe"}'
+  const slashSeparatedApiKeyAssignment = '{"api/key":"fixture-slash-api-key-secret","mode":"safe"}'
+  const commaBearingPasswordAssignment = "password=correct,horse battery staple"
+  const bracketBearingTokenAssignment = "token=secret]fixtureTail"
   const longPrefixedTokenKey = `${"x".repeat(200)}Token`
   const longPrefixedTokenAssignment = `${longPrefixedTokenKey}=fixture-long-prefixed-token-secret`
   const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
@@ -579,6 +583,10 @@ test("redaction validates and freezes both seams before crossing", async () => {
       repeatedSpacePrivateKeyAssignment,
       tabSeparatedApiKeyAssignment,
       multiwordPasswordAssignment,
+      dotSeparatedPrivateKeyAssignment,
+      slashSeparatedApiKeyAssignment,
+      commaBearingPasswordAssignment,
+      bracketBearingTokenAssignment,
       longPrefixedTokenAssignment,
     ].join(" | "),
   })
@@ -637,12 +645,20 @@ test("redaction validates and freezes both seams before crossing", async () => {
     repeatedSpacePrivateKeyAssignment,
     tabSeparatedApiKeyAssignment,
     multiwordPasswordAssignment,
+    dotSeparatedPrivateKeyAssignment,
+    slashSeparatedApiKeyAssignment,
+    commaBearingPasswordAssignment,
+    bracketBearingTokenAssignment,
     longPrefixedTokenAssignment,
     "fixture-spaced-private-key-secret",
     "fixture-spaced-api-key-secret",
     "fixture-repeated-space-private-key-secret",
     "fixture-tab-separated-api-key-secret",
     "correct horse battery staple",
+    "fixture-dot-private-key-secret",
+    "fixture-slash-api-key-secret",
+    "correct,horse battery staple",
+    "secret]fixtureTail",
     "fixture-long-prefixed-token-secret",
     overlongAuthUrl,
     incompleteAuthUrl,
@@ -664,7 +680,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
       order: redactionTrace,
     },
-    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | {\"token\":[REDACTED]} | {\"password\":[REDACTED]} | {\"accessToken\":[REDACTED]} | clientSecret=[REDACTED] | {\"token\":[REDACTED],\"mode\":\"safe\"} | \"token=[REDACTED] | {\"token:[REDACTED] | 'password:[REDACTED] | token=[REDACTED]", assignmentVariantMessage: `private key=[REDACTED] | api key=[REDACTED] | private  key=[REDACTED] | api\tkey=[REDACTED] | password=[REDACTED] | ${longPrefixedTokenKey}=[REDACTED]`, incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
+    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_token=[REDACTED] | token=[REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED] | token=[REDACTED] more | token=[REDACTED] | {\"token\":[REDACTED]} | {\"password\":[REDACTED]} | {\"accessToken\":[REDACTED]} | clientSecret=[REDACTED] | {\"token\":[REDACTED],\"mode\":\"safe\"} | \"token=[REDACTED] | {\"token:[REDACTED] | 'password:[REDACTED] | token=[REDACTED]", assignmentVariantMessage: `private key=[REDACTED] | api key=[REDACTED] | private  key=[REDACTED] | api\tkey=[REDACTED] | password=[REDACTED] | {\"private.key\":[REDACTED],\"mode\":\"safe\"} | {\"api/key\":[REDACTED],\"mode\":\"safe\"} | password=[REDACTED] | token=[REDACTED] | ${longPrefixedTokenKey}=[REDACTED]`, incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
     "redaction must precede both seams without changing the fixed primary result",
   )
 })
