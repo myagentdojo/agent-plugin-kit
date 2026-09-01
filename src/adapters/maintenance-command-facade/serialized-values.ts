@@ -663,10 +663,13 @@ const expectedCloserForOpener = new Map([
 const closingDelimiters = new Set(expectedCloserForOpener.values())
 
 const consumeNestedDelimiter = (
-  character: string | undefined,
+  value: string,
+  cursor: number,
   expectedClosers: string[],
 ): boolean => {
+  const character = value[cursor]
   if (character === undefined) return true
+  if (isEscapedAt(value, cursor)) return true
   const expectedCloser = expectedCloserForOpener.get(character)
   if (expectedCloser !== undefined) {
     expectedClosers.push(expectedCloser)
@@ -688,7 +691,7 @@ const unquotedAssignmentValueEnd = (value: string, start: number): number => {
       end = quotedEnd
       continue
     }
-    if (!consumeNestedDelimiter(value[end], expectedClosers)) return value.length
+    if (!consumeNestedDelimiter(value, end, expectedClosers)) return value.length
     end += 1
   }
   while (end > start && /\s/.test(value[end - 1] ?? "")) end -= 1
