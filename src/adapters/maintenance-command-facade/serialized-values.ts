@@ -597,10 +597,18 @@ const isQuotedValueDelimiter = (value: string, start: number): boolean => {
   return next === undefined || /\s/.test(next)
 }
 
+const assignmentBoundaryWidthAt = (value: string, cursor: number): number => {
+  if (value.startsWith(" | ", cursor)) return 3
+  if (value.startsWith("| ", cursor)) return 2
+  return ",;\n\r".includes(value[cursor] ?? "") ? 1 : 0
+}
+
 const quotedValueEnd = (value: string, start: number, quote: string): number => {
   const closing = closingQuoteAfter(value, start)
   if (closing === undefined) return value.length
   const closed = closing + 1
+  const boundaryWidth = assignmentBoundaryWidthAt(value, closed)
+  if (boundaryWidth > 0 && startsAssignment(value, closed + boundaryWidth)) return closed
   return isQuotedValueDelimiter(value, closed)
     ? closed
     : nonWhitespaceEnd(value, closed)
@@ -628,17 +636,41 @@ const quotedAssignmentSeparatorAfter = (
     : assignmentSeparatorAt(value, afterWhitespace(value, closing + 1))
 }
 
-const assignmentBoundaryWidthAt = (value: string, cursor: number): number => {
-  if (value.startsWith(" | ", cursor)) return 3
-  if (value.startsWith("| ", cursor)) return 2
-  return ",;\n\r".includes(value[cursor] ?? "") ? 1 : 0
+const startsFollowingAssignmentAt = (
+  value: string,
+  cursor: number,
+  nestedDepth: number,
+): boolean => {
+  if (nestedDepth !== 0) return false
+  const boundaryWidth = assignmentBoundaryWidthAt(value, cursor)
+  return boundaryWidth > 0 && startsAssignment(value, cursor + boundaryWidth)
+}
+
+const quotedSegmentEndAt = (value: string, cursor: number): number | undefined => {
+  const character = value[cursor]
+  if ((character !== "\"" && character !== "'") || isEscapedAt(value, cursor)) {
+    return undefined
+  }
+  return (closingQuoteAfter(value, cursor) ?? value.length - 1) + 1
+}
+
+const nestedDepthAfter = (character: string | undefined, depth: number): number => {
+  if (character !== undefined && "{[(".includes(character)) return depth + 1
+  if (character !== undefined && "}])".includes(character) && depth > 0) return depth - 1
+  return depth
 }
 
 const unquotedAssignmentValueEnd = (value: string, start: number): number => {
   let end = start
+  let nestedDepth = 0
   while (end < value.length) {
-    const boundaryWidth = assignmentBoundaryWidthAt(value, end)
-    if (boundaryWidth > 0 && startsAssignment(value, end + boundaryWidth)) break
+    if (startsFollowingAssignmentAt(value, end, nestedDepth)) break
+    const quotedEnd = quotedSegmentEndAt(value, end)
+    if (quotedEnd !== undefined) {
+      end = quotedEnd
+      continue
+    }
+    nestedDepth = nestedDepthAfter(value[end], nestedDepth)
     end += 1
   }
   while (end > start && /\s/.test(value[end - 1] ?? "")) end -= 1
