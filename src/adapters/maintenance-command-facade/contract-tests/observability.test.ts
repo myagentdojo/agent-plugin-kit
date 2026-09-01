@@ -485,94 +485,61 @@ test("redaction validates and freezes both seams before crossing", async () => {
   const percentEncodedUserinfoAuthUrl = "https://fixture%54oken%2Dsecret@example.test/path"
   const ftpAuthUrl = "ftp://fixtureUser:fixturePassword@fixture.example"
   const postgresAuthUrl = "postgres://fixtureUser:fixturePassword@fixture.example"
-  const escapedQuoteAssignment = 'token="fixture\\" tail" more'
-  const quotedAssignmentWithSuffix = 'token="fixture head";fixtureTail'
-  const quotedJsonTokenAssignment = '{"token":"fixture-json-token-secret"}'
-  const quotedJsonPasswordAssignment = '{"password":"fixture-json-password-secret"}'
-  const prefixedJsonTokenAssignment = '{"accessToken":"fixture-access-token-secret"}'
-  const prefixedClientSecretAssignment = "clientSecret=fixture-client-secret"
-  const delimitedJsonTokenAssignment = '{"token":"fixture-delimited-token-secret","mode":"safe"}'
-  const malformedDoubleQuotedKeyAssignment = '"token=fixture-malformed-double-key-secret'
-  const malformedJsonQuotedKeyAssignment = '{"token:fixture-malformed-json-key-secret'
-  const malformedSingleQuotedKeyAssignment = "'password:fixture-malformed-single-key-secret"
-  const spacedPrivateKeyAssignment = "private key=fixture-spaced-private-key-secret"
-  const spacedApiKeyAssignment = "api key=fixture-spaced-api-key-secret"
-  const repeatedSpacePrivateKeyAssignment = "private  key=fixture-repeated-space-private-key-secret"
-  const tabSeparatedApiKeyAssignment = "api\tkey=fixture-tab-separated-api-key-secret"
-  const multiwordPasswordAssignment = "password=correct horse battery staple"
-  const dotSeparatedPrivateKeyAssignment = '{"private.key":"fixture-dot-private-key-secret","mode":"safe"}'
-  const slashSeparatedApiKeyAssignment = '{"api/key":"fixture-slash-api-key-secret","mode":"safe"}'
-  const commaBearingPasswordAssignment = "password=correct,horse battery staple"
-  const bracketBearingTokenAssignment = "token=secret]fixtureTail"
-  const emptyTokenAssignment = "token= | mode=safe"
-  const multiwordTokenKeyAssignment = "token signing key=fixture-token-signing-secret"
-  const malformedMultiwordTokenKeyAssignment = '{"token signing key:fixture-malformed-multiword-secret'
-  const escapedJsonTokenKeyAssignment = '{"to\\"ken":"fixture-escaped-json-key-secret","mode":"safe"}'
-  const punctuatedTokenKeyAssignment = '{"to:ken":"fixture-punctuated-key-secret","mode":"safe"}'
-  const unicodeEscapedTokenKeyAssignment = '{"tok\\u0065n":"fixture-unicode-token-key-secret","mode":"safe"}'
-  const unicodeEscapedPasswordKeyAssignment = '{"pass\\u0077ord":"fixture-unicode-password-key-secret","mode":"safe"}'
-  const percentEncodedTokenKeyAssignment = "tok%65n=fixture-percent-token-key-secret"
-  const commaSeparatedApiKeyAssignment = '{"api,key":"fixture-comma-api-key-secret","mode":"safe"}'
-  const bracketSeparatedPrivateKeyAssignment = '{"pri[vate]key":"fixture-bracket-private-key-secret","mode":"safe"}'
-  const pipeSeparatedAuthorizationAssignment = '{"auth|orization":"fixture-pipe-authorization-secret","mode":"safe"}'
-  const apostropheTokenKeyAssignment = "token'=fixture-apostrophe-key-secret"
   const longPrefixedTokenKey = `${"x".repeat(200)}Token`
-  const longPrefixedTokenAssignment = `${longPrefixedTokenKey}=fixture-long-prefixed-token-secret`
-  const malformedUnicodeTokenKeyAssignment = String.raw`tok\u65n=fixture-malformed-unicode-token-secret`
-  const malformedPercentTokenKeyAssignment = "tok%6n=fixture-malformed-percent-token-secret"
-  const doubleEscapedUnicodeTokenKeyAssignment = String.raw`tok\\u0065n=fixture-double-escaped-unicode-token-secret`
-  const percentEncodedSeparatorAssignment = "tok%65n%3Dfixture-percent-separator-secret"
-  const unicodeEncodedSeparatorAssignment = String.raw`tok\u0065n\u003dfixture-unicode-separator-secret`
-  const unquotedCommaTokenKeyAssignment = "to,ken=fixture-unquoted-comma-token-secret"
-  const unquotedPipeTokenKeyAssignment = "to|ken=fixture-unquoted-pipe-token-secret"
-  const unquotedBracketPrivateKeyAssignment = "pri[vate]key=fixture-unquoted-bracket-private-key-secret"
-  const pipeBearingPasswordValueAssignment = "password=correct | horse battery staple"
-  const assignmentMessages = [
-    `x_token=${underscoreAssignment}`,
-    "token=fixture-diagnostic-secret",
-    escapedQuoteAssignment,
-    quotedAssignmentWithSuffix,
-    quotedJsonTokenAssignment,
-    quotedJsonPasswordAssignment,
-    prefixedJsonTokenAssignment,
-    prefixedClientSecretAssignment,
-    delimitedJsonTokenAssignment,
-    malformedDoubleQuotedKeyAssignment,
-    malformedJsonQuotedKeyAssignment,
-    malformedSingleQuotedKeyAssignment,
-    'token="fixtureHead;fixtureTail',
-    spacedPrivateKeyAssignment,
-    spacedApiKeyAssignment,
-    repeatedSpacePrivateKeyAssignment,
-    tabSeparatedApiKeyAssignment,
-    multiwordPasswordAssignment,
-    dotSeparatedPrivateKeyAssignment,
-    slashSeparatedApiKeyAssignment,
-    commaBearingPasswordAssignment,
-    bracketBearingTokenAssignment,
-    emptyTokenAssignment,
-    multiwordTokenKeyAssignment,
-    malformedMultiwordTokenKeyAssignment,
-    escapedJsonTokenKeyAssignment,
-    punctuatedTokenKeyAssignment,
-    unicodeEscapedTokenKeyAssignment,
-    unicodeEscapedPasswordKeyAssignment,
-    percentEncodedTokenKeyAssignment,
-    commaSeparatedApiKeyAssignment,
-    bracketSeparatedPrivateKeyAssignment,
-    pipeSeparatedAuthorizationAssignment,
-    apostropheTokenKeyAssignment,
-    longPrefixedTokenAssignment,
-    malformedUnicodeTokenKeyAssignment,
-    malformedPercentTokenKeyAssignment,
-    doubleEscapedUnicodeTokenKeyAssignment,
-    percentEncodedSeparatorAssignment,
-    unicodeEncodedSeparatorAssignment,
-    unquotedCommaTokenKeyAssignment,
-    unquotedPipeTokenKeyAssignment,
-    unquotedBracketPrivateKeyAssignment,
-    pipeBearingPasswordValueAssignment,
-  ]
+  const assignmentCases = [
+    { input: `x_token=${underscoreAssignment}`, expected: "x_token=[REDACTED]" },
+    { input: "token=opaque-02", expected: "token=[REDACTED]" },
+    { input: 'token="opaque 03" more', expected: "token=[REDACTED] more" },
+    { input: 'token="opaque 04";opaque-tail', expected: "token=[REDACTED]" },
+    { input: '{"token":"opaque-05"}', expected: '{"token":[REDACTED]}' },
+    { input: '{"password":"opaque-06"}', expected: '{"password":[REDACTED]}' },
+    { input: '{"accessToken":"opaque-07"}', expected: '{"accessToken":[REDACTED]}' },
+    { input: "clientSecret=opaque-08", expected: "clientSecret=[REDACTED]" },
+    { input: '{"token":"opaque-09","mode":"safe"}', expected: '{"token":[REDACTED],"mode":"safe"}' },
+    { input: '"token=opaque-10', expected: '"token=[REDACTED]' },
+    { input: '{"token:opaque-11', expected: '{"token:[REDACTED]' },
+    { input: "'password:opaque-12", expected: "'password:[REDACTED]" },
+    { input: 'token="opaque-13', expected: "token=[REDACTED]" },
+    { input: "private key=opaque-14", expected: "private key=[REDACTED]" },
+    { input: "api key=opaque-15", expected: "api key=[REDACTED]" },
+    { input: "private  key=opaque-16", expected: "private  key=[REDACTED]" },
+    { input: "api\tkey=opaque-17", expected: "api\tkey=[REDACTED]" },
+    { input: "password=correct horse battery staple", expected: "password=[REDACTED]" },
+    { input: '{"private.key":"opaque-19","mode":"safe"}', expected: '{"private.key":[REDACTED],"mode":"safe"}' },
+    { input: '{"api/key":"opaque-20","mode":"safe"}', expected: '{"api/key":[REDACTED],"mode":"safe"}' },
+    { input: "password=correct,horse battery staple", expected: "password=[REDACTED]" },
+    { input: "token=opaque]tail", expected: "token=[REDACTED]" },
+    { input: "token= | mode=safe", expected: "token=[REDACTED] | mode=safe" },
+    { input: "token=opaque-23b | mode=safe", expected: "token=[REDACTED] | mode=safe" },
+    { input: "token signing key=opaque-24", expected: "token signing key=[REDACTED]" },
+    { input: '{"token signing key:opaque-25', expected: '{"token signing key:[REDACTED]' },
+    { input: '{"to\\"ken":"opaque-26","mode":"safe"}', expected: '{"to\\"ken":[REDACTED],"mode":"safe"}' },
+    { input: '{"to:ken":"opaque-27","mode":"safe"}', expected: '{"to:ken":[REDACTED],"mode":"safe"}' },
+    { input: '{"tok\\u0065n":"opaque-28","mode":"safe"}', expected: '{"tok\\u0065n":[REDACTED],"mode":"safe"}' },
+    { input: '{"pass\\u0077ord":"opaque-29","mode":"safe"}', expected: '{"pass\\u0077ord":[REDACTED],"mode":"safe"}' },
+    { input: "tok%65n=opaque-30", expected: "tok%65n=[REDACTED]" },
+    { input: '{"api,key":"opaque-31","mode":"safe"}', expected: '{"api,key":[REDACTED],"mode":"safe"}' },
+    { input: '{"pri[vate]key":"opaque-32","mode":"safe"}', expected: '{"pri[vate]key":[REDACTED],"mode":"safe"}' },
+    { input: '{"auth|orization":"opaque-33","mode":"safe"}', expected: '{"auth|orization":[REDACTED],"mode":"safe"}' },
+    { input: "token'=opaque-34", expected: "token'=[REDACTED]" },
+    { input: `${longPrefixedTokenKey}=opaque-35`, expected: `${longPrefixedTokenKey}=[REDACTED]` },
+    { input: String.raw`tok\u65n=opaque-36`, expected: String.raw`tok\u65n=[REDACTED]` },
+    { input: "tok%6n=opaque-37", expected: "tok%6n=[REDACTED]" },
+    { input: String.raw`tok\\u0065n=opaque-38`, expected: String.raw`tok\\u0065n=[REDACTED]` },
+    { input: "tok%65n%3Dopaque-39", expected: "tok%65n%3D[REDACTED]" },
+    { input: String.raw`tok\u0065n\u003dopaque-40`, expected: String.raw`tok\u0065n\u003d[REDACTED]` },
+    { input: "to,ken=opaque-41", expected: "to,ken=[REDACTED]" },
+    { input: "to|ken=opaque-42", expected: "to|ken=[REDACTED]" },
+    { input: "pri[vate]key=opaque-43", expected: "pri[vate]key=[REDACTED]" },
+    { input: "password=correct | horse battery staple", expected: "password=[REDACTED]" },
+    { input: "tok%5Cu0065n=opaque-45", expected: "tok%5Cu0065n=[REDACTED]" },
+    { input: "tok%2565n=opaque-46", expected: "tok%2565n=[REDACTED]" },
+    { input: "tokenized output | progress=100% complete", expected: "tokenized output | progress=100% complete" },
+    { input: "auth token refreshed; progress=100% complete", expected: "auth token refreshed; progress=100% complete" },
+    { input: "Token parsing failed: retry later", expected: "Token parsing failed: retry later" },
+    { input: 'mode="token: opaque"', expected: 'mode="token: opaque"' },
+    { input: "context token=opaque-51 tail", expected: "context token=[REDACTED]" },
+  ] as const
   const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
   const incompleteAuthUrl = "https://fixtureUser:fixtureSecret@"
   const incompleteNoAtAuthUrl = "https://fixtureUser:fixtureSecret"
@@ -629,7 +596,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
     message: incompleteNoAtAuthUrl,
   })
   const assignmentDiagnostics = diagnosticHarness("debug")
-  assignmentMessages.forEach((message, index) => {
+  assignmentCases.forEach(({ input: message }, index) => {
     assignmentDiagnostics.pipeline.record({
       ...diagnosticRecord(index + 6, "error", `fixture.assignment-variant-${index + 1}`),
       message,
@@ -665,68 +632,6 @@ test("redaction validates and freezes both seams before crossing", async () => {
     percentEncodedUserinfoAuthUrl,
     ftpAuthUrl,
     postgresAuthUrl,
-    escapedQuoteAssignment,
-    'fixture\\" tail',
-    quotedAssignmentWithSuffix,
-    "fixture head",
-    quotedJsonTokenAssignment,
-    quotedJsonPasswordAssignment,
-    prefixedJsonTokenAssignment,
-    prefixedClientSecretAssignment,
-    delimitedJsonTokenAssignment,
-    "fixture-json-token-secret",
-    "fixture-json-password-secret",
-    "fixture-access-token-secret",
-    "fixture-client-secret",
-    "fixture-delimited-token-secret",
-    malformedDoubleQuotedKeyAssignment,
-    malformedJsonQuotedKeyAssignment,
-    malformedSingleQuotedKeyAssignment,
-    "fixture-malformed-double-key-secret",
-    "fixture-malformed-json-key-secret",
-    "fixture-malformed-single-key-secret",
-    spacedPrivateKeyAssignment,
-    spacedApiKeyAssignment,
-    repeatedSpacePrivateKeyAssignment,
-    tabSeparatedApiKeyAssignment,
-    multiwordPasswordAssignment,
-    dotSeparatedPrivateKeyAssignment,
-    slashSeparatedApiKeyAssignment,
-    commaBearingPasswordAssignment,
-    bracketBearingTokenAssignment,
-    multiwordTokenKeyAssignment,
-    malformedMultiwordTokenKeyAssignment,
-    escapedJsonTokenKeyAssignment,
-    punctuatedTokenKeyAssignment,
-    unicodeEscapedTokenKeyAssignment,
-    unicodeEscapedPasswordKeyAssignment,
-    percentEncodedTokenKeyAssignment,
-    commaSeparatedApiKeyAssignment,
-    bracketSeparatedPrivateKeyAssignment,
-    pipeSeparatedAuthorizationAssignment,
-    apostropheTokenKeyAssignment,
-    longPrefixedTokenAssignment,
-    "fixture-spaced-private-key-secret",
-    "fixture-spaced-api-key-secret",
-    "fixture-repeated-space-private-key-secret",
-    "fixture-tab-separated-api-key-secret",
-    "correct horse battery staple",
-    "fixture-dot-private-key-secret",
-    "fixture-slash-api-key-secret",
-    "correct,horse battery staple",
-    "secret]fixtureTail",
-    "fixture-token-signing-secret",
-    "fixture-malformed-multiword-secret",
-    "fixture-escaped-json-key-secret",
-    "fixture-punctuated-key-secret",
-    "fixture-unicode-token-key-secret",
-    "fixture-unicode-password-key-secret",
-    "fixture-percent-token-key-secret",
-    "fixture-comma-api-key-secret",
-    "fixture-bracket-private-key-secret",
-    "fixture-pipe-authorization-secret",
-    "fixture-apostrophe-key-secret",
-    "fixture-long-prefixed-token-secret",
     overlongAuthUrl,
     incompleteAuthUrl,
     "fixture-empty-username-password",
@@ -739,8 +644,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
       recordsFrozen: [...diagnostic.records, ...assignmentDiagnostics.records, ...harness.diagnostics.records, ...harness.events.records].every(Object.isFrozen),
       leakedSecret: redactionSecrets.some((secret) => serialized.includes(secret)),
       redactedMessage: diagnostic.records[0]?.message,
-      assignmentRecordCount: assignmentDiagnostics.records.length,
-      assignmentsFullyRedacted: assignmentDiagnostics.records.every((record) => record.message === "[REDACTED]"),
+      assignmentMessages: assignmentDiagnostics.records.map(({ message }) => message),
       incompletePrivateKeyRecords: incompletePrivateKeyDiagnostic.records,
       overlongAuthRecords: overlongAuthDiagnostic.records,
       incompleteAuthRecords: incompleteAuthDiagnostic.records,
@@ -748,7 +652,7 @@ test("redaction validates and freezes both seams before crossing", async () => {
       primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
       order: redactionTrace,
     },
-    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED]", assignmentRecordCount: 44, assignmentsFullyRedacted: true, incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
+    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED]", assignmentMessages: assignmentCases.map(({ expected }) => expected), incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
     "redaction must precede both seams without changing the fixed primary result",
   )
 })
