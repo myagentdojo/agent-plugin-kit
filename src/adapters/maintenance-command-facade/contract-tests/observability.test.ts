@@ -244,6 +244,32 @@ test("buffer overflow drops oldest and emits one truncation record", () => {
     },
     "diagnostic truncation must preserve unique assigned identities while flushing in allocated order",
   )
+
+  const failingAllocatorHarness = diagnosticHarness("default", {
+    nextSequence: () => {
+      throw new Error("fixture sequence allocation failure")
+    },
+  })
+  for (let sequence = 1; sequence <= 252; sequence += 1) {
+    failingAllocatorHarness.pipeline.record(diagnosticRecord(sequence, "info"))
+  }
+  failingAllocatorHarness.pipeline.record(diagnosticRecord(253, "error"))
+  absent(
+    overflowSummaryFor(failingAllocatorHarness.records),
+    {
+      firstEvent: "fixture.info",
+      sequences: Array.from({ length: 251 }, (_, index) => index + 3),
+      firstRetained: 3,
+      truncationSequence: undefined,
+      lastRetained: 252,
+      triggerEvent: "fixture.error",
+      triggerSequence: 253,
+      recordCount: 251,
+      truncationRecords: 0,
+      uniqueSequences: true,
+    },
+    "failed truncation allocation must omit the synthetic record instead of inventing an identity",
+  )
 })
 test("buffered context precedes trigger and primary error envelope is last", async () => {
   const harness = await facadeHarness({ argv: ["--run-id", "contract-help-literal", "unknown"] })

@@ -70,16 +70,15 @@ export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
   let disposed = false
   const trace = assembly.redactionTrace
 
-  const nextSequence = (minimum: number): number => {
+  const nextSequence = (minimum: number): number | undefined => {
     let allocated: number
     try {
       allocated = allocate()
     } catch {
-      allocated = minimum
+      return undefined
     }
-    const sequence = Number.isSafeInteger(allocated) && allocated >= minimum
-      ? allocated
-      : minimum
+    if (!Number.isSafeInteger(allocated) || allocated < minimum) return undefined
+    const sequence = allocated
     highestSequence = Math.max(highestSequence, sequence)
     return sequence
   }
