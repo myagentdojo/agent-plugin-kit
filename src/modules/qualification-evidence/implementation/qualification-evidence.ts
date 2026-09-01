@@ -19,6 +19,8 @@ import {
   proofLayerSatisfies,
 } from "../serialized-values"
 
+export { VerificationProfile } from "../interface"
+
 type CandidateIdentityDigest = EvidenceCell["lineage"]["candidateIdentitySha256"]
 type EvidenceCellId = EvidenceCell["id"]
 type LineageMember = VerificationProfile["requirements"][number]["requiredLineage"][number]

@@ -27,7 +27,11 @@
     "./maintenance-command-contract": "./src/modules/maintenance-command-contract/interface.ts",
     "./harness-journeys": "./src/modules/harness-journeys/interface.ts",
     "./canary-qualification": "./src/modules/canary-qualification/interface.ts",
-    "./qualification-evidence": "./src/modules/qualification-evidence/interface.ts",
+    "./qualification-evidence": {
+      "types": "./src/modules/qualification-evidence/interface.ts",
+      "import": "./src/modules/qualification-evidence/implementation/qualification-evidence.ts",
+      "default": "./src/modules/qualification-evidence/implementation/qualification-evidence.ts"
+    },
     "./reusable-workflow-adapter": "./src/adapters/reusable-workflow-adapter/interface.ts"
   },
   "bin": {

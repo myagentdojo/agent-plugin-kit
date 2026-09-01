@@ -276,3 +276,5 @@ export interface QualificationEvidence {
     cells: readonly EvidenceCell[]
   }): QualificationOutcome
 }
+
+export declare const qualificationEvidence: QualificationEvidence
