@@ -642,6 +642,7 @@ const startsFollowingAssignmentAt = (
   nestedDepth: number,
 ): boolean => {
   if (nestedDepth !== 0) return false
+  if (isEscapedAt(value, cursor)) return false
   const boundaryWidth = assignmentBoundaryWidthAt(value, cursor)
   return boundaryWidth > 0 && startsAssignment(value, cursor + boundaryWidth)
 }
