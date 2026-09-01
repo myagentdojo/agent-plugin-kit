@@ -272,6 +272,16 @@ const nonWhitespaceEnd = (value: string, start: number): number => {
   return end
 }
 
+const isUnquotedAssignmentBoundary = (value: string, index: number): boolean =>
+  value.startsWith(" | ", index) || ",}]".includes(value[index] ?? "")
+
+const unquotedAssignmentValueEnd = (value: string, start: number): number => {
+  let end = start
+  while (end < value.length && !isUnquotedAssignmentBoundary(value, end)) end += 1
+  while (end > start && /\s/.test(value[end - 1] ?? "")) end -= 1
+  return end
+}
+
 const isQuotedValueDelimiter = (value: string, start: number): boolean => {
   const delimiter = value[start]
   if (delimiter === undefined || /\s/.test(delimiter) || ",}])".includes(delimiter)) return true
@@ -314,7 +324,7 @@ const assignmentValueRangeAt = (
   if (quote === undefined) return undefined
   const valueEnd = quote === '"' || quote === "'"
     ? quotedValueEnd(value, valueStart, quote)
-    : nonWhitespaceEnd(value, valueStart)
+    : unquotedAssignmentValueEnd(value, valueStart)
   return valueEnd === valueStart ? undefined : { valueStart, valueEnd }
 }
 
