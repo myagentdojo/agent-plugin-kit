@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test"
 import { resolve } from "node:path"
+import {
+  auditReportSchema,
+  requiredStationProjectionAligned,
+  rootConsumerEnumerationAligned,
+} from "../../audit-maintenance-cli"
 import { installedMaintenanceCliSubject } from "./adapters/maintenance-cli-contract-subjects"
 import {
   expectedBranchStationSourceSha256,
@@ -51,17 +56,45 @@ test("Clean Fixture reconciles installed RED inventory and Station Map projectio
   })
   expect(alignmentAudit.exitCode, "contract-absent: the Command Surface Alignment Proof must ship").toBe(0)
   expect(alignmentAudit.stderr.toString(), "contract-absent: the audit must keep diagnostics off its machine stdout contract").toBe("")
-  const report = JSON.parse(alignmentAudit.stdout.toString()) as {
-    verdict: string
-    surface_findings: readonly { status: string }[]
-    required_observed_branch_total: number
-    observed_branch_coverage: number
-    stations: readonly { status: string; provenance: string }[]
-  }
+  const reportResult = auditReportSchema.safeParse(JSON.parse(alignmentAudit.stdout.toString()) as unknown)
+  expect(reportResult.success, "contract-absent: the audit report must validate from unknown").toBeTrue()
+  if (!reportResult.success) return
+  const report = reportResult.data
   expect(report.verdict, "contract-absent: the audit must emit the accepted ship verdict").toBe("ship")
   expect(report.surface_findings.every(({ status }) => status === "aligned"), "contract-absent: every audited command surface must align").toBe(true)
   expect(report.required_observed_branch_total, "contract-absent: the audit must retain both required Branch Stations").toBe(2)
   expect(report.observed_branch_coverage, "contract-absent: only qualifying real-process evidence may count").toBe(2)
   expect(report.stations.filter(({ status, provenance }) => status === "covered" && provenance === "real_process")).toHaveLength(2)
   expect(report.stations.some(({ status, provenance }) => status === "covered" && provenance !== "real_process"), "contract-absent: synthetic Station Map rows must not count").toBe(false)
+  expect(requiredStationProjectionAligned(report.stations), "contract-absent: exact required Station Map fields must reconcile").toBeTrue()
+
+  const substitutedStation = report.stations.map((station) => station.station_id === "help.previewed"
+    ? { ...station, station_id: "payload-check.previewed" }
+    : station)
+  expect(requiredStationProjectionAligned(substitutedStation), "contract-absent: a station substitution must drift").toBeFalse()
+  const promotedDeferredStation = report.stations.map((station) => station.station_id === "payload-check.previewed"
+    ? { ...station, status: "covered" as const, provenance: "real_process" as const }
+    : station)
+  expect(requiredStationProjectionAligned(promotedDeferredStation), "contract-absent: deferred promotion must not count").toBeFalse()
+
+  expect(report.root_consumers.discovered_bindings.some(({ target, import_kind }) => target === "interface" && import_kind === "type-only"), "contract-absent: type-only Facade Interface imports must be enumerated").toBeTrue()
+  expect(report.root_consumers.discovered_bindings.some(({ target, import_kind }) => target === "implementation" && import_kind === "runtime"), "contract-absent: runtime Facade Implementation imports must be enumerated").toBeTrue()
+  expect(rootConsumerEnumerationAligned(report.root_consumers), "contract-absent: consumer bindings must reconcile").toBeTrue()
+  const omittedTypeOnlyBinding = {
+    ...report.root_consumers,
+    discovered_bindings: report.root_consumers.discovered_bindings.filter(({ import_kind }) => import_kind !== "type-only"),
+  }
+  expect(rootConsumerEnumerationAligned(omittedTypeOnlyBinding), "contract-absent: omitting a type-only consumer must drift").toBeFalse()
+
+  expect(report.surface_findings.find(({ surface }) => surface === "help_version_carriers")?.status).toBe("aligned")
+  expect(report.surface_findings.find(({ surface }) => surface === "exit_families")?.status).toBe("aligned")
+  expect(report.surface_findings.find(({ surface }) => surface === "containment_exit")?.status).toBe("aligned")
+  expect(report.stations.every((station) => !Object.hasOwn(station, "descriptor_closure")), "contract-absent: unsupported descriptor settlement must not be asserted").toBeTrue()
+  expect(auditReportSchema.safeParse({ ...report, schema_version: 2 }).success, "contract-absent: an unknown audit schema version must be refused").toBeFalse()
+  expect(auditReportSchema.safeParse({ ...report, unexpected: true }).success, "contract-absent: an unknown audit field must be refused").toBeFalse()
+  const descriptorClaim = {
+    ...report,
+    stations: report.stations.map((station) => ({ ...station, descriptor_closure: "closed" })),
+  }
+  expect(auditReportSchema.safeParse(descriptorClaim).success, "contract-absent: an unsupported descriptor claim must be refused").toBeFalse()
 })
