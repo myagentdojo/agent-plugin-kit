@@ -30,6 +30,8 @@ import {
   maintenanceUsageRefusalOutcome,
 } from "../../../modules/maintenance-command-contract/implementation/maintenance-commands"
 import {
+  diagnosticFailureMessageFor,
+  eventDeliveryFailureNextAction,
   serializeFacadeErrorEgress,
   serializeFacadeSuccessEgress,
   sanitizeEventRecord,
@@ -366,15 +368,8 @@ const diagnosticWithoutSequenceFor = (
   transaction_state: outcome.error.transactionState,
   retry_safety: outcome.error.retrySafety,
   next_action: outcome.error.nextAction,
-  message: `Maintenance command failed with result code "${outcome.resultCode}".`,
+  message: diagnosticFailureMessageFor(outcome.resultCode),
 })
-
-const eventFailureNextAction: DiagnosticNextAction = {
-  id: "events.inspect-configuration",
-  action: "repair_state",
-  summary: "Inspect the configured event transport; do not repeat the command solely to replay its event.",
-  commandId: null,
-}
 
 const eventFailureDiagnosticFor = (
   timestamp: string,
@@ -397,8 +392,8 @@ const eventFailureDiagnosticFor = (
     result_code: outcome.resultCode,
     transaction_state: metadata.transactionState,
     retry_safety: metadata.retrySafety,
-    next_action: eventFailureNextAction,
-    message: eventFailureNextAction.summary,
+    next_action: eventDeliveryFailureNextAction,
+    message: eventDeliveryFailureNextAction.summary,
   }
 }
 

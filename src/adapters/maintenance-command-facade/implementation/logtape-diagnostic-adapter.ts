@@ -5,6 +5,7 @@ import {
   type Logger,
   type Sink,
 } from "@logtape/logtape"
+import { redactByField } from "@logtape/redaction"
 import type {
   DiagnosticAdapter,
   DiagnosticMode,
@@ -12,12 +13,26 @@ import type {
   DiagnosticPipelineAssembly,
   DiagnosticPipelineFactory,
   DiagnosticRecord,
-  DiagnosticRedactionStep,
+  DiagnosticEgressStep,
 } from "../interface"
-import { sanitizeDiagnosticRecord } from "../serialized-values"
+import {
+  diagnosticBufferMessageFor,
+  sanitizeDiagnosticRecord,
+} from "../serialized-values"
 
 const diagnosticCategory = ["agent-plugin-kit", "maintenance"] as const
 const logTapeRecordProperty = "__agent_plugin_kit_diagnostic_record"
+const redactedDiagnosticValue = "[REDACTED]"
+const diagnosticSensitiveFieldPatterns = [
+  /api[-_]?key/i,
+  /authorization/i,
+  /cookie/i,
+  /credential/i,
+  /pass(?:code|phrase|word)/i,
+  /private[-_]?key/i,
+  /secret/i,
+  /token/i,
+]
 
 const writeRecord = (diagnostics: DiagnosticAdapter, record: DiagnosticRecord): void => {
   try {
@@ -41,20 +56,21 @@ const truncationRecordFor = (
   droppedRecordCount: number,
   sequence: number,
   secrets: readonly string[],
-  trace?: (step: DiagnosticRedactionStep) => void,
+  trace?: (step: DiagnosticEgressStep) => void,
 ): DiagnosticRecord | undefined =>
   sanitizeDiagnosticRecord({
     ...trigger,
     sequence,
     level: "warning",
     event: "diagnostic.buffer-truncated",
-    message: `Diagnostic buffer dropped ${droppedRecordCount} oldest record${droppedRecordCount === 1 ? "" : "s"}.`,
+    dropped_record_count: droppedRecordCount,
+    message: diagnosticBufferMessageFor(droppedRecordCount),
   }, secrets, trace)
 
 /**
- * Create a diagnostic pipeline that sanitizes, buffers, and delivers diagnostic
- * records. The pipeline enforces redaction policies, maintains ordering, and
- * handles buffer overflow by dropping oldest records.
+ * Create a diagnostic pipeline that canonicalizes, buffers, and delivers
+ * diagnostic records. The pipeline refuses invalid public values, maintains
+ * ordering, and handles buffer overflow by dropping oldest records.
  */
 export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
   assembly: DiagnosticPipelineAssembly,
@@ -68,7 +84,7 @@ export const createDiagnosticPipeline: DiagnosticPipelineFactory = (
   let pendingTruncationSequence: number | undefined
   let highestSequence = 0
   let disposed = false
-  const trace = assembly.redactionTrace
+  const trace = assembly.egressTrace
 
   const nextSequence = (minimum: number): number | undefined => {
     let allocated: number
@@ -162,19 +178,19 @@ const emitThroughLogTape = (logger: Logger, record: DiagnosticRecord): void => {
   const properties = { [logTapeRecordProperty]: record }
   switch (record.level) {
     case "debug":
-      logger.debug(record.message, properties)
+      logger.debug(properties)
       break
     case "info":
-      logger.info(record.message, properties)
+      logger.info(properties)
       break
     case "warning":
-      logger.warning(record.message, properties)
+      logger.warning(properties)
       break
     case "error":
-      logger.error(record.message, properties)
+      logger.error(properties)
       break
     case "fatal":
-      logger.fatal(record.message, properties)
+      logger.fatal(properties)
       break
   }
 }
@@ -193,7 +209,7 @@ export const createLogTapeDiagnosticAdapter = (
 
   const configure = (): void => {
     if (logger !== undefined || disposed) return
-    const sink: Sink = (logRecord) => {
+    const jsonlSink: Sink = (logRecord) => {
       const record = logRecord.properties[logTapeRecordProperty] as DiagnosticRecord | undefined
       if (record === undefined) return
       try {
@@ -202,6 +218,10 @@ export const createLogTapeDiagnosticAdapter = (
         // LogTape suppresses sink errors; preserve that property for stderr.
       }
     }
+    const sink = redactByField(jsonlSink, {
+      fieldPatterns: diagnosticSensitiveFieldPatterns,
+      action: () => redactedDiagnosticValue,
+    })
     try {
       configureSync({
         reset: true,

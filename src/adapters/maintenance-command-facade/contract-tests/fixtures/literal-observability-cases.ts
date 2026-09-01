@@ -29,13 +29,6 @@ export const lifecycleContract = {
   throwingClose: { primaryResultPreserved: true, stdoutWrites: 0, redacted: true },
   successfulTeardown: { bufferedRecordsDiscarded: true },
 } as const
-export const redactionContract = {
-  order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"],
-  diagnosticFrozen: true,
-  eventFrozen: true,
-  leakedKeys: [],
-  leakedValues: [],
-} as const
 export const correlationContract = {
   runIds: ["contract-help-literal", "contract-help-literal"],
   sequences: [1, 2],

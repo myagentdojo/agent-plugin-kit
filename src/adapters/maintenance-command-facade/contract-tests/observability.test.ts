@@ -12,7 +12,7 @@ import { createMaintenanceCommandFacade } from "../implementation/maintenance-co
 import type {
   DiagnosticMode,
   DiagnosticRecord,
-  DiagnosticRedactionStep,
+  DiagnosticEgressStep,
   EventAdapter,
   EventRecord,
   FacadeCorrelationSources,
@@ -32,7 +32,6 @@ import {
   fixedEventFailure,
   hostileColorEnvironment,
   lifecycleContract,
-  redactionContract,
 } from "./fixtures/literal-observability-cases"
 
 const absent = (actual: unknown, expected: unknown, claim: string) =>
@@ -52,11 +51,12 @@ const diagnosticRecord = (
   event,
   run_id: "contract-help-literal",
   command: "help",
-  station_id: "help.previewed",
-  result_code: "previewed",
+  station_id: "maintenance.usage-refused",
+  failure_class: "usage",
+  result_code: "usage-refused",
   transaction_state: "unchanged",
   retry_safety: "safe",
-  message: "redacted fixture diagnostic",
+  message: 'Maintenance command failed with result code "usage-refused".',
 })
 
 const fixedCorrelation: FacadeCorrelationSources = {
@@ -68,7 +68,8 @@ function diagnosticHarness(
   mode: DiagnosticMode,
   options: {
     nextSequence?: () => number
-    redactionTrace?: (step: DiagnosticRedactionStep) => void
+    egressTrace?: (step: DiagnosticEgressStep) => void
+    secretValues?: readonly string[]
   } = {},
 ) {
   const recording = createDiagnosticRecordingAdapter()
@@ -84,7 +85,8 @@ function diagnosticHarness(
       maximumBufferedRecords: 250,
       diagnostics: recording.adapter,
       nextSequence,
-      ...(options.redactionTrace === undefined ? {} : { redactionTrace: options.redactionTrace }),
+      ...(options.egressTrace === undefined ? {} : { egressTrace: options.egressTrace }),
+      ...(options.secretValues === undefined ? {} : { secretValues: options.secretValues }),
     }),
   }
 }
@@ -460,282 +462,86 @@ test("fake-clock delivery owns two bounded attempts and all settlement cases", a
     "event delivery must use a stable event ID and at most two 250ms fake-clock attempts",
   )
 })
-test("redaction validates and freezes both seams before crossing", async () => {
-  const redactionTrace: DiagnosticRedactionStep[] = []
-  const embeddedBearerCredential = "fixture-embedded-bearer-credential"
-  const embeddedBasicCredential = "fixture-embedded-basic-credential"
-  const embeddedOpReference = "op://fixture-vault/fixture-item/fixture-field"
-  const underscoreBearerCredential = "fixture-underscore-bearer-credential"
-  const underscoreBasicCredential = "fixture-underscore-basic-credential"
-  const underscoreOpReference = "op://fixture-underscore-vault/fixture-item/fixture-field"
-  const malformedCredentialTail = "fixture-raw-secret-tail"
-  const malformedBearerCredential = `fixture-malformed-bearer!$<${malformedCredentialTail}`
-  const malformedBasicCredential = `fixture-malformed-basic!$<${malformedCredentialTail}`
-  const malformedOpReference = `op://fixture-malformed-vault/malformed!$<${malformedCredentialTail}`
-  const completePrivateKey = "-----BEGIN PRIVATE KEY-----\nfixture-private-key-secret\n-----END PRIVATE KEY-----"
-  const incompletePrivateKey = "-----BEGIN PRIVATE KEY-----\nfixtureTail"
-  const underscoreAuthUsername = "fixture-auth-user"
-  const underscoreAuthPassword = "fixture-auth-password"
-  const underscoreAuthUrl = `https://${underscoreAuthUsername}:${underscoreAuthPassword}@fixture-auth-host`
-  const underscoreAssignment = "fixture-underscore-assignment-secret"
-  const emptyUsernameAuthUrl = "https://:fixture-empty-username-password@fixture-empty-username.example"
-  const emptyPasswordAuthUrl = "https://fixture-empty-password-username:@fixture-empty-password.example"
-  const slashBearingAuthUrl = "https://fixtureUser:fixture/fixtureTail@fixture.example"
-  const usernameOnlyAuthUrl = "https://fixtureToken@example.test/path"
-  const percentEncodedUserinfoAuthUrl = "https://fixture%54oken%2Dsecret@example.test/path"
-  const ftpAuthUrl = "ftp://fixtureUser:fixturePassword@fixture.example"
-  const postgresAuthUrl = "postgres://fixtureUser:fixturePassword@fixture.example"
-  const longPrefixedTokenKey = `${"x".repeat(200)}Token`
-  const keyAt511Characters = `token${"x".repeat(506)}`
-  const keyAt512Characters = `token${"x".repeat(507)}`
-  const keyAt513Characters = `token${"x".repeat(508)}`
-  const overlongInlineWhitespace = "\u00A0".repeat(513)
-  const assignmentCases = [
-    { input: `x_token=${underscoreAssignment}`, expected: "x_token=[REDACTED]" },
-    { input: "token=opaque-02", expected: "token=[REDACTED]" },
-    { input: 'token="opaque 03" more', expected: "token=[REDACTED] more" },
-    { input: 'token="opaque 04";opaque-tail', expected: "token=[REDACTED]" },
-    { input: '{"token":"opaque-05"}', expected: '{"token":[REDACTED]}' },
-    { input: '{"password":"opaque-06"}', expected: '{"password":[REDACTED]}' },
-    { input: '{"accessToken":"opaque-07"}', expected: '{"accessToken":[REDACTED]}' },
-    { input: "clientSecret=opaque-08", expected: "clientSecret=[REDACTED]" },
-    { input: '{"token":"opaque-09","mode":"safe"}', expected: '{"token":[REDACTED],"mode":"safe"}' },
-    { input: '"token=opaque-10', expected: '"token=[REDACTED]' },
-    { input: '{"token:opaque-11', expected: '{"token:[REDACTED]' },
-    { input: "'password:opaque-12", expected: "'password:[REDACTED]" },
-    { input: 'token="opaque-13', expected: "token=[REDACTED]" },
-    { input: "private key=opaque-14", expected: "private key=[REDACTED]" },
-    { input: "api key=opaque-15", expected: "api key=[REDACTED]" },
-    { input: "private  key=opaque-16", expected: "private  key=[REDACTED]" },
-    { input: "api\tkey=opaque-17", expected: "api\tkey=[REDACTED]" },
-    { input: "password=correct horse battery staple", expected: "password=[REDACTED]" },
-    { input: '{"private.key":"opaque-19","mode":"safe"}', expected: '{"private.key":[REDACTED],"mode":"safe"}' },
-    { input: '{"api/key":"opaque-20","mode":"safe"}', expected: '{"api/key":[REDACTED],"mode":"safe"}' },
-    { input: "password=correct,horse battery staple", expected: "password=[REDACTED]" },
-    { input: "token=opaque]tail", expected: "token=[REDACTED]" },
-    { input: "token= | mode=safe", expected: "token=[REDACTED] | mode=safe" },
-    { input: "token=opaque-23b | mode=safe", expected: "token=[REDACTED] | mode=safe" },
-    { input: "token signing key=opaque-24", expected: "token signing key=[REDACTED]" },
-    { input: '{"token signing key:opaque-25', expected: '{"token signing key:[REDACTED]' },
-    { input: '{"to\\"ken":"opaque-26","mode":"safe"}', expected: '{"to\\"ken":[REDACTED],"mode":"safe"}' },
-    { input: '{"to:ken":"opaque-27","mode":"safe"}', expected: '{"to:ken":[REDACTED],"mode":"safe"}' },
-    { input: '{"tok\\u0065n":"opaque-28","mode":"safe"}', expected: '{"tok\\u0065n":[REDACTED],"mode":"safe"}' },
-    { input: '{"pass\\u0077ord":"opaque-29","mode":"safe"}', expected: '{"pass\\u0077ord":[REDACTED],"mode":"safe"}' },
-    { input: "tok%65n=opaque-30", expected: "tok%65n=[REDACTED]" },
-    { input: '{"api,key":"opaque-31","mode":"safe"}', expected: '{"api,key":[REDACTED],"mode":"safe"}' },
-    { input: '{"pri[vate]key":"opaque-32","mode":"safe"}', expected: '{"pri[vate]key":[REDACTED],"mode":"safe"}' },
-    { input: '{"auth|orization":"opaque-33","mode":"safe"}', expected: '{"auth|orization":[REDACTED],"mode":"safe"}' },
-    { input: "token'=opaque-34", expected: "token'=[REDACTED]" },
-    { input: `${longPrefixedTokenKey}=opaque-35`, expected: `${longPrefixedTokenKey}=[REDACTED]` },
-    { input: String.raw`tok\u65n=opaque-36`, expected: String.raw`tok\u65n=[REDACTED]` },
-    { input: "tok%6n=opaque-37", expected: "tok%6n=[REDACTED]" },
-    { input: String.raw`tok\\u0065n=opaque-38`, expected: String.raw`tok\\u0065n=[REDACTED]` },
-    { input: "tok%65n%3Dopaque-39", expected: "tok%65n%3D[REDACTED]" },
-    { input: String.raw`tok\u0065n\u003dopaque-40`, expected: String.raw`tok\u0065n\u003d[REDACTED]` },
-    { input: "to,ken=opaque-41", expected: "to,ken=[REDACTED]" },
-    { input: "to|ken=opaque-42", expected: "to|ken=[REDACTED]" },
-    { input: "pri[vate]key=opaque-43", expected: "pri[vate]key=[REDACTED]" },
-    { input: "password=correct | horse battery staple", expected: "password=[REDACTED]" },
-    { input: "tok%5Cu0065n=opaque-45", expected: "tok%5Cu0065n=[REDACTED]" },
-    { input: "tok%2565n=opaque-46", expected: "tok%2565n=[REDACTED]" },
-    { input: "tokenized output | progress=100% complete", expected: "tokenized output | progress=100% complete" },
-    { input: "auth token refreshed; progress=100% complete", expected: "auth token refreshed; progress=100% complete" },
-    { input: "auth token refreshed, progress=100% complete", expected: "auth token refreshed, progress=100% complete" },
-    { input: "auth token refreshed progress=100% complete", expected: "auth token refreshed progress=100% complete" },
-    { input: "Token parsing failed: retry later", expected: "Token parsing failed: retry later" },
-    { input: 'mode="token: opaque"', expected: 'mode="token: opaque"' },
-    { input: "context token=opaque-51 tail", expected: "context token=[REDACTED]" },
-    { input: '"token=opaque-52"', expected: '"token=[REDACTED]"' },
-    { input: 'context "token=opaque-53" tail', expected: 'context "token=[REDACTED]" tail' },
-    { input: "private key: opaque-54", expected: "private key:[REDACTED]" },
-    { input: "api key: opaque-55", expected: "api key:[REDACTED]" },
-    { input: "safe context | private key: opaque-56", expected: "safe context | private key:[REDACTED]" },
-    { input: "token=opaque-57; mode=safe", expected: "token=[REDACTED]; mode=safe" },
-    { input: "token=opaque-58\nmode=safe", expected: "token=[REDACTED]\nmode=safe" },
-    { input: `${keyAt511Characters}=opaque-59`, expected: `${keyAt511Characters}=[REDACTED]` },
-    { input: `${keyAt512Characters}=opaque-60`, expected: `${keyAt512Characters}=[REDACTED]` },
-    { input: `${keyAt513Characters}=opaque-61`, expected: `${keyAt513Characters}=[REDACTED]` },
-    { input: "t%256Fken=opaque-62", expected: "t%256Fken=[REDACTED]" },
-    { input: "%2574oken=opaque-63", expected: "%2574oken=[REDACTED]" },
-    { input: "t%5Cu006fken=opaque-64", expected: "t%5Cu006fken=[REDACTED]" },
-    { input: "password=correct | horse: battery staple", expected: "password=[REDACTED]" },
-    { input: "password=correct, horse: battery staple", expected: "password=[REDACTED]" },
-    { input: "password=correct; horse: battery staple", expected: "password=[REDACTED]" },
-    { input: "password=correct\nhorse: battery staple", expected: "password=[REDACTED]" },
-    { input: "password=correct | horse=battery staple", expected: "password=[REDACTED]" },
-    { input: '{"token:mode":"opaque"}', expected: '{"token:mode":[REDACTED]}' },
-    { input: 'mode="token: opaque"| mode=safe', expected: 'mode="token: opaque"| mode=safe' },
-    { input: 'mode="token: opaque";mode=safe', expected: 'mode="token: opaque";mode=safe' },
-    { input: 'password={"mode":"safe","value":"opaque-secret"}', expected: "password=[REDACTED]" },
-    { input: 'password={"mode":"safe","value":"opaque-secret"} | mode=safe', expected: "password=[REDACTED] | mode=safe" },
-    { input: 'private key="opaque"| mode=safe', expected: "private key=[REDACTED]| mode=safe" },
-    { input: 'private key="opaque";mode=safe', expected: "private key=[REDACTED];mode=safe" },
-    { input: "password={opaque] | mode=safe, hidden-tail}", expected: "password=[REDACTED]" },
-    { input: "password=[opaque) | mode=safe, hidden-tail]", expected: "password=[REDACTED]" },
-    { input: "password=(opaque} | mode=safe, hidden-tail)", expected: "password=[REDACTED]" },
-    { input: String.raw`password={opaque\} | mode=safe, hidden-tail}`, expected: "password=[REDACTED]" },
-    { input: String.raw`password=[opaque\] | mode=safe, hidden-tail]`, expected: "password=[REDACTED]" },
-    { input: String.raw`password=(opaque\) | mode=safe, hidden-tail)`, expected: "password=[REDACTED]" },
-    { input: String.raw`password=opaque\| mode=safe, hidden-tail`, expected: "password=[REDACTED]" },
-    { input: String.raw`password=opaque\\| mode=safe`, expected: "password=[REDACTED]| mode=safe" },
-    { input: String.raw`password=opaque\, mode=safe, hidden-tail`, expected: "password=[REDACTED]" },
-    { input: String.raw`password=opaque\\, mode=safe`, expected: "password=[REDACTED], mode=safe" },
-    { input: String.raw`password=opaque\;mode=safe, hidden-tail`, expected: "password=[REDACTED]" },
-    { input: String.raw`password=opaque\\;mode=safe`, expected: "password=[REDACTED];mode=safe" },
-    { input: String.raw`private key="opaque"\| mode=safe, hidden-tail`, expected: "private key=[REDACTED]" },
-    { input: String.raw`private key="opaque"\\| mode=safe`, expected: "private key=[REDACTED]| mode=safe" },
-    { input: String.raw`private key="opaque"\, mode=safe, hidden-tail`, expected: "private key=[REDACTED]" },
-    { input: String.raw`private key="opaque"\\, mode=safe`, expected: "private key=[REDACTED], mode=safe" },
-    { input: String.raw`private key="opaque"\;mode=safe, hidden-tail`, expected: "private key=[REDACTED]" },
-    { input: String.raw`private key="opaque"\\;mode=safe`, expected: "private key=[REDACTED];mode=safe" },
-    { input: 'private key="opaque" | horse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque"| horse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque", horse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque";horse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque"\nhorse: battery staple', expected: "private key=[REDACTED]" },
-    { input: String.raw`private key="opaque"\\ | horse: battery staple`, expected: "private key=[REDACTED]" },
-    { input: String.raw`private key="opaque"\\| horse: battery staple`, expected: "private key=[REDACTED]" },
-    { input: String.raw`private key="opaque"\\, horse: battery staple`, expected: "private key=[REDACTED]" },
-    { input: String.raw`private key="opaque"\\;horse: battery staple`, expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque"\\\\\nhorse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque"  | horse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque"\t| horse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque" , horse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque" ;horse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque" \nhorse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque"  | mode=safe', expected: "private key=[REDACTED]  | mode=safe" },
-    { input: 'private key="opaque"\t| mode=safe', expected: "private key=[REDACTED]\t| mode=safe" },
-    { input: 'private key="opaque" , mode=safe', expected: "private key=[REDACTED] , mode=safe" },
-    { input: 'private key="opaque" ;mode=safe', expected: "private key=[REDACTED] ;mode=safe" },
-    { input: 'private key="opaque" \nmode=safe', expected: "private key=[REDACTED] \nmode=safe" },
-    { input: 'private key="opaque" ordinary prose', expected: "private key=[REDACTED] ordinary prose" },
-    { input: 'private key="opaque-a". password=opaque-b', expected: "private key=[REDACTED]. password=[REDACTED]" },
-    { input: 'private key="opaque"\u00A0;horse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque"\f, horse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque"\v| horse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque"\u2003;horse: battery staple', expected: "private key=[REDACTED]" },
-    { input: `private key="opaque"${overlongInlineWhitespace};horse: battery staple`, expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque"\u00A0;mode=safe', expected: "private key=[REDACTED]\u00A0;mode=safe" },
-    { input: 'private key="opaque"\f, mode=safe', expected: "private key=[REDACTED]\f, mode=safe" },
-    { input: 'private key="opaque"\v| mode=safe', expected: "private key=[REDACTED]\v| mode=safe" },
-    { input: 'private key="opaque"\u2003;mode=safe', expected: "private key=[REDACTED]\u2003;mode=safe" },
-    { input: 'private key="opaque"\u00A0ordinary prose', expected: "private key=[REDACTED]\u00A0ordinary prose" },
-    { input: 'private key="opaque"\rhorse: battery staple', expected: "private key=[REDACTED]" },
-    { input: 'private key="opaque"\rmode=safe', expected: "private key=[REDACTED]\rmode=safe" },
-  ] as const
-  const overlongAuthUrl = `https://${"u".repeat(2048)}:${"p".repeat(2048)}@fixture-overlong.example`
-  const incompleteAuthUrl = "https://fixtureUser:fixtureSecret@"
-  const incompleteNoAtAuthUrl = "https://fixtureUser:fixtureSecret"
+test("closed diagnostics fail closed and native field redaction protects the sink", async () => {
+  const egressTrace: DiagnosticEgressStep[] = []
+  const configuredSecret = "fixture-secret-must-not-cross"
+  const structuredSecret = "fixture-structured-secret"
   const diagnostic = diagnosticHarness("debug", {
-    redactionTrace: (step) => redactionTrace.push(step),
+    egressTrace: (step) => egressTrace.push(step),
   })
-  diagnostic.pipeline.record({
-    ...diagnosticRecord(1, "error", "fixture.hostile-redaction"),
-    message: [
-      `context before Bearer ${embeddedBearerCredential}`,
-      `Basic ${embeddedBasicCredential}`,
-      embeddedOpReference,
-      `x_Bearer ${underscoreBearerCredential}`,
-      `x_Basic ${underscoreBasicCredential}`,
-      `x_${underscoreOpReference}`,
-      `Bearer ${malformedBearerCredential}`,
-      `Basic ${malformedBasicCredential}`,
-      malformedOpReference,
-      completePrivateKey,
-      `x_${emptyUsernameAuthUrl}`,
-      `x_${emptyPasswordAuthUrl}`,
-      `x_${underscoreAuthUrl}`,
-      slashBearingAuthUrl,
-      usernameOnlyAuthUrl,
-      percentEncodedUserinfoAuthUrl,
-      ftpAuthUrl,
-      postgresAuthUrl,
-      "https://fixture.example:8080",
-      "https://fixture.example:8443.",
-      "Bearer fixtureHead;fixtureTail",
-      "Basic fixtureHead,fixtureTail",
-      "op://fixture/head;fixtureTail",
-    ].join(" | "),
-    secret_token: "fixture-diagnostic-secret",
+  const canonical = diagnosticRecord(1, "error", "fixture.canonical")
+  diagnostic.pipeline.record(canonical)
+  const noncanonical = diagnosticHarness("debug")
+  noncanonical.pipeline.record({
+    ...diagnosticRecord(2, "error", "fixture.noncanonical"),
+    message: `Bearer ${structuredSecret}`,
+  } as unknown as DiagnosticRecord)
+  const configured = diagnosticHarness("debug", { secretValues: [configuredSecret] })
+  configured.pipeline.record({
+    ...diagnosticRecord(3, "error", "fixture.configured-secret"),
+    run_id: configuredSecret,
+  })
+
+  const writes: string[] = []
+  const native = createLogTapeDiagnosticAdapter({ write: (line) => writes.push(line) })
+  native.record({
+    ...diagnosticRecord(4, "error", "fixture.native-field-redaction"),
+    context: {
+      api_key: structuredSecret,
+      safe_label: "preserved",
+    },
   } as DiagnosticRecord)
-  const incompletePrivateKeyDiagnostic = diagnosticHarness("debug")
-  incompletePrivateKeyDiagnostic.pipeline.record({
-    ...diagnosticRecord(2, "error", "fixture.incomplete-private-key"),
-    message: incompletePrivateKey,
-  })
-  const overlongAuthDiagnostic = diagnosticHarness("debug")
-  overlongAuthDiagnostic.pipeline.record({
-    ...diagnosticRecord(3, "error", "fixture.overlong-auth-userinfo"),
-    message: overlongAuthUrl,
-  })
-  const incompleteAuthDiagnostic = diagnosticHarness("debug")
-  incompleteAuthDiagnostic.pipeline.record({
-    ...diagnosticRecord(4, "error", "fixture.incomplete-auth-url"),
-    message: incompleteAuthUrl,
-  })
-  const incompleteNoAtAuthDiagnostic = diagnosticHarness("debug")
-  incompleteNoAtAuthDiagnostic.pipeline.record({
-    ...diagnosticRecord(5, "error", "fixture.incomplete-no-at-auth-url"),
-    message: incompleteNoAtAuthUrl,
-  })
-  const assignmentDiagnostics = diagnosticHarness("debug")
-  assignmentCases.forEach(({ input: message }, index) => {
-    assignmentDiagnostics.pipeline.record({
-      ...diagnosticRecord(index + 6, "error", `fixture.assignment-variant-${index + 1}`),
-      message,
-    })
-  })
+  native.dispose()
+
+  const nativeRecord = JSON.parse(writes[0] ?? "{}") as {
+    context?: { api_key?: string; safe_label?: string }
+    message?: string
+  }
   const harness = await facadeHarness({ eventAcceptance: "refused" })
-  const serialized = JSON.stringify({ injectedDiagnostics: diagnostic.records, incompletePrivateKeyDiagnostics: incompletePrivateKeyDiagnostic.records, overlongAuthDiagnostics: overlongAuthDiagnostic.records, incompleteAuthDiagnostics: incompleteAuthDiagnostic.records, incompleteNoAtAuthDiagnostics: incompleteNoAtAuthDiagnostic.records, assignmentDiagnostics: assignmentDiagnostics.records, diagnostics: harness.diagnostics.records, events: harness.events.records })
-  const redactionSecrets = [
-    "fixture-secret-must-not-cross",
-    "fixture-diagnostic-secret",
-    "secret_token",
-    embeddedBearerCredential,
-    embeddedBasicCredential,
-    embeddedOpReference,
-    underscoreBearerCredential,
-    underscoreBasicCredential,
-    underscoreOpReference,
-    malformedCredentialTail,
-    malformedBearerCredential,
-    malformedBasicCredential,
-    malformedOpReference,
-    completePrivateKey,
-    incompletePrivateKey,
-    "fixture-private-key-secret",
-    underscoreAuthUsername,
-    underscoreAuthPassword,
-    underscoreAuthUrl,
-    underscoreAssignment,
-    emptyUsernameAuthUrl,
-    emptyPasswordAuthUrl,
-    slashBearingAuthUrl,
-    usernameOnlyAuthUrl,
-    percentEncodedUserinfoAuthUrl,
-    ftpAuthUrl,
-    postgresAuthUrl,
-    overlongAuthUrl,
-    incompleteAuthUrl,
-    "fixture-empty-username-password",
-    "fixture-empty-password-username",
-    "fixtureTail",
-    "fixtureHead",
-  ]
+  const serialized = JSON.stringify({
+    diagnostics: diagnostic.records,
+    noncanonicalDiagnostics: noncanonical.records,
+    configuredDiagnostics: configured.records,
+    nativeRecord,
+    facadeDiagnostics: harness.diagnostics.records,
+    events: harness.events.records,
+  })
+
   absent(
     {
-      recordsFrozen: [...diagnostic.records, ...assignmentDiagnostics.records, ...harness.diagnostics.records, ...harness.events.records].every(Object.isFrozen),
-      leakedSecret: redactionSecrets.some((secret) => serialized.includes(secret)),
-      redactedMessage: diagnostic.records[0]?.message,
-      assignmentMessages: assignmentDiagnostics.records.map(({ message }) => message),
-      incompletePrivateKeyRecords: incompletePrivateKeyDiagnostic.records,
-      overlongAuthRecords: overlongAuthDiagnostic.records,
-      incompleteAuthRecords: incompleteAuthDiagnostic.records,
-      incompleteNoAtAuthRecords: incompleteNoAtAuthDiagnostic.records,
-      primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
-      order: redactionTrace,
+      acceptedMessages: diagnostic.records.map(({ message }) => message),
+      noncanonicalRecords: noncanonical.records,
+      configuredSecretRecords: configured.records,
+      recordsFrozen: [...diagnostic.records, ...harness.diagnostics.records, ...harness.events.records]
+        .every(Object.isFrozen),
+      configuredSecretLeaked: serialized.includes(configuredSecret),
+      structuredSecretLeaked: serialized.includes(structuredSecret),
+      nativeContext: nativeRecord.context,
+      nativeMessage: nativeRecord.message,
+      primary: {
+        stdout: harness.observation.stdout,
+        exitCode: harness.observation.exitCode,
+      },
+      order: egressTrace,
     },
-    { recordsFrozen: true, leakedSecret: false, redactedMessage: "context before [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | x_[REDACTED] | x_[REDACTED] | x_[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | https://fixture.example:8080 | https://fixture.example:8443. | [REDACTED] | [REDACTED] | [REDACTED]", assignmentMessages: assignmentCases.map(({ expected }) => expected), incompletePrivateKeyRecords: [], overlongAuthRecords: [], incompleteAuthRecords: [], incompleteNoAtAuthRecords: [], primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
-    "redaction must precede both seams without changing the fixed primary result",
+    {
+      acceptedMessages: ['Maintenance command failed with result code "usage-refused".'],
+      noncanonicalRecords: [],
+      configuredSecretRecords: [],
+      recordsFrozen: true,
+      configuredSecretLeaked: false,
+      structuredSecretLeaked: false,
+      nativeContext: {
+        api_key: "[REDACTED]",
+        safe_label: "preserved",
+      },
+      nativeMessage: 'Maintenance command failed with result code "usage-refused".',
+      primary: {
+        stdout: literalHelpProcess.stdout,
+        exitCode: literalHelpProcess.exitCode,
+      },
+      order: ["build-allowlist", "canonicalize", "validate", "freeze", "cross-seam"],
+    },
+    "canonical diagnostics must precede both seams and LogTape must redact structured sensitive fields",
   )
 })

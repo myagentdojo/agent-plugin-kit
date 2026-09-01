@@ -256,23 +256,31 @@ Two distinct paths exist and this decision keeps them distinct.
   Unknown keys are refused. There is no coercion, no default, no transform,
   and no stripping of any kind. A key the schema does not declare produces a
   structured refusal rather than a quietly narrower value.
-- Trusted serialized egress: the owner builds the declared allowlist, redacts
-  by removing every value outside it, validates the redacted projection,
-  freezes it, and then crosses the Seam. That pinned order,
-  `build-allowlist`, `redact`, `validate`, `freeze`, `cross-seam`, is
+- Trusted serialized egress: the owner builds the declared allowlist,
+  canonicalizes the timestamp, validates the closed projection, freezes it,
+  and then crosses the Diagnostic Adapter Seam. That pinned order,
+  `build-allowlist`, `canonicalize`, `validate`, `freeze`, `cross-seam`, is
   preserved exactly as
   `src/adapters/maintenance-command-facade/contract-tests/observability.test.ts`
-  pins it. Validation runs on the redacted projection, never before it.
+  pins it. The LogTape Adapter then applies owner-local native field redaction
+  immediately before its JSONL sink.
 - Allowlist removal is an owner-performed, declared step over a value the
   owner produced. It is not schema stripping and it is not silent: the
   allowlist is declared per named value and its effect is observable per named
   value. The earlier "no silent stripping" rule applies to validation only.
-- After redaction, any key outside the declared envelope is a fail-closed
+- After projection, any key outside the declared envelope is a fail-closed
   Implementation contract failure. Strict egress validation is what proves the
   allowlist was complete.
-- Free-text is the residual. `DiagnosticRecord.message` cannot be proved
-  redacted by schema alone, so its redaction stays an owner obligation proved
-  by a hostile-value Contract Test rather than a schema claim.
+- `DiagnosticRecord.message` is closed facade-generated vocabulary, not
+  arbitrary prose. Command failures derive it from `result_code`, event
+  delivery uses one fixed repair message, and buffer truncation derives it from
+  the declared `dropped_record_count`. A non-canonical message or mismatched
+  Next Action fails closed. Exact configured secret values are refused before
+  the Adapter Seam; LogTape field redaction remains defense in depth for
+  structured sensitive fields at the environmental sink.
+- `@logtape/redaction` is an exact private production dependency of the
+  Maintenance Command Facade Adapter. It creates no shared schema owner, root
+  dependency, or Admission Bootstrap dependency.
 
 ### Machine envelope and version carriers
 
@@ -295,11 +303,11 @@ Two distinct paths exist and this decision keeps them distinct.
   by `error.schemaVersion`. This decision adds no version carrier.
 - The `agent` payload carried as `data.result` stays a command-scoped open
   record. The envelope schema owns its presence, not its interior. At egress
-  it must be JSON-representable, already redacted by the step above, and
+  it must be JSON-representable, safe under its command-owned contract, and
   deterministic for one command and one input, and it must carry its own
-  explicit version key. Whether each command's `agent` payload earns an
-  owner-local schema is a per-command decision deferred to that command's
-  Implementation.
+  explicit version key. Diagnostic sink redaction does not apply to stdout.
+  Whether each command's `agent` payload earns an owner-local schema is a
+  per-command decision deferred to that command's Implementation.
 - One defect is recorded rather than resolved here: the observed `agent`
   payloads disagree on version spelling. The help discovery payload uses
   `schema_version` while the `payload:materialize` payload uses
@@ -537,8 +545,8 @@ question, because the resolution facts are already knowable.
   and identifier Seams for deterministic record production under proof. The
   existing `EventDeliveryClock` is a delay clock, not a time source. Exact
   Seam names and shapes remain deferred; neither becomes a root export.
-- The Kit retains no correlation state beyond producing each already-redacted
-  record. Existing streams and sinks remain caller-owned, and persisted
+- The Kit retains no correlation state beyond producing each validated record.
+  Existing streams and sinks remain caller-owned, and persisted
   retention is zero days. There is no reconstruction or persistent replay of
   any kind.
 
@@ -672,7 +680,8 @@ perturbation that must turn that group RED.
    shared within-run sequence space, gaps remaining gaps, duplicate
    observations preserving identity and sequence, terminal outcome only from
    the primary envelope, no reconstruction operation or retained state owner,
-   and an independently observable redaction step order. Tests invoke the
+   an independently observable canonical egress order, and native field
+   redaction before the JSONL sink. Tests invoke the
    Facade and inspect the records they capture directly. Perturbations: sort by
    timestamp; infer a missing record; renumber sequence at `reset()`; convert
    a retry into a second Logical Record; treat Event Acceptance as terminal;
@@ -702,11 +711,11 @@ Logical Record Correlation. It proves neither reconstruction, durable replay,
 nor delivery. Every path above stays absent until its owning gate under the
 intentional RED rule in `AGENTS.md`.
 
-One existing defect must be repaired inside group 3 rather than carried
-forward: the current redaction Contract Test asserts `redactionContract.order`
-against itself, so the pinned step order is not independently observable. The
-repaired test must compare an order the pipeline actually produced against the
-literal contract order.
+The group 3 Contract Test compares the pipeline's observed step trace with a
+test-owned literal order. Separate direct-Adapter evidence plants a structured
+sensitive field and requires LogTape to replace it before exact JSONL bytes are
+written. Removing canonical message validation or the native sink decorator
+must turn that proof RED.
 
 ## Failure-to-fixture promotion
 
@@ -744,8 +753,9 @@ through this exact route, in order:
 
 Recorded so that acceptance is informed rather than optimistic:
 
-- `DiagnosticRecord.message` is free text and cannot be proved redacted by
-  schema alone.
+- Native field redaction depends on a bounded owner-local sensitive-field
+  pattern set. A newly declared structured field whose name carries sensitive
+  meaning requires a negative control before admission.
 - Exact Zod version agreement across the root manifest and every declaring
   Owner Manifest has no machine check until the respecified Verification
   Transition Contract adds one.

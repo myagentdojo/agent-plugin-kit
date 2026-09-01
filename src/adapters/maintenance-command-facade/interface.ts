@@ -11,6 +11,12 @@ import type {
   StationId,
 } from "../../modules/maintenance-command-contract/interface"
 
+export type DiagnosticMessage =
+  | `Maintenance command failed with result code "${ResultCode}".`
+  | "Inspect the configured event transport; do not repeat the command solely to replay its event."
+  | `Diagnostic buffer dropped ${number} oldest record.`
+  | `Diagnostic buffer dropped ${number} oldest records.`
+
 export type DiagnosticRecord = Readonly<{
   schema_version: 1
   record_type: "diagnostic"
@@ -27,7 +33,8 @@ export type DiagnosticRecord = Readonly<{
   transaction_state?: CommandPreview["transactionState"]
   retry_safety?: CommandPreview["retrySafety"]
   next_action?: CommandPreview["nextAction"]
-  message: string
+  dropped_record_count?: number
+  message: DiagnosticMessage
 }>
 
 export type EventRecord = Readonly<{
@@ -116,9 +123,9 @@ export interface DiagnosticPipeline {
   dispose(): void
 }
 
-export type DiagnosticRedactionStep =
+export type DiagnosticEgressStep =
   | "build-allowlist"
-  | "redact"
+  | "canonicalize"
   | "validate"
   | "freeze"
   | "cross-seam"
@@ -129,7 +136,7 @@ export type DiagnosticPipelineAssembly = {
   diagnostics: DiagnosticAdapter
   secretValues?: readonly string[]
   nextSequence: () => number
-  redactionTrace?: (step: DiagnosticRedactionStep) => void
+  egressTrace?: (step: DiagnosticEgressStep) => void
 }
 
 export interface EventDeliveryClock {
