@@ -52,7 +52,7 @@ const createKitFixture = async (kitRoot: string, sourceKitRoot: string): Promise
     await rm(join(kitRoot, "src", owner, "node_modules"), { recursive: true, force: true })
   }
   const publicBinary = resolve(kitRoot, "src/adapters/maintenance-command-facade/maintenance.ts")
-  const wrapper = `#!/usr/bin/env bun\nconst child = Bun.spawn([${JSON.stringify(publicBinary)}, ...process.argv.slice(2)], { cwd: process.cwd(), env: process.env, stdin: "inherit", stdout: "inherit", stderr: "inherit" })\nprocess.exitCode = await child.exited\n`
+  const wrapper = `#!/usr/bin/env bun\nconst preload = process.env.AGENT_PLUGIN_KIT_NETWORK_PRELOAD\nconst command = preload === undefined ? [${JSON.stringify(publicBinary)}, ...process.argv.slice(2)] : [process.execPath, "--no-install", "--preload", preload, ${JSON.stringify(publicBinary)}, ...process.argv.slice(2)]\nconst child = Bun.spawn(command, { cwd: process.cwd(), env: process.env, stdin: "inherit", stdout: "inherit", stderr: "inherit" })\nprocess.exitCode = await child.exited\n`
   await mkdir(join(kitRoot, "node_modules"), { recursive: true })
   await writeFile(join(kitRoot, ".gitignore"), "node_modules/\n")
   await writeFile(join(kitRoot, "package.json"), `${JSON.stringify({
@@ -146,6 +146,7 @@ const localLinkFaults = [
   "receipt-schema",
   "receipt-mistyped",
   "receipt-tamper",
+  "receipt-link-substitution",
   "receipt-write-failure",
 ] as const satisfies readonly LocalLinkFault[]
 

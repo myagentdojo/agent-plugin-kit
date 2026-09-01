@@ -19,6 +19,65 @@ const newRunId = (): string => {
   return `local-link-${timestamp}-${crypto.randomUUID().slice(0, 8)}`
 }
 
+const failurePrefix = (error: unknown): string =>
+  error instanceof Error ? error.message.split(":", 1)[0] ?? "" : ""
+
+export const localLinkPublicFailureFor = (error: unknown): Readonly<{
+  failure: string
+  next_action: string
+}> => {
+  const failure = failurePrefix(error)
+  if ([
+    "run-id-invalid",
+    "state-root-must-be-absolute",
+    "public-process-scenario-count-invalid",
+    "public-process-scenario-catalog-invalid",
+    "package-identity-invalid",
+    "public-binary-invalid",
+    "public-binary-identity-invalid",
+    "destination-parent-unsafe",
+    "destination-parent-escaped",
+    "link-destination-preexists",
+    "logtape-owner-pin-invalid",
+    "logtape-owner-scope-invalid",
+    "logtape-locality-invalid",
+    "logtape-lock-resolution-invalid",
+    "owner-local-dependency-missing",
+    "logtape-installed-resolution-not-owner-local",
+    "logtape-installed-version-invalid",
+  ].includes(failure)) {
+    return {
+      failure: "local-link-preflight-refused",
+      next_action: "Restore the Kit, consumer, dependency, or destination preflight invariant, then retry.",
+    }
+  }
+  if (failure.startsWith("ownership-") || failure.startsWith("owned-link-") ||
+    failure === "created-link-identity-invalid") {
+    return {
+      failure: "local-link-ownership-refused",
+      next_action: "Inspect the retained private ownership receipt and restore only proof-owned links before retrying.",
+    }
+  }
+  if (failure.startsWith("repository-") || failure === "destination-parent-removed" ||
+    failure === "owned-link-remained") {
+    return {
+      failure: "local-link-restoration-refused",
+      next_action: "Restore the Kit and consumer repositories to their recorded preflight state, then retry.",
+    }
+  }
+  if (failure.startsWith("network-") || failure.startsWith("public-process-") ||
+    failure.startsWith("process-") || failure.startsWith("command-")) {
+    return {
+      failure: "local-link-process-refused",
+      next_action: "Run the focused local-link Contract Test and repair the public-process refusal before retrying.",
+    }
+  }
+  return {
+    failure: "local-link-proof-refused",
+    next_action: "Run the focused local-link Contract Test and repair its first failing invariant before retrying.",
+  }
+}
+
 export async function verifyMaintenanceCliLocalLink(): Promise<number> {
   try {
     const result = await runLocalLinkContractProof({
@@ -44,13 +103,13 @@ export async function verifyMaintenanceCliLocalLink(): Promise<number> {
       retained_receipt_maximum_days: result.receipt.maximum_retention_days,
     })}\n`)
     return 0
-  } catch {
+  } catch (error) {
+    const refusal = localLinkPublicFailureFor(error)
     process.stderr.write(`${JSON.stringify({
       schema_version: 1,
       proof: proofIdentity,
       verdict: "refused",
-      failure: "local-link-proof-failed",
-      next_action: "Inspect the private ownership receipt and restore the preflight invariant before retrying.",
+      ...refusal,
     })}\n`)
     return 1
   }

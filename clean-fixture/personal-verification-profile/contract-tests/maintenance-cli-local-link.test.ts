@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import { literalHelpProcess, literalUsageProcess } from "../../../src/modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results"
 import { localLinkContractSubject } from "./adapters/local-link-contract-subject"
 import { localLinkCleanupLedger } from "./fixtures/maintenance-cli-process-scenarios"
+import { localLinkPublicFailureFor } from "../../verify-maintenance-cli-local-link"
 
 test("temporary Kit and consumer parents are private and bounded", () => {
   expect(localLinkContractSubject.parentModes).toEqual([0o700, 0o700])
@@ -16,6 +17,14 @@ test("temporary Kit and consumer parents are private and bounded", () => {
     wrongParentRefused: true,
     preexistingMarkerRefused: true,
     substitutedRootRefused: true,
+  })
+  expect(localLinkPublicFailureFor(new Error("link-destination-preexists"))).toEqual({
+    failure: "local-link-preflight-refused",
+    next_action: "Restore the Kit, consumer, dependency, or destination preflight invariant, then retry.",
+  })
+  expect(localLinkPublicFailureFor(new Error("ownership-receipt-link-drifted:package"))).toEqual({
+    failure: "local-link-ownership-refused",
+    next_action: "Inspect the retained private ownership receipt and restore only proof-owned links before retrying.",
   })
 })
 test("link destinations must be absent before creation", () => {
@@ -159,6 +168,13 @@ test("cleanup unlinks binary then package without deleting parents", () => {
     linksRemain: false,
     receiptRemaining: false,
   })
+  expect(localLinkContractSubject.failureControls["receipt-link-substitution"]).toEqual({
+    refused: true,
+    reason: "ownership-receipt-link-drifted:package",
+    parentsPreserved: true,
+    linksRemain: true,
+    receiptRemaining: true,
+  })
 })
 test("before and after digests prove no tracked manifest or lock drift", () => {
   expect(localLinkContractSubject.digestsEqual).toBe(true)
@@ -191,7 +207,7 @@ test("before and after digests prove no tracked manifest or lock drift", () => {
   })
   expect(localLinkContractSubject.failureControls["network-primitive"]).toEqual({
     refused: true,
-    reason: "network-primitive-detected",
+    reason: "network-attempt-detected",
     parentsPreserved: true,
     linksRemain: false,
     receiptRemaining: false,

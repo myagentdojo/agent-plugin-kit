@@ -45,6 +45,11 @@ export type AuditLedgerEntry = Readonly<{
   argv?: readonly string[]
 }>
 
+type NetworkObserver = Readonly<{
+  preloadPath: string
+  tracePath: string
+}>
+
 export type LocalLinkFault =
   | "partial-link"
   | "retargeted-link"
@@ -62,6 +67,7 @@ export type LocalLinkFault =
   | "receipt-schema"
   | "receipt-mistyped"
   | "receipt-tamper"
+  | "receipt-link-substitution"
   | "receipt-write-failure"
 
 export type FailureControlResult = Readonly<{
@@ -199,6 +205,7 @@ type AuditedCommand = Readonly<{
   allowedExecutable?: string
   allowedArgv?: readonly string[]
   approvedExecutable?: string
+  approvedPreload?: string
 }>
 
 const actualExecutable = (executable: string): string =>
@@ -325,9 +332,15 @@ const isLinkCommandAllowlisted = (command: AuditedCommand): boolean =>
   isAbsolute(command.argv[1]) && isAbsolute(command.argv[2])
 
 const isPublicProcessAllowlisted = (command: AuditedCommand): boolean =>
-  command.approvedExecutable !== undefined && command.executable === command.approvedExecutable &&
-  command.allowedExecutable === command.approvedExecutable && command.allowedArgv !== undefined &&
-  sameArgv(command.argv, command.allowedArgv)
+  command.approvedExecutable !== undefined && command.approvedPreload !== undefined &&
+  command.executable === process.execPath && command.allowedExecutable === command.approvedExecutable &&
+  command.allowedArgv !== undefined && sameArgv(command.argv, [
+    "--no-install",
+    "--preload",
+    command.approvedPreload,
+    command.approvedExecutable,
+    ...command.allowedArgv,
+  ])
 
 const isTimeoutProbeAllowlisted = (command: AuditedCommand): boolean =>
   command.executable === process.execPath && sameArgv(command.argv, timeoutProbeArgv)
@@ -908,21 +921,46 @@ type ProcessSettlement = Readonly<{
   hardSettlementTimedOut: boolean
 }>
 
+const observedPublicProcessCommand = (
+  command: readonly string[],
+  cwd: string,
+  allowlistedArgv: readonly string[],
+  approvedExecutable: string | undefined,
+  networkObserver: NetworkObserver | undefined,
+): AuditedCommand | undefined => {
+  if (networkObserver === undefined || approvedExecutable === undefined) return undefined
+  return {
+    kind: "public-process",
+    executable: process.execPath,
+    argv: ["--no-install", "--preload", networkObserver.preloadPath, approvedExecutable, ...command.slice(1)],
+    cwd,
+    allowedExecutable: actualExecutable(command[0] ?? ""),
+    allowedArgv: allowlistedArgv,
+    approvedExecutable,
+    approvedPreload: networkObserver.preloadPath,
+  }
+}
+
 const auditedProcessCommand = (
   command: readonly string[],
   cwd: string,
   kind: ProcessKind,
   allowlistedArgv: readonly string[],
   approvedExecutable: string | undefined,
-): AuditedCommand => ({
-  kind,
-  executable: actualExecutable(command[0] ?? ""),
-  argv: command.slice(1),
-  cwd,
-  ...(kind === "public-process" && approvedExecutable !== undefined
-    ? { allowedExecutable: approvedExecutable, allowedArgv: allowlistedArgv, approvedExecutable }
-    : {}),
-})
+  networkObserver: NetworkObserver | undefined,
+): AuditedCommand => kind === "public-process"
+  ? observedPublicProcessCommand(command, cwd, allowlistedArgv, approvedExecutable, networkObserver) ?? {
+    kind,
+    executable: actualExecutable(command[0] ?? ""),
+    argv: command.slice(1),
+    cwd,
+  }
+  : {
+    kind,
+    executable: actualExecutable(command[0] ?? ""),
+    argv: command.slice(1),
+    cwd,
+  }
 
 const killProcessGroup = (child: ReturnType<typeof Bun.spawn>): void => {
   try {
@@ -1001,13 +1039,17 @@ const invokeBoundedProcess = async (
   kind: ProcessKind = "public-process",
   allowlistedArgv: readonly string[] = command.slice(1),
   approvedExecutable?: string,
+  networkObserver?: NetworkObserver,
 ): Promise<{ observation: ProcessObservation; cleanup: ProcessCleanupReceipt }> => {
-  const auditedCommand = auditedProcessCommand(command, cwd, kind, allowlistedArgv, approvedExecutable)
+  const auditedCommand = auditedProcessCommand(command, cwd, kind, allowlistedArgv, approvedExecutable, networkObserver)
   const executable = auditCommand(auditedCommand, ledger)
-  const child = Bun.spawn([executable, ...command.slice(1)], {
+  const child = Bun.spawn([executable, ...auditedCommand.argv], {
     cwd,
     detached: true,
-    env: minimalEnvironment(environment),
+    env: minimalEnvironment({
+      ...environment,
+      ...(networkObserver === undefined ? {} : { AGENT_PLUGIN_KIT_NETWORK_PRELOAD: networkObserver.preloadPath }),
+    }),
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
@@ -1017,6 +1059,9 @@ const invokeBoundedProcess = async (
   const deadline = processDeadlines[kind]
   const settled = await settleBoundedProcess(child, stdout, stderr, deadline.deadlineMs, deadline.hardSettlementDeadlineMs)
   assertProcessNotRetained(child)
+  if (networkObserver !== undefined && (await readFile(networkObserver.tracePath, "utf8")) !== "") {
+    throw new Error("network-attempt-detected")
+  }
   const descriptorRetainingDescendant = descriptorRetentionFor(kind, settled.capturedStderr)
   return {
     observation: {
@@ -1456,6 +1501,7 @@ type ProofContext = Readonly<{
   before: Readonly<{ kit: RepositorySnapshot; consumer: RepositorySnapshot }>
   receiptDirectory: string
   receiptPath: string
+  networkObserver: NetworkObserver
   auditLedger: AuditLedgerEntry[]
 }>
 
@@ -1507,10 +1553,32 @@ const proofOwnedDirectory = async (path: string): Promise<void> => {
   await chmod(path, 0o700)
 }
 
-const assertExecutableNetworkSafe = async (executable: string): Promise<void> => {
-  const source = await readFile(executable, "utf8")
-  if (/\b(?:fetch|WebSocket|Bun\.connect|net\.connect|https?:\/\/|https?\.request)\b/u.test(source)) {
-    throw new Error("network-primitive-detected")
+const createNetworkObserver = async (receiptDirectory: string): Promise<NetworkObserver> => {
+  const preloadPath = join(receiptDirectory, "network-observer.ts")
+  const tracePath = join(receiptDirectory, "network-attempts.jsonl")
+  const traceLiteral = JSON.stringify(tracePath)
+  await writeFile(tracePath, "", { mode: 0o600 })
+  await writeFile(preloadPath, [
+    'import { appendFileSync } from "node:fs"',
+    'import { Socket } from "node:net"',
+    `const tracePath = ${traceLiteral}`,
+    'const refuse = (kind) => { appendFileSync(tracePath, JSON.stringify({ kind }) + "\\n"); throw new Error("network-attempt-blocked") }',
+    'globalThis.fetch = (..._args) => refuse("fetch")',
+    'globalThis.WebSocket = class { constructor() { refuse("websocket") } }',
+    'Bun.connect = (..._args) => refuse("bun-connect")',
+    'Socket.prototype.connect = function (..._args) { return refuse("socket-connect") }',
+    "",
+  ].join("\n"), { mode: 0o600 })
+  return { preloadPath, tracePath }
+}
+
+const removeNetworkObserver = async (observer: NetworkObserver): Promise<void> => {
+  for (const path of [observer.preloadPath, observer.tracePath]) {
+    try {
+      await unlink(path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
   }
 }
 
@@ -1525,7 +1593,6 @@ const prepareProofContext = async (
   const kitRoot = await realpath(options.kitRoot)
   const consumerRoot = await realpath(options.consumerRoot)
   const binary = await publicBinary(kitRoot, auditLedger)
-  await assertExecutableNetworkSafe(binary.source)
   await assertOwnerLocalLogTape(kitRoot)
   const packageDestination = join(consumerRoot, "node_modules/agent-plugin-kit")
   const binaryDestination = join(consumerRoot, "node_modules/.bin/agent-plugin-kit")
@@ -1549,9 +1616,21 @@ const prepareProofContext = async (
   await mkdir(receiptDirectory, { mode: 0o700 })
   await chmod(receiptDirectory, 0o700)
   const receiptPath = join(receiptDirectory, "ownership.json")
+  const networkObserver = await createNetworkObserver(receiptDirectory)
   const sources = { package: kitRoot, binary: binary.source }
   const destinations = { package: packageDestination, binary: binaryDestination }
-  return { kitRoot, consumerRoot, binary, sources, destinations, before, receiptDirectory, receiptPath, auditLedger }
+  return {
+    kitRoot,
+    consumerRoot,
+    binary,
+    sources,
+    destinations,
+    before,
+    receiptDirectory,
+    receiptPath,
+    networkObserver,
+    auditLedger,
+  }
 }
 
 type ProofState = {
@@ -1667,7 +1746,21 @@ const removeDestinationParent = async (context: ProofContext): Promise<void> => 
 }
 
 const appendNetworkPrimitive = async (context: ProofContext): Promise<void> => {
-  await appendFile(context.binary.source, networkPrimitiveMutation)
+  await appendFile(
+    join(context.kitRoot, "src/adapters/maintenance-command-facade/implementation/maintenance-event-adapter.ts"),
+    networkPrimitiveMutation,
+  )
+}
+
+const substituteReceiptAndPackageLink = async (context: ProofContext): Promise<void> => {
+  await unlink(context.destinations.package)
+  await symlink(context.sources.package, context.destinations.package)
+  const replacement = await linkIdentity("package", context.destinations.package)
+  const receipt = await readOwnershipReceipt(context.receiptPath)
+  await writeReceipt(context.receiptPath, {
+    ...receipt,
+    links: receipt.links.map((link) => link.kind === "package" ? replacement : link),
+  })
 }
 
 const reorderDiagnosticSequence = async (context: ProofContext): Promise<void> => {
@@ -1733,6 +1826,7 @@ const postLinkFaultHandlers: Partial<Record<LocalLinkFault, PostLinkFaultHandler
   "receipt-schema": (context) => addReceiptSchemaField(context),
   "receipt-mistyped": (context) => mistypeReceiptSchemaVersion(context),
   "receipt-tamper": (context) => tamperReceiptCreatedState(context),
+  "receipt-link-substitution": (context) => substituteReceiptAndPackageLink(context),
 }
 
 const applyPostLinkFault = async (
@@ -1759,6 +1853,7 @@ const forbiddenCommandNegativeControl = async (
       "public-process",
       scenario.argv,
       context.destinations.binary,
+      context.networkObserver,
     )
   } catch (error) {
     if (error instanceof Error && error.message === "command-not-allowlisted") return true
@@ -1782,6 +1877,7 @@ const executeScenarios = async (
       "public-process",
       scenario.argv,
       context.destinations.binary,
+      context.networkObserver,
     )
     const expectedLedger = `execute:${scenario.argv.join(" ")}`
     if (scenario.ledger !== expectedLedger) throw new Error("scenario-ledger-drift")
@@ -1815,7 +1911,12 @@ const cleanupReceiptLink = async (
   if (!durable.created[kind] && !state.ownedLinks.has(kind)) return undefined
   assertReceiptContext(durable, context, state)
   if (!durable.created[kind] || durable.cleaned[kind]) throw new Error(`ownership-receipt-state-drifted:${kind}`)
-  return receiptLink(durable, kind)
+  const durableLink = receiptLink(durable, kind)
+  const originallyOwned = state.ownedLinks.get(kind)
+  if (originallyOwned === undefined || !sameLink(durableLink, originallyOwned)) {
+    throw new Error(`ownership-receipt-link-drifted:${kind}`)
+  }
+  return durableLink
 }
 
 const recordCleanedLink = async (
@@ -2008,6 +2109,15 @@ const assertDestinationParentsPresent = async (context: ProofContext): Promise<v
   await assertDirectory(context.consumerRoot, binaryParent)
 }
 
+const postLinkNoImmediateAssertion = new Set<LocalLinkFault>(["network-primitive", "receipt-link-substitution"])
+const persistedReceiptFaults = new Set<LocalLinkFault>(["receipt-schema", "receipt-mistyped"])
+const repositoryStateFaults = new Set<LocalLinkFault>([
+  "repository-drift",
+  "manifest-lock-drift",
+  "staged-index-drift",
+  "commit-ref-drift",
+])
+
 const assertPostLinkFault = async (
   fault: LocalLinkFault,
   context: ProofContext,
@@ -2017,16 +2127,12 @@ const assertPostLinkFault = async (
     await assertDestinationParentsPresent(context)
     return
   }
-  if (fault === "network-primitive") {
-    await assertExecutableNetworkSafe(context.binary.source)
-    return
-  }
-  if (fault === "receipt-schema" || fault === "receipt-mistyped") {
+  if (postLinkNoImmediateAssertion.has(fault)) return
+  if (persistedReceiptFaults.has(fault)) {
     await readOwnershipReceipt(context.receiptPath)
     return
   }
-  if (fault === "repository-drift" || fault === "manifest-lock-drift" ||
-    fault === "staged-index-drift" || fault === "commit-ref-drift") {
+  if (repositoryStateFaults.has(fault)) {
     await assertRepositoriesUnchanged(context)
     return
   }
@@ -2091,7 +2197,8 @@ const applyOptionalFault = async (
   context: ProofContext,
   state: ProofState,
 ): Promise<void> => {
-  if (options.fault === undefined || options.fault === "receipt-write-failure") return
+  if (options.fault === undefined || options.fault === "receipt-write-failure" ||
+    options.fault === "receipt-link-substitution") return
   await applyPostLinkFault(options.fault, context, state)
   await assertPostLinkFault(options.fault, context, state)
 }
@@ -2100,7 +2207,13 @@ type PrimaryProofRun = Readonly<{
   primaryFailure: unknown
   timeoutDescriptorControl: ProcessCleanupReceipt | undefined
   forbiddenCommandRefused: true
+  zeroNetworkAttempts: true
 }>
+
+const assertNetworkObserverClear = async (observer: NetworkObserver): Promise<true> => {
+  if ((await readFile(observer.tracePath, "utf8")) !== "") throw new Error("network-attempt-detected")
+  return true
+}
 
 const executePrimaryProofRun = async (
   options: LocalLinkProofOptions,
@@ -2111,6 +2224,7 @@ const executePrimaryProofRun = async (
   let primaryFailure: unknown
   let timeoutDescriptorControl: ProcessCleanupReceipt | undefined
   let forbiddenCommandRefused: true = true
+  let zeroNetworkAttempts: true = true
   try {
     timeoutDescriptorControl = (await invokeBoundedProcess(
       [process.execPath, ...timeoutProbeArgv],
@@ -2123,10 +2237,14 @@ const executePrimaryProofRun = async (
     await applyOptionalFault(options, context, state)
     forbiddenCommandRefused = await forbiddenCommandNegativeControl(context, state)
     await executeScenarios(options, context, state, updateReceipt)
+    if (options.fault === "receipt-link-substitution") {
+      await substituteReceiptAndPackageLink(context)
+    }
+    zeroNetworkAttempts = await assertNetworkObserverClear(context.networkObserver)
   } catch (error) {
     primaryFailure = error
   }
-  return { primaryFailure, timeoutDescriptorControl, forbiddenCommandRefused }
+  return { primaryFailure, timeoutDescriptorControl, forbiddenCommandRefused, zeroNetworkAttempts }
 }
 
 const rollbackKindsFor = (
@@ -2162,7 +2280,13 @@ const cleanupFailedProofRun = async (
 ): Promise<CleanupProofRun> => {
   const rollbackFailures = await rollbackIdentityCheckedLinks(context, state, rollbackKindsFor(options.fault, state))
   const cleanupFailures = await cleanupLinks(context, state)
-  const allCleanupFailures = [...rollbackFailures, ...cleanupFailures]
+  let observerFailure: unknown
+  try {
+    await removeNetworkObserver(context.networkObserver)
+  } catch (error) {
+    observerFailure = error
+  }
+  const allCleanupFailures = [...rollbackFailures, ...cleanupFailures, ...(observerFailure === undefined ? [] : [observerFailure])]
   const receiptFailure = primaryFailure !== undefined || allCleanupFailures.length > 0
     ? await tryRemoveFailureReceipt(
       context,
@@ -2251,7 +2375,7 @@ export async function runLocalLinkContractProof(options: LocalLinkProofOptions):
       links_cleaned: true,
     },
     digestsEqual: restoration.digestsEqual,
-    zeroNetworkAttempts: true,
+    zeroNetworkAttempts: primary.zeroNetworkAttempts,
     gitStateEqual: true,
   }
 }
