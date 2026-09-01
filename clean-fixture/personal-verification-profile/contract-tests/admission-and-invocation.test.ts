@@ -41,6 +41,17 @@ test("public Admission source is dependency-free before maintenance execution", 
       workflow: { commit: installedPackage.resolvedCommit },
     },
   })
+  expect(installedPackage.admittedExecutionOrder).toEqual(["admission", "qualification", "maintenance-cli"])
+  expect(installedPackage.admissionRefusalControl).toEqual({
+    admission: {
+      kind: "refused",
+      refusal: {
+        code: "package-pin-mismatch",
+        nextAction: "Correct the mismatched immutable identity observation.",
+      },
+    },
+    startedProcesses: ["admission"],
+  })
 })
 
 test("public command invocation requires the same Admitted Identity", async () => {

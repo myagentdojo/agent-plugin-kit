@@ -5,6 +5,7 @@ import {
   expectedInstalledFiles,
   expectedPublicSubpaths,
   expectedRootTypeExports,
+  expectedSubpathRuntimeExports,
   expectedSubpathTypeExports,
 } from "./fixtures/plugin-consumer"
 
@@ -12,6 +13,7 @@ test("the root package exposes exactly the accepted type catalog", () => {
   expect(Object.keys(packageMetadata.exports).sort()).toEqual([...expectedPublicSubpaths].sort())
   expect(installedPackage.publicTypeResolution).toEqual({ exitCode: 0, stdout: "", stderr: "" })
   expect(installedPackage.rootRuntimeExports).toEqual([])
+  expect(installedPackage.subpathRuntimeExports).toEqual(expectedSubpathRuntimeExports)
   expect(installedPackage?.rootTypeExports, "contract-absent: installed root type exports must be independently observed").toEqual(expectedRootTypeExports)
 })
 
@@ -19,6 +21,10 @@ test("the Git package exposes exactly nine accepted public subpaths", () => {
   expect(Object.keys(packageMetadata.exports)).toEqual([...expectedPublicSubpaths])
   expect(installedPackage?.publicSubpaths, "contract-absent: installed public subpaths must be importable").toEqual([...expectedPublicSubpaths])
   expect(installedPackage?.subpathTypeExports, "contract-absent: public subpaths must expose exact accepted names").toEqual(expectedSubpathTypeExports)
+  expect(installedPackage.publicSurfacePerturbationControl).toEqual({
+    typeFormsRefused: ["direct", "named-type", "wildcard"],
+    runtimeSubpathsRefused: [...expectedPublicSubpaths],
+  })
 })
 
 test("Implementation and proof paths remain private in the installed inventory", () => {

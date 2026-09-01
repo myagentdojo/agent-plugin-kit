@@ -29,6 +29,7 @@ test("Clean Fixture reconciles installed RED inventory and Station Map projectio
   expect(expectedInstalledFiles).toHaveLength(26)
   absent(installedMaintenanceCliSubject?.installedFiles, expectedInstalledFiles, "the Git Clean Fixture must prove installed inventory")
   absent(installedMaintenanceCliSubject.importedFiles, expectedDependencyFreeHelpRuntimeTrace, "dependency-free help must load the exact installed runtime closure")
+  expect(installedMaintenanceCliSubject.externalDependencyPerturbationRefused).toBeTrue()
   expect(installedMaintenanceCliSubject?.stationMap, "contract-absent: the Git Clean Fixture must parse the installed Station Map bytes").toEqual({
     declared_branch_coverage: 118,
     required_station_ids: ["help.previewed", "maintenance.usage-refused"],

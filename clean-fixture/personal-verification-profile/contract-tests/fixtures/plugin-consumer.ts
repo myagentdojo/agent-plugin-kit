@@ -78,6 +78,121 @@ export const expectedSubpathTypeExports = {
   ],
 } as const
 
+export const expectedSubpathRuntimeExports: Readonly<Record<string, readonly string[]>> = {
+  ".": [],
+  "./admission-bootstrap": ["admissionBootstrap"],
+  "./plugin-payload-production": [],
+  "./runtime-custody": [],
+  "./release-and-git-engine": [],
+  "./maintenance-command-contract": [],
+  "./harness-journeys": [],
+  "./canary-qualification": [],
+  "./qualification-evidence": ["VerificationProfile", "qualificationEvidence"],
+  "./reusable-workflow-adapter": [],
+}
+
+const fixtureReceiptDigest =
+  "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" as const
+type VerificationClaim = Extract<QualificationOutcome, { status: "reduced" }>["result"]["claims"][number]["claim"]
+
+function provedClaim(
+  claim: VerificationClaim,
+  evidenceCellId: `cell:${string}`,
+  actualProofLayer: "clean-fixture" | "public-process",
+  receiptDigest: `sha256:${string}` = fixtureReceiptDigest,
+) {
+  return {
+    claim,
+    nonClaims: [],
+    receiptDigests: [receiptDigest],
+    evidenceCellIds: [evidenceCellId],
+    status: "proved",
+    actualProofLayer,
+    observationKind: "observed",
+    skipRationale: null,
+  } as const
+}
+
+function skippedClaim(
+  claim: VerificationClaim,
+  evidenceCellId: `cell:${string}`,
+  skipRationale: "hosted-proof-not-run" | "fresh-native-proof-not-run",
+) {
+  return {
+    claim,
+    nonClaims: [claim],
+    receiptDigests: [],
+    evidenceCellIds: [evidenceCellId],
+    status: "unknown",
+    unknownKind: "skip",
+    actualProofLayer: null,
+    observationKind: null,
+    skipRationale,
+  } as const
+}
+
+export function expectedPersonalQualification(
+  candidate: CandidateIdentity,
+  installedBytesSha256: `sha256:${string}`,
+): QualificationOutcome {
+  return {
+    status: "reduced",
+    result: {
+      schemaVersion: 1,
+      candidate,
+      profileId: "personal",
+      claims: [
+        provedClaim("kit.identity.admitted", "cell:personal-admitted", "clean-fixture"),
+        provedClaim("kit.command.invoked", "cell:personal-command", "clean-fixture"),
+        provedClaim("kit.package.full-commit-pin", "cell:personal-package", "clean-fixture"),
+        provedClaim("kit.workflow.full-commit-pin", "cell:personal-workflow", "clean-fixture"),
+        provedClaim("plugin-payload.installed", "cell:personal-payload", "clean-fixture", installedBytesSha256),
+        provedClaim("runtime.supported-platform", "cell:personal-runtime", "public-process"),
+        skippedClaim("harness.claude.fresh-native", "cell:personal-claude", "fresh-native-proof-not-run"),
+        skippedClaim("harness.codex.fresh-native", "cell:personal-codex", "fresh-native-proof-not-run"),
+      ],
+      counts: { selected: 8, covered: 6, skipped: 2, proved: 6, notProved: 0, unknown: 0 },
+      nonClaims: ["harness.claude.fresh-native", "harness.codex.fresh-native"],
+      receiptDigests: [fixtureReceiptDigest, installedBytesSha256],
+    },
+  }
+}
+
+export function expectedPublicQualification(candidate: CandidateIdentity): QualificationOutcome {
+  return {
+    status: "reduced",
+    result: {
+      schemaVersion: 1,
+      candidate,
+      profileId: "public",
+      claims: [
+        provedClaim("kit.identity.admitted", "cell:public-admitted", "clean-fixture"),
+        provedClaim("kit.command.invoked", "cell:public-command", "clean-fixture"),
+        provedClaim("kit.package.full-commit-pin", "cell:public-package", "clean-fixture"),
+        provedClaim("kit.workflow.full-commit-pin", "cell:public-workflow", "clean-fixture"),
+        skippedClaim("plugin-payload.installed", "cell:public-payload", "hosted-proof-not-run"),
+        skippedClaim("runtime.supported-platform", "cell:public-runtime", "hosted-proof-not-run"),
+        skippedClaim("release.identity.published", "cell:public-release", "hosted-proof-not-run"),
+        skippedClaim("workflow.called-revision", "cell:public-workflow-call", "hosted-proof-not-run"),
+        skippedClaim("canary.hosted-qualified", "cell:public-canary", "hosted-proof-not-run"),
+        skippedClaim("harness.claude.fresh-native", "cell:public-claude", "fresh-native-proof-not-run"),
+        skippedClaim("harness.codex.fresh-native", "cell:public-codex", "fresh-native-proof-not-run"),
+      ],
+      counts: { selected: 11, covered: 4, skipped: 7, proved: 4, notProved: 0, unknown: 0 },
+      nonClaims: [
+        "plugin-payload.installed",
+        "runtime.supported-platform",
+        "release.identity.published",
+        "workflow.called-revision",
+        "canary.hosted-qualified",
+        "harness.claude.fresh-native",
+        "harness.codex.fresh-native",
+      ],
+      receiptDigests: [fixtureReceiptDigest],
+    },
+  }
+}
+
 export const expectedInstalledFiles = [
   "package.json",
   "src/adapters/maintenance-command-facade/implementation/logtape-diagnostic-adapter.ts",
@@ -108,6 +223,7 @@ export const expectedInstalledFiles = [
 ] as const
 
 export const expectedDependencyFreeHelpRuntimeTrace = [
+  "external:zod",
   "src/adapters/maintenance-command-facade/implementation/maintenance-command-facade.ts",
   "src/adapters/maintenance-command-facade/maintenance.ts",
   "src/adapters/maintenance-command-facade/serialized-values.ts",
@@ -143,3 +259,5 @@ export const literalProcessResult = {
   stderr: "",
   exitCode: 0,
 } as const
+import type { QualificationOutcome } from "agent-plugin-kit/qualification-evidence"
+import type { CandidateIdentity } from "agent-plugin-kit/release-and-git-engine"

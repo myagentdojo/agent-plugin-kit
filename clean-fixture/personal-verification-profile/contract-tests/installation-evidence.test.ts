@@ -28,6 +28,14 @@ test("Git installation runs no lifecycle script", () => {
     "XDG_STATE_HOME",
   ])
   expect(installedPackage.fixtureSensitiveEnvironmentKeys).toEqual([])
+  expect(installedPackage.processTimeoutControl).toEqual({
+    exitCode: 124,
+    timedOut: true,
+    descriptorClosure: "closed",
+    cleanup: "process-group-killed",
+    descendantPidObserved: true,
+    descendantTerminated: true,
+  })
 })
 
 test("installed bytes match the literal package inventory", () => {
@@ -35,4 +43,12 @@ test("installed bytes match the literal package inventory", () => {
   expect(installedPackage?.installedBytesSha256).toMatch(/^sha256:[0-9a-f]{64}$/)
   expect(installedPackage.outsideRepository).toBeTrue()
   expect(installedPackage.fixtureRemoved).toBeTrue()
+  expect(installedPackage.qualificationInputBindings).toEqual({
+    provedInstalledPayloadCells: [{
+      id: "cell:personal-payload",
+      lineageDigest: installedPackage.installedBytesSha256,
+      receiptDigest: installedPackage.installedBytesSha256,
+    }],
+    hostedLineageCellIds: [],
+  })
 })

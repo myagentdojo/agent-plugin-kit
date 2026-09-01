@@ -6,6 +6,7 @@ export type InstalledMaintenanceCliObservation = {
   importedFiles: readonly string[]
   cwd: string
   installedFiles: readonly string[]
+  externalDependencyPerturbationRefused: boolean
   stationMap: Readonly<Record<string, unknown>>
 }
 

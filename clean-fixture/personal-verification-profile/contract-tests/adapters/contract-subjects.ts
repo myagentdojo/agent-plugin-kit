@@ -6,8 +6,10 @@ import {
 
 export type InstalledPackageObservation = {
   rootTypeExports: readonly string[]
+  rootRuntimeExports: readonly string[]
   publicSubpaths: readonly string[]
   subpathTypeExports: Readonly<Record<string, readonly string[]>>
+  subpathRuntimeExports: Readonly<Record<string, readonly string[]>>
   regularFiles: readonly string[]
   sourceCommit: string
   remoteCommit: string
@@ -22,10 +24,14 @@ export type InstalledPackageObservation = {
   fixtureSensitiveEnvironmentKeys: readonly string[]
   lifecycleScriptLedger: readonly string[]
   installedBytesSha256: `sha256:${string}`
-  rootRuntimeExports: readonly string[]
   outsideRepository: boolean
   fixtureRemoved: boolean
   qualificationRuntimeTargetPerturbationRefused: boolean
+  admittedExecutionOrder: typeof installedFoundation.installedPackage.admittedExecutionOrder
+  admissionRefusalControl: typeof installedFoundation.installedPackage.admissionRefusalControl
+  publicSurfacePerturbationControl: typeof installedFoundation.installedPackage.publicSurfacePerturbationControl
+  qualificationInputBindings: typeof installedFoundation.installedPackage.qualificationInputBindings
+  processTimeoutControl: typeof installedFoundation.installedPackage.processTimeoutControl
 }
 
 const admissionDurableBytes = new TextEncoder().encode("clean-fixture:unchanged\n")
@@ -37,7 +43,6 @@ export const installedPublicQualification = installedFoundation.publicQualificat
 export const installedPackage: InstalledPackageObservation = installedFoundation.installedPackage
 
 export async function invokeMaintenanceProcess(argv: readonly string[]) {
-  if (installedAdmission.kind !== "admitted") return undefined
   return installedProcessObservationFor(argv)
 }
 

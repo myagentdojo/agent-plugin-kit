@@ -24,7 +24,9 @@ import {
 } from "../fixtures/maintenance-cli-process-scenarios"
 import {
   expectedBranchStationSourceSha256,
+  expectedDependencyFreeHelpRuntimeTrace,
   expectedRootTypeExports,
+  expectedSubpathRuntimeExports,
   expectedSubpathTypeExports,
 } from "../fixtures/plugin-consumer"
 
@@ -49,6 +51,7 @@ type InstalledPackageObservation = {
   readonly fixtureSensitiveEnvironmentKeys: readonly string[]
   readonly rootTypeExports: readonly string[]
   readonly rootRuntimeExports: readonly string[]
+  readonly subpathRuntimeExports: Readonly<Record<string, readonly string[]>>
   readonly publicSubpaths: readonly string[]
   readonly subpathTypeExports: Readonly<Record<string, readonly string[]>>
   readonly regularFiles: readonly string[]
@@ -57,6 +60,31 @@ type InstalledPackageObservation = {
   readonly outsideRepository: boolean
   readonly fixtureRemoved: boolean
   readonly qualificationRuntimeTargetPerturbationRefused: boolean
+  readonly admittedExecutionOrder: readonly ["admission", "qualification", "maintenance-cli"]
+  readonly admissionRefusalControl: {
+    readonly admission: AdmissionResult
+    readonly startedProcesses: readonly string[]
+  }
+  readonly publicSurfacePerturbationControl: {
+    readonly typeFormsRefused: readonly string[]
+    readonly runtimeSubpathsRefused: readonly string[]
+  }
+  readonly qualificationInputBindings: {
+    readonly provedInstalledPayloadCells: readonly {
+      readonly id: string
+      readonly lineageDigest: `sha256:${string}`
+      readonly receiptDigest: `sha256:${string}`
+    }[]
+    readonly hostedLineageCellIds: readonly string[]
+  }
+  readonly processTimeoutControl: {
+    readonly exitCode: 124
+    readonly timedOut: true
+    readonly descriptorClosure: "closed"
+    readonly cleanup: "process-group-killed"
+    readonly descendantPidObserved: true
+    readonly descendantTerminated: true
+  }
 }
 
 type InstalledMaintenanceCliObservation = {
@@ -64,6 +92,7 @@ type InstalledMaintenanceCliObservation = {
   readonly importedFiles: readonly string[]
   readonly cwd: string
   readonly installedFiles: readonly string[]
+  readonly externalDependencyPerturbationRefused: boolean
   readonly stationMap: {
     readonly declared_branch_coverage: number
     readonly required_station_ids: readonly string[]
@@ -83,23 +112,62 @@ type SpawnResult = {
   readonly exitCode: number
   readonly stdout: string
   readonly stderr: string
+  readonly cleanup: {
+    readonly deadlineMs: number
+    readonly timedOut: boolean
+    readonly descriptorClosure: "closed"
+    readonly cleanup: "natural" | "process-group-killed"
+  }
 }
 
-function spawn(command: readonly string[], options: {
+const defaultProcessDeadlineMs = 30_000
+
+async function spawn(command: readonly string[], options: {
   readonly cwd: string
   readonly env?: Readonly<Record<string, string | undefined>>
-}): SpawnResult {
-  const result = Bun.spawnSync([...command], {
+  readonly deadlineMs?: number
+}): Promise<SpawnResult> {
+  const deadlineMs = options.deadlineMs ?? defaultProcessDeadlineMs
+  const child = Bun.spawn([...command], {
     cwd: options.cwd,
     ...(options.env === undefined ? {} : { env: options.env }),
+    detached: true,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
   })
+  const stdout = new Response(child.stdout).text()
+  const stderr = new Response(child.stderr).text()
+  let timedOut = false
+  let deadlineHandle: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<void>((resolveDeadline) => {
+    deadlineHandle = setTimeout(() => {
+      timedOut = true
+      try {
+        process.kill(-child.pid, "SIGKILL")
+      } catch {
+        child.kill("SIGKILL")
+      }
+      resolveDeadline()
+    }, deadlineMs)
+  })
+  await Promise.race([child.exited.then(() => undefined), deadline])
+  const [exitCode, capturedStdout, capturedStderr] = await Promise.all([
+    child.exited,
+    stdout,
+    stderr,
+  ])
+  if (deadlineHandle !== undefined) clearTimeout(deadlineHandle)
   return {
-    exitCode: result.exitCode,
-    stdout: result.stdout.toString(),
-    stderr: result.stderr.toString(),
+    exitCode: timedOut ? 124 : exitCode,
+    stdout: capturedStdout,
+    stderr: capturedStderr,
+    cleanup: {
+      deadlineMs,
+      timedOut,
+      descriptorClosure: "closed",
+      cleanup: timedOut ? "process-group-killed" : "natural",
+    },
   }
 }
 
@@ -150,6 +218,16 @@ function exportTarget(value: unknown): string {
   throw new Error("installed package export has no supported type target")
 }
 
+function runtimeExportTarget(value: unknown): string {
+  if (typeof value === "string") return value
+  if (value !== null && typeof value === "object") {
+    const conditions = value as Record<string, unknown>
+    const selected = conditions.import ?? conditions.default
+    if (typeof selected === "string") return selected
+  }
+  throw new Error("installed package export has no supported runtime target")
+}
+
 function namesFromExportList(body: string): string[] {
   return body
     .split(",")
@@ -163,9 +241,10 @@ function exportedTypeNames(source: string): string[] {
     if (!names.includes(name)) names.push(name)
   }
 
-  for (const match of source.matchAll(/^export\s+type\s*\{([\s\S]*?)\}(?:\s*from\s*["'][^"']+["'])?/gmu)) {
+  for (const match of source.matchAll(/^export\s+(?:type\s+)?\{([\s\S]*?)\}(?:\s*from\s*["'][^"']+["'])?/gmu)) {
     for (const name of namesFromExportList(match[1] ?? "")) append(name)
   }
+  if (/^export\s+(?:type\s+)?\*/mu.test(source)) append("*")
   for (const match of source.matchAll(/^export\s+(?:declare\s+)?(?:interface|type|class|enum|namespace)\s+([A-Za-z_$][\w$]*)/gmu)) {
     if (match[1] !== undefined) append(match[1])
   }
@@ -191,10 +270,10 @@ function typeImport(specifier: string, names: readonly string[], prefix: string)
   return `import type { ${bindings} } from ${JSON.stringify(specifier)}`
 }
 
-function observePublicTypeResolution(
+async function observePublicTypeResolution(
   consumerRoot: string,
   environment: Readonly<Record<string, string>>,
-): ProcessObservation {
+): Promise<ProcessObservation> {
   const sourcePath = join(consumerRoot, "public-type-resolution.ts")
   const source = [
     typeImport(packageName, expectedRootTypeExports, "Root"),
@@ -227,7 +306,7 @@ function observePublicTypeResolution(
     files: ["./public-type-resolution.ts"],
   }, null, 2)}\n`, { mode: 0o600 })
 
-  const result = spawn([
+  const result = await spawn([
     join(repositoryRoot, "node_modules/.bin/tsc"),
     "-p",
     configPath,
@@ -236,7 +315,7 @@ function observePublicTypeResolution(
     "false",
   ], { cwd: consumerRoot, env: environment })
   requireSuccess("installed public type resolution", result)
-  return result
+  return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr }
 }
 
 function candidateAtCommit(commit: string) {
@@ -307,28 +386,47 @@ function writeConsumerFiles(consumerRoot: string, remoteRoot: string, commit: st
   )
 }
 
-function writePublicProbe(
-  consumerRoot: string,
-  commit: string,
-  publicSubpaths: readonly string[],
-): string {
-  const request = candidateAtCommit(commit)
-  const candidate = request.candidate
+function projectProfileCell(
+  cell: ReturnType<typeof personalProfileCells>[number],
+  candidate: ReturnType<typeof candidateAtCommit>["candidate"],
+  installedBytesSha256: `sha256:${string}`,
+) {
   const candidateIdentitySha256 = independentCandidateIdentityDigest(candidate)
-  const projectCell = (cell: ReturnType<typeof personalProfileCells>[number]) => ({
+  const installedPayload = cell.assertedStatus === "proved" && cell.claim === "plugin-payload.installed"
+  return {
     ...cell,
     candidate,
     lineage: {
-      ...cell.lineage,
       candidateIdentitySha256,
       source: candidate.source,
       release: candidate.release,
       package: candidate.package,
       workflow: candidate.workflow,
+      ...(installedPayload ? { installedPayloadSha256: installedBytesSha256 } : {}),
+      ...(cell.assertedStatus !== "unknown" && cell.claim === "runtime.supported-platform"
+        ? { platform: { os: "darwin", arch: "arm64" } }
+        : {}),
     },
-    receipt: cell.receipt === null ? null : { ...cell.receipt, candidateIdentitySha256 },
-  })
-  const inputPath = join(consumerRoot, "public-probe-input.json")
+    receipt: cell.receipt === null
+      ? null
+      : {
+          ...cell.receipt,
+          candidateIdentitySha256,
+          digest: installedPayload ? installedBytesSha256 : cell.receipt.digest,
+        },
+  }
+}
+
+function writeProbeInput(
+  consumerRoot: string,
+  name: string,
+  request: ReturnType<typeof candidateAtCommit>,
+  installedBytesSha256: `sha256:${string}`,
+): string {
+  const candidate = request.candidate
+  const projectCell = (cell: ReturnType<typeof personalProfileCells>[number]) =>
+    projectProfileCell(cell, candidate, installedBytesSha256)
+  const inputPath = join(consumerRoot, `${name}-input.json`)
   writeFileSync(inputPath, `${JSON.stringify({
     request,
     candidate,
@@ -336,23 +434,80 @@ function writePublicProbe(
     publicCells: publicProfileCells().map(projectCell),
   })}\n`, { mode: 0o600 })
 
-  const probePath = join(consumerRoot, "public-probe.ts")
+  return inputPath
+}
+
+function observeQualificationInputBindings(
+  inputPath: string,
+): InstalledPackageObservation["qualificationInputBindings"] {
+  const input = JSON.parse(readFileSync(inputPath, "utf8")) as {
+    personalCells: Array<{
+      id: string
+      assertedStatus: string
+      claim: string
+      lineage: { installedPayloadSha256?: `sha256:${string}`; hostedRun?: unknown }
+      receipt: { digest: `sha256:${string}` } | null
+    }>
+    publicCells: Array<{
+      id: string
+      assertedStatus: string
+      claim: string
+      lineage: { installedPayloadSha256?: `sha256:${string}`; hostedRun?: unknown }
+      receipt: { digest: `sha256:${string}` } | null
+    }>
+  }
+  const cells = [...input.personalCells, ...input.publicCells]
+  const provedInstalledPayloadCells = cells
+    .filter((cell) => cell.assertedStatus === "proved" && cell.claim === "plugin-payload.installed")
+    .map((cell) => {
+      if (cell.lineage.installedPayloadSha256 === undefined || cell.receipt === null) {
+        throw new Error("proved installed-payload evidence is not bound to installed bytes")
+      }
+      return {
+        id: cell.id,
+        lineageDigest: cell.lineage.installedPayloadSha256,
+        receiptDigest: cell.receipt.digest,
+      }
+    })
+  return {
+    provedInstalledPayloadCells,
+    hostedLineageCellIds: cells
+      .filter((cell) => cell.lineage.hostedRun !== undefined)
+      .map((cell) => cell.id),
+  }
+}
+
+function writeAdmissionProbe(consumerRoot: string): string {
+  const probePath = join(consumerRoot, "admission-probe.ts")
+  writeFileSync(
+    probePath,
+    `import { admissionBootstrap } from ${JSON.stringify(`${packageName}/admission-bootstrap`)}\n` +
+      `const input = await Bun.file(process.argv[2]).json()\n` +
+      `console.log(JSON.stringify(admissionBootstrap.admit(input.request)))\n`,
+    { mode: 0o600 },
+  )
+  return probePath
+}
+
+function writeQualificationProbe(
+  consumerRoot: string,
+  publicSubpaths: readonly string[],
+): string {
+  const probePath = join(consumerRoot, "qualification-probe.ts")
   writeFileSync(
     probePath,
     `import * as root from ${JSON.stringify(packageName)}\n` +
-      `import { admissionBootstrap } from ${JSON.stringify(`${packageName}/admission-bootstrap`)}\n` +
       `import * as qualificationRuntime from ${JSON.stringify(`${packageName}/qualification-evidence`)}\n` +
-      `const input = await Bun.file(${JSON.stringify(inputPath)}).json()\n` +
+      `const input = await Bun.file(process.argv[2]).json()\n` +
       `const runtimeExports = {}\n` +
       `for (const subpath of ${JSON.stringify(publicSubpaths)}) {\n` +
       `  const specifier = subpath === "." ? ${JSON.stringify(packageName)} : ${JSON.stringify(packageName)} + subpath.slice(1)\n` +
       `  runtimeExports[subpath] = Object.keys(await import(specifier)).sort()\n` +
       `}\n` +
       `if (typeof qualificationRuntime.qualificationEvidence?.reduce !== "function") throw new Error("qualification reducer unavailable")\n` +
-      `const admission = admissionBootstrap.admit(input.request)\n` +
       `const personalQualification = qualificationRuntime.qualificationEvidence.reduce({ candidate: input.candidate, profile: qualificationRuntime.VerificationProfile.personal, cells: input.personalCells })\n` +
       `const publicQualification = qualificationRuntime.qualificationEvidence.reduce({ candidate: input.candidate, profile: qualificationRuntime.VerificationProfile.public, cells: input.publicCells })\n` +
-      `console.log(JSON.stringify({ rootRuntimeExports: Object.keys(root).sort(), runtimeExports, admission, personalQualification, publicQualification }))\n`,
+      `console.log(JSON.stringify({ rootRuntimeExports: Object.keys(root).sort(), runtimeExports, personalQualification, publicQualification }))\n`,
     { mode: 0o600 },
   )
   return probePath
@@ -395,18 +550,27 @@ function isolatedEnvironment(
   return environment
 }
 
-function writeRuntimeTracePreload(observerRoot: string, packageRoot: string, tracePath: string): string {
+function writeRuntimeTracePreload(
+  observerRoot: string,
+  packageRoot: string,
+  consumerRoot: string,
+  tracePath: string,
+): string {
   const preload = join(observerRoot, "runtime-trace-preload.ts")
   writeFileSync(
     preload,
     `import { appendFileSync, realpathSync } from "node:fs"\n` +
       `import { relative } from "node:path"\n` +
       `const packageRoot = ${JSON.stringify(packageRoot)}\n` +
+      `const consumerRoot = ${JSON.stringify(consumerRoot)}\n` +
       `const tracePath = ${JSON.stringify(tracePath)}\n` +
-      `const record = (path) => { const resolved = realpathSync(path); if (resolved.startsWith(packageRoot + "/")) appendFileSync(tracePath, relative(packageRoot, resolved) + "\\n") }\n` +
+      `const externalPackage = (path) => { const marker = "/node_modules/"; const index = path.lastIndexOf(marker); if (index < 0) return undefined; const parts = path.slice(index + marker.length).split("/"); return parts[0]?.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0] }\n` +
+      `const append = (identity) => appendFileSync(tracePath, identity + "\\n")\n` +
+      `const record = (path) => { const resolved = realpathSync(path); if (resolved.startsWith(packageRoot + "/")) append(relative(packageRoot, resolved)); else { const packageName = externalPackage(resolved); if (packageName) append("external:" + packageName) } }\n` +
+      `const recordBare = (specifier) => { if (specifier.startsWith("node:") || specifier.startsWith("bun:")) return; const parts = specifier.split("/"); const packageName = specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]; if (packageName && packageName !== ${JSON.stringify(packageName)}) append("external:" + packageName) }\n` +
       `record(process.argv[1])\n` +
       `const loaderFor = (path) => path.endsWith(".tsx") ? "tsx" : path.endsWith(".jsx") ? "jsx" : path.endsWith(".js") || path.endsWith(".mjs") || path.endsWith(".cjs") ? "js" : "ts"\n` +
-      `Bun.plugin({ name: "clean-fixture-runtime-trace", setup(builder) { builder.onLoad({ filter: /\\.[cm]?[jt]sx?$/ }, async ({ path }) => { record(path); return { contents: await Bun.file(path).text(), loader: loaderFor(path) } }) } })\n`,
+      `Bun.plugin({ name: "clean-fixture-runtime-trace", setup(builder) { builder.onResolve({ filter: /^[^./]/ }, ({ path }) => { recordBare(path); return undefined }); builder.onLoad({ filter: /\\.[cm]?[jt]sx?$/ }, async ({ path }) => { record(path); return { contents: await Bun.file(path).text(), loader: loaderFor(path) } }) } })\n`,
     { mode: 0o600 },
   )
   return preload
@@ -434,26 +598,29 @@ function observeStationMap(packageRoot: string): InstalledMaintenanceCliObservat
   }
 }
 
-function observeCli(
+async function observeCli(
   consumerRoot: string,
   observerRoot: string,
   packageRoot: string,
   foreignCwd: string,
   environment: Readonly<Record<string, string>>,
-): InstalledMaintenanceCliObservation {
+): Promise<Omit<InstalledMaintenanceCliObservation, "externalDependencyPerturbationRefused">> {
+  mkdirSync(observerRoot, { recursive: true, mode: 0o700 })
   const tracePath = join(observerRoot, "runtime-load-trace.txt")
-  const preload = writeRuntimeTracePreload(observerRoot, packageRoot, tracePath)
+  const preload = writeRuntimeTracePreload(observerRoot, packageRoot, consumerRoot, tracePath)
   const binary = join(consumerRoot, "node_modules/.bin/agent-plugin-kit")
   if (!existsSync(binary)) throw new Error("installed root binary is absent")
   const executableMode = statSync(realpathSync(binary)).mode & 0o777
   if ((executableMode & 0o111) === 0) throw new Error("installed root binary is not executable")
 
-  const observations = cleanFixtureHelpScenarios.map((scenario) =>
-    spawn(["bun", "--no-install", "--preload", preload, binary, ...scenario.argv], {
+  const observations: ProcessObservation[] = []
+  for (const scenario of cleanFixtureHelpScenarios) {
+    const result = await spawn(["bun", "--no-install", "--preload", preload, binary, ...scenario.argv], {
       cwd: foreignCwd,
       env: { ...environment, ...("environment" in scenario ? scenario.environment : {}) },
     })
-  )
+    observations.push({ exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr })
+  }
   const importedFiles = existsSync(tracePath)
     ? [...new Set(readFileSync(tracePath, "utf8").split("\n").filter(Boolean))].sort()
     : []
@@ -466,12 +633,13 @@ function observeCli(
   }
 }
 
-function qualificationPerturbationIsRefused(
+async function qualificationPerturbationIsRefused(
   consumerRoot: string,
   packageRoot: string,
   probePath: string,
+  probeInputPath: string,
   environment: Readonly<Record<string, string>>,
-): boolean {
+): Promise<boolean> {
   const manifestPath = join(packageRoot, "package.json")
   const original = readFileSync(manifestPath, "utf8")
   const manifest = JSON.parse(original) as { exports: Record<string, unknown> }
@@ -486,7 +654,7 @@ function qualificationPerturbationIsRefused(
   }
   try {
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 })
-    const result = spawn(["bun", "--no-install", probePath], {
+    const result = await spawn(["bun", "--no-install", probePath, probeInputPath], {
       cwd: consumerRoot,
       env: environment,
     })
@@ -496,7 +664,151 @@ function qualificationPerturbationIsRefused(
   }
 }
 
-function observeInstalledFoundation(): InstalledFoundationObservation {
+function typeCatalogMatchesExpected(catalog: ReturnType<typeof installedTypeCatalog>): boolean {
+  return JSON.stringify(catalog.rootTypeExports) === JSON.stringify(expectedRootTypeExports) &&
+    JSON.stringify(catalog.subpathTypeExports) === JSON.stringify(expectedSubpathTypeExports)
+}
+
+async function observeRuntimeExportKeys(
+  consumerRoot: string,
+  specifier: string,
+  environment: Readonly<Record<string, string>>,
+): Promise<readonly string[]> {
+  const probePath = join(consumerRoot, "runtime-export-probe.ts")
+  writeFileSync(
+    probePath,
+    `console.log(JSON.stringify(Object.keys(await import(process.argv[2])).sort()))\n`,
+    { mode: 0o600 },
+  )
+  return readJsonOutput<readonly string[]>(
+    `runtime export observation for ${specifier}`,
+    await spawn(["bun", "--no-install", probePath, specifier], { cwd: consumerRoot, env: environment }),
+  )
+}
+
+async function provePublicSurfacePerturbations(
+  consumerRoot: string,
+  packageRoot: string,
+  exportsMap: Readonly<Record<string, unknown>>,
+  environment: Readonly<Record<string, string>>,
+): Promise<InstalledPackageObservation["publicSurfacePerturbationControl"]> {
+  const typeSubpath = "./runtime-custody"
+  const typeTarget = join(packageRoot, exportTarget(exportsMap[typeSubpath]).replace(/^\.\//u, ""))
+  const originalTypeTarget = readFileSync(typeTarget, "utf8")
+  const wildcardTarget = join(packageRoot, "src/modules/runtime-custody/clean-fixture-extra-types.ts")
+  const typeForms = [
+    ["direct", "\nexport type CleanFixtureUnexpected = string\n"],
+    ["named-type", "\ntype CleanFixtureUnexpected = string\nexport { type CleanFixtureUnexpected }\n"],
+    ["wildcard", "\nexport type * from \"./clean-fixture-extra-types.ts\"\n"],
+  ] as const
+  const typeFormsRefused: string[] = []
+  try {
+    writeFileSync(wildcardTarget, "export type CleanFixtureUnexpected = string\n", { mode: 0o600 })
+    for (const [label, source] of typeForms) {
+      writeFileSync(typeTarget, `${originalTypeTarget}${source}`, { mode: 0o600 })
+      if (!typeCatalogMatchesExpected(installedTypeCatalog(packageRoot, exportsMap))) {
+        typeFormsRefused.push(label)
+      }
+    }
+  } finally {
+    writeFileSync(typeTarget, originalTypeTarget, { mode: 0o600 })
+    rmSync(wildcardTarget, { force: true })
+  }
+
+  const runtimeSubpathsRefused: string[] = []
+  for (const [subpath, exportValue] of Object.entries(exportsMap)) {
+    const target = join(packageRoot, runtimeExportTarget(exportValue).replace(/^\.\//u, ""))
+    const original = readFileSync(target, "utf8")
+    try {
+      writeFileSync(target, `${original}\nexport const cleanFixtureUnexpectedRuntime = true\n`, { mode: 0o600 })
+      const specifier = subpath === "." ? packageName : `${packageName}${subpath.slice(1)}`
+      const observed = await observeRuntimeExportKeys(consumerRoot, specifier, environment)
+      const expected = expectedSubpathRuntimeExports[subpath]
+      if (expected === undefined) throw new Error(`missing expected runtime catalog for ${subpath}`)
+      if (JSON.stringify(observed) !== JSON.stringify(expected)) runtimeSubpathsRefused.push(subpath)
+    } finally {
+      writeFileSync(target, original, { mode: 0o600 })
+    }
+  }
+  return { typeFormsRefused, runtimeSubpathsRefused }
+}
+
+async function proveExternalRuntimePerturbation(
+  consumerRoot: string,
+  observerRoot: string,
+  packageRoot: string,
+  foreignCwd: string,
+  environment: Readonly<Record<string, string>>,
+): Promise<boolean> {
+  const dependencyRoot = join(consumerRoot, "node_modules", "clean-fixture-foreign-dependency")
+  const target = join(packageRoot, "src/adapters/maintenance-command-facade/maintenance.ts")
+  const original = readFileSync(target, "utf8")
+  mkdirSync(dependencyRoot, { recursive: true, mode: 0o700 })
+  writeFileSync(join(dependencyRoot, "package.json"), `${JSON.stringify({
+    name: "clean-fixture-foreign-dependency",
+    type: "module",
+    exports: "./index.ts",
+  })}\n`, { mode: 0o600 })
+  writeFileSync(join(dependencyRoot, "index.ts"), "export const marker = true\n", { mode: 0o600 })
+  try {
+    writeFileSync(target, `${original}\nimport \"clean-fixture-foreign-dependency\"\n`, { mode: 0o600 })
+    const observation = await observeCli(
+      consumerRoot,
+      join(observerRoot, "external-perturbation"),
+      packageRoot,
+      foreignCwd,
+      environment,
+    )
+    return observation.importedFiles.includes("external:clean-fixture-foreign-dependency") &&
+      JSON.stringify(observation.importedFiles) !== JSON.stringify(expectedDependencyFreeHelpRuntimeTrace)
+  } finally {
+    writeFileSync(target, original, { mode: 0o600 })
+    rmSync(dependencyRoot, { recursive: true, force: true })
+  }
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function proveTimeoutCleanup(
+  fixtureRoot: string,
+  environment: Readonly<Record<string, string>>,
+): Promise<InstalledPackageObservation["processTimeoutControl"]> {
+  const childPidPath = join(fixtureRoot, "timeout-descendant.pid")
+  const script = [
+    `const child = Bun.spawn([\"/bin/sleep\", \"30\"], { stdout: \"inherit\", stderr: \"inherit\" })`,
+    `await Bun.write(${JSON.stringify(childPidPath)}, String(child.pid))`,
+    "await new Promise(() => undefined)",
+  ].join("\n")
+  const result = await spawn([process.execPath, "-e", script], {
+    cwd: fixtureRoot,
+    env: environment,
+    deadlineMs: 150,
+  })
+  const descendantPid = Number(readFileSync(childPidPath, "utf8"))
+  for (let attempt = 0; attempt < 50 && processExists(descendantPid); attempt += 1) {
+    await Bun.sleep(10)
+  }
+  if (result.exitCode !== 124 || !result.cleanup.timedOut || processExists(descendantPid)) {
+    throw new Error("bounded process timeout did not terminate its process tree")
+  }
+  return {
+    exitCode: 124,
+    timedOut: true,
+    descriptorClosure: result.cleanup.descriptorClosure,
+    cleanup: "process-group-killed",
+    descendantPidObserved: true,
+    descendantTerminated: true,
+  }
+}
+
+async function observeInstalledFoundation(): Promise<InstalledFoundationObservation> {
   const fixtureRoot = mkdtempSync(join(tmpdir(), "agent-plugin-kit-clean-fixture-"))
   const remoteRoot = join(fixtureRoot, "agent-plugin-kit.git")
   const consumerRoot = join(fixtureRoot, "consumer")
@@ -518,27 +830,27 @@ function observeInstalledFoundation(): InstalledFoundationObservation {
   try {
     const sourceCommit = requireSuccess(
       "source Git commit observation",
-      spawn(["git", "rev-parse", "HEAD^{commit}"], { cwd: repositoryRoot, env: environment }),
+      await spawn(["git", "rev-parse", "HEAD^{commit}"], { cwd: repositoryRoot, env: environment }),
     )
     if (!fullCommitPattern.test(sourceCommit)) throw new Error("source Git did not return one Full Commit Pin")
     requireSuccess(
       "temporary bare Git remote creation",
-      spawn(["git", "clone", "--bare", "--quiet", repositoryRoot, remoteRoot], { cwd: fixtureRoot, env: environment }),
+      await spawn(["git", "clone", "--bare", "--quiet", repositoryRoot, remoteRoot], { cwd: fixtureRoot, env: environment }),
     )
     const remoteCommit = requireSuccess(
       "temporary bare Git remote commit observation",
-      spawn(["git", `--git-dir=${remoteRoot}`, "rev-parse", `${sourceCommit}^{commit}`], { cwd: fixtureRoot, env: environment }),
+      await spawn(["git", `--git-dir=${remoteRoot}`, "rev-parse", `${sourceCommit}^{commit}`], { cwd: fixtureRoot, env: environment }),
     )
     writeConsumerFiles(consumerRoot, remoteRoot, sourceCommit)
 
     const gitDependency = `git+file://${remoteRoot}#${sourceCommit}`
-    const lockCreation = spawn(["bun", "add", "--ignore-scripts", "--exact", "--backend=copyfile", gitDependency], {
+    const lockCreation = await spawn(["bun", "add", "--ignore-scripts", "--exact", "--backend=copyfile", gitDependency], {
       cwd: consumerRoot,
       env: environment,
     })
     requireSuccess("Clean Fixture lock creation", lockCreation)
     rmSync(join(consumerRoot, "node_modules"), { recursive: true, force: true })
-    const frozenInstall = spawn(["bun", "install", "--ignore-scripts", "--production", "--frozen-lockfile", "--backend=copyfile"], {
+    const frozenInstall = await spawn(["bun", "install", "--ignore-scripts", "--production", "--frozen-lockfile", "--backend=copyfile"], {
       cwd: consumerRoot,
       env: environment,
     })
@@ -562,33 +874,105 @@ function observeInstalledFoundation(): InstalledFoundationObservation {
       exports: Record<string, unknown>
     }
     const publicSubpaths = Object.keys(installedManifest.exports)
-    const publicTypeResolution = observePublicTypeResolution(consumerRoot, environment)
+    const publicTypeResolution = await observePublicTypeResolution(consumerRoot, environment)
     const typeCatalog = installedTypeCatalog(packageRoot, installedManifest.exports)
-    const probePath = writePublicProbe(consumerRoot, sourceCommit, publicSubpaths)
-    const publicProbe = readJsonOutput<{
+    const regularFiles = installedProductionFiles(packageRoot)
+    const installedBytesSha256 = installedFilesDigest(packageRoot, regularFiles)
+    const request = candidateAtCommit(sourceCommit)
+    const mainInputPath = writeProbeInput(consumerRoot, "admitted", request, installedBytesSha256)
+    const qualificationInputBindings = observeQualificationInputBindings(mainInputPath)
+    const admissionProbePath = writeAdmissionProbe(consumerRoot)
+    const qualificationProbePath = writeQualificationProbe(consumerRoot, publicSubpaths)
+    const admittedExecutionOrder: string[] = ["admission"]
+    const admission = readJsonOutput<AdmissionResult>(
+      "installed public Admission probe",
+      await spawn(["bun", "--no-install", admissionProbePath, mainInputPath], {
+        cwd: consumerRoot,
+        env: environment,
+      }),
+    )
+    if (admission.kind !== "admitted") {
+      throw new Error(`installed Candidate was refused before downstream execution: ${JSON.stringify(admission)}`)
+    }
+    admittedExecutionOrder.push("qualification")
+    const qualificationProbe = readJsonOutput<{
       rootRuntimeExports: readonly string[]
       runtimeExports: Readonly<Record<string, readonly string[]>>
-      admission: AdmissionResult
       personalQualification: QualificationOutcome
       publicQualification: QualificationOutcome
     }>(
-      "installed public package probe",
-      spawn(["bun", "--no-install", probePath], { cwd: consumerRoot, env: environment }),
+      "installed public Qualification probe",
+      await spawn(["bun", "--no-install", qualificationProbePath, mainInputPath], {
+        cwd: consumerRoot,
+        env: environment,
+      }),
     )
-    const regularFiles = installedProductionFiles(packageRoot)
-    const installedMaintenanceCli = observeCli(
+    admittedExecutionOrder.push("maintenance-cli")
+    const installedMaintenanceCliBase = await observeCli(
       consumerRoot,
       observerRoot,
       packageRoot,
       foreignCwd,
       environment,
     )
-    const qualificationRuntimeTargetPerturbationRefused = qualificationPerturbationIsRefused(
+    const externalDependencyPerturbationRefused = await proveExternalRuntimePerturbation(
       consumerRoot,
+      observerRoot,
       packageRoot,
-      probePath,
+      foreignCwd,
       environment,
     )
+    const installedMaintenanceCli = {
+      ...installedMaintenanceCliBase,
+      externalDependencyPerturbationRefused,
+    }
+    const qualificationRuntimeTargetPerturbationRefused = await qualificationPerturbationIsRefused(
+      consumerRoot,
+      packageRoot,
+      qualificationProbePath,
+      mainInputPath,
+      environment,
+    )
+    const mismatchedRequest = {
+      ...request,
+      package: { ...request.package, commit: "cccccccccccccccccccccccccccccccccccccccc" },
+    }
+    const refusedInputPath = writeProbeInput(
+      consumerRoot,
+      "refused",
+      mismatchedRequest,
+      installedBytesSha256,
+    )
+    const startedProcesses = ["admission"]
+    const refusedAdmission = readJsonOutput<AdmissionResult>(
+      "mismatched installed public Admission probe",
+      await spawn(["bun", "--no-install", admissionProbePath, refusedInputPath], {
+        cwd: consumerRoot,
+        env: environment,
+      }),
+    )
+    if (refusedAdmission.kind === "admitted") {
+      startedProcesses.push("qualification")
+      await spawn(["bun", "--no-install", qualificationProbePath, refusedInputPath], {
+        cwd: consumerRoot,
+        env: environment,
+      })
+      startedProcesses.push("maintenance-cli")
+      await observeCli(
+        consumerRoot,
+        join(observerRoot, "refused-candidate"),
+        packageRoot,
+        foreignCwd,
+        environment,
+      )
+    }
+    const publicSurfacePerturbationControl = await provePublicSurfacePerturbations(
+      consumerRoot,
+      packageRoot,
+      installedManifest.exports,
+      environment,
+    )
+    const processTimeoutControl = await proveTimeoutCleanup(fixtureRoot, environment)
 
     observation = {
       sourceCommit,
@@ -601,19 +985,28 @@ function observeInstalledFoundation(): InstalledFoundationObservation {
         .filter((key) => /auth|token|secret|credential|password|npm_/iu.test(key))
         .sort(),
       ...typeCatalog,
-      rootRuntimeExports: publicProbe.rootRuntimeExports,
+      rootRuntimeExports: qualificationProbe.rootRuntimeExports,
+      subpathRuntimeExports: qualificationProbe.runtimeExports,
       publicSubpaths,
       regularFiles,
       lifecycleScriptLedger: existsSync(lifecycleLedgerPath)
         ? readFileSync(lifecycleLedgerPath, "utf8").split("\n").filter(Boolean)
         : [],
-      installedBytesSha256: installedFilesDigest(packageRoot, regularFiles),
+      installedBytesSha256,
       outsideRepository: relative(repositoryRoot, fixtureRoot).startsWith(".."),
       qualificationRuntimeTargetPerturbationRefused,
+      admittedExecutionOrder: admittedExecutionOrder as ["admission", "qualification", "maintenance-cli"],
+      admissionRefusalControl: {
+        admission: refusedAdmission,
+        startedProcesses,
+      },
+      publicSurfacePerturbationControl,
+      qualificationInputBindings,
+      processTimeoutControl,
       installedMaintenanceCli,
-      admission: publicProbe.admission,
-      personalQualification: publicProbe.personalQualification,
-      publicQualification: publicProbe.publicQualification,
+      admission,
+      personalQualification: qualificationProbe.personalQualification,
+      publicQualification: qualificationProbe.publicQualification,
     }
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true })
@@ -638,7 +1031,7 @@ function observeInstalledFoundation(): InstalledFoundationObservation {
   }
 }
 
-export const installedFoundation = Object.freeze(observeInstalledFoundation())
+export const installedFoundation = Object.freeze(await observeInstalledFoundation())
 
 export function installedProcessObservationFor(argv: readonly string[]): ProcessObservation | undefined {
   const index = cleanFixtureHelpScenarios.findIndex((scenario) =>
