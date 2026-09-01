@@ -318,7 +318,9 @@ const assignmentValueRangeAt = (
   value: string,
   separator: number,
 ): SecretAssignmentRange | undefined => {
-  const valueStart = afterWhitespace(value, separator + 1)
+  const rawValueStart = separator + 1
+  const valueStart = afterWhitespace(value, rawValueStart)
+  if (valueStart > rawValueStart && value.startsWith("| ", valueStart)) return undefined
   const quote = value[valueStart]
   if (quote === undefined) return undefined
   const valueEnd = quote === '"' || quote === "'"
