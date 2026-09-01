@@ -26,6 +26,7 @@ root context insufficient.
 | [`0003-repository-quality-and-verification-transition.md`](../adr/0003-repository-quality-and-verification-transition.md) | Superseded historical transition design. |
 | [`0004-public-serialized-validation-and-logical-record-correlation.md`](../adr/0004-public-serialized-validation-and-logical-record-correlation.md) | Owner-local Public Serialized Value validation, trusted capability binding, and Logical Record Correlation. |
 | [`0005-simple-repository-quality-ownership.md`](../adr/0005-simple-repository-quality-ownership.md) | Biome, TypeScript, native Fallow, Repository Verification, and Clean Fixture proof ownership. |
+| [`0006-qualification-evidence-public-runtime.md`](../adr/0006-qualification-evidence-public-runtime.md) | Qualification Evidence public reducer ownership and installed-consumer proof. |
 
 ## Accepted structure
 

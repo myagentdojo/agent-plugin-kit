@@ -192,6 +192,8 @@ value, or public Implementation path.
   runtime output remains empty; Admission gains exactly `admissionBootstrap`;
   Qualification Evidence preserves its existing `VerificationProfile`
   sentinel; and every other named subpath preserves its empty runtime output.
+  ADR 0006 amends this runtime-surface rule: Qualification Evidence also
+  exposes its one production reducer through the same public subpath.
 
 ### Nested command validation composition
 
