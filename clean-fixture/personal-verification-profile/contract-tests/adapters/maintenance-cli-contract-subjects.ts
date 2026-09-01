@@ -1,4 +1,5 @@
 import type { ProcessObservation } from "../../../../src/adapters/maintenance-command-facade/interface"
+import { installedFoundation } from "./installed-foundation-contract-subject"
 
 export type InstalledMaintenanceCliObservation = {
   observations: readonly ProcessObservation[]
@@ -23,5 +24,6 @@ export type LocalLinkContractSubject = {
   digestsEqual: boolean
 }
 
-export const installedMaintenanceCliSubject: InstalledMaintenanceCliObservation | undefined = undefined
+export const installedMaintenanceCliSubject: InstalledMaintenanceCliObservation =
+  installedFoundation.installedMaintenanceCli
 export const localLinkContractSubject: LocalLinkContractSubject | undefined = undefined

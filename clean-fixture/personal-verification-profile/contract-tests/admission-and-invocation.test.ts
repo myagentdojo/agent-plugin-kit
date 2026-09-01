@@ -1,15 +1,11 @@
 import { expect, test } from "bun:test"
-import { admissionBootstrap } from "agent-plugin-kit/admission-bootstrap"
 import {
   admissionDurableDigest,
+  installedAdmission,
+  installedPackage,
   invokeMaintenanceProcess,
-  maintenanceCommands,
 } from "./adapters/contract-subjects"
 import { observeAdmissionSourceImport } from "./adapters/admission-source-projection"
-import {
-  admissionInvariantCases,
-  expectedAdmittedIdentity,
-} from "./fixtures/admission-invariant-cases"
 import { literalProcessResult } from "./fixtures/plugin-consumer"
 
 test("public Admission source is dependency-free before maintenance execution", () => {
@@ -19,7 +15,6 @@ test("public Admission source is dependency-free before maintenance execution", 
     bareSpecifierPerturbation === undefined ? undefined : { bareSpecifierPerturbation },
   )
   const before = admissionDurableDigest()
-  const actual = admissionBootstrap?.admit(admissionInvariantCases[0].request)
 
   expect(sourceObservation).toEqual({
     exitCode: 0,
@@ -37,14 +32,22 @@ test("public Admission source is dependency-free before maintenance execution", 
     fixtureRemoved: true,
   })
   expect(admissionDurableDigest()).toBe(before)
-  expect(actual, "contract-absent: the public Admission subpath must admit the fixed candidate").toEqual({ kind: "admitted", identity: expectedAdmittedIdentity })
+  expect(installedAdmission, "contract-absent: the installed public Admission subpath must admit the Git candidate").toMatchObject({
+    kind: "admitted",
+    identity: {
+      source: { commit: installedPackage.resolvedCommit },
+      release: { commit: installedPackage.resolvedCommit },
+      package: { commit: installedPackage.resolvedCommit },
+      workflow: { commit: installedPackage.resolvedCommit },
+    },
+  })
 })
 
 test("public command invocation requires the same Admitted Identity", async () => {
-  const admission = admissionBootstrap?.admit(admissionInvariantCases[0].request)
-  const actual = admission?.kind === "admitted" ? await maintenanceCommands?.inspect({ command: "help" }) : undefined
+  const actual = await invokeMaintenanceProcess(["--run-id", "contract-help-literal", "--help"])
 
-  expect(actual, "contract-absent: a command must run only after public Admission succeeds").toMatchObject({ status: "ok", resultCode: "previewed", stationId: "help.previewed", value: { command: "help" } })
+  expect(installedAdmission.kind).toBe("admitted")
+  expect(actual, "contract-absent: a command must run only after public Admission succeeds").toEqual(literalProcessResult)
 })
 
 test("public command process preserves stdout stderr and exit", async () => {

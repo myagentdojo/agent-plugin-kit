@@ -10,6 +10,8 @@ import {
 
 test("the root package exposes exactly the accepted type catalog", () => {
   expect(Object.keys(packageMetadata.exports).sort()).toEqual([...expectedPublicSubpaths].sort())
+  expect(installedPackage.publicTypeResolution).toEqual({ exitCode: 0, stdout: "", stderr: "" })
+  expect(installedPackage.rootRuntimeExports).toEqual([])
   expect(installedPackage?.rootTypeExports, "contract-absent: installed root type exports must be independently observed").toEqual(expectedRootTypeExports)
 })
 
@@ -22,4 +24,5 @@ test("the Git package exposes exactly nine accepted public subpaths", () => {
 test("Implementation and proof paths remain private in the installed inventory", () => {
   expect(Object.keys(packageMetadata.exports).some((path) => /implementation|contract-tests|fixtures/.test(path))).toBeFalse()
   expect(installedPackage?.regularFiles, "contract-absent: installed bytes must expose only the accepted package inventory").toEqual(expectedInstalledFiles)
+  expect(installedPackage.qualificationRuntimeTargetPerturbationRefused).toBeTrue()
 })
