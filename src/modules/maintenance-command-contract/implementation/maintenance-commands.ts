@@ -343,7 +343,7 @@ const helpAgent = () => ({
     result: 1,
     error: 1,
     hint: 1,
-    diagnostic: 1,
+    diagnostic: 2,
     event: 1,
   },
   global_options: [...globalOptions],

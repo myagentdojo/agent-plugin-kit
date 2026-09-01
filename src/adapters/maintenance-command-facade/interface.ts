@@ -17,12 +17,11 @@ export type DiagnosticMessage =
   | `Diagnostic buffer dropped ${number} oldest record.`
   | `Diagnostic buffer dropped ${number} oldest records.`
 
-export type DiagnosticRecord = Readonly<{
-  schema_version: 1
+export type DiagnosticRecordFields = {
+  schema_version: 2
   record_type: "diagnostic"
   timestamp: string
   sequence: number
-  level: "debug" | "info" | "warning" | "error" | "fatal"
   category: readonly ["agent-plugin-kit", "maintenance"]
   event: string
   run_id: string
@@ -32,10 +31,20 @@ export type DiagnosticRecord = Readonly<{
   result_code?: ResultCode
   transaction_state?: CommandPreview["transactionState"]
   retry_safety?: CommandPreview["retrySafety"]
-  next_action?: CommandPreview["nextAction"]
   dropped_record_count?: number
   message: DiagnosticMessage
-}>
+}
+
+export type DiagnosticRecord = Readonly<DiagnosticRecordFields & (
+  | {
+      level: "debug" | "info" | "warning"
+      next_action?: CommandPreview["nextAction"]
+    }
+  | {
+      level: "error" | "fatal"
+      next_action: CommandPreview["nextAction"]
+    }
+)>
 
 export type EventRecord = Readonly<{
   schema_version: 1

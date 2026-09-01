@@ -23,7 +23,7 @@ const invokeUsageAndExpect = async (
   expect(records, `contract-absent: ${claim} must emit diagnostic JSONL before the primary envelope`).toHaveLength(2)
   const [diagnostic, primary] = records
   expect(diagnostic).toMatchObject({
-    schema_version: 1,
+    schema_version: 2,
     record_type: "diagnostic",
     sequence: 1,
     level: "error",

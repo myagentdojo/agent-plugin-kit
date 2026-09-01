@@ -110,7 +110,8 @@ const nextActionKeys = [
   "retryAfterMs",
   "idempotencyKey",
 ] as const
-const diagnosticLevels = ["debug", "info", "warning", "error", "fatal"] as const
+const contextualDiagnosticLevels = ["debug", "info", "warning"] as const
+const failureDiagnosticLevels = ["error", "fatal"] as const
 const eventOutcomes = ["previewed", "completed", "refused", "failed"] as const
 const safeIdentifierPattern = /^[A-Za-z0-9._:-]{1,160}$/
 const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
@@ -171,12 +172,11 @@ const diagnosticMessageSchema = z.custom<DiagnosticMessage>(
 const isExactCanonicalNextAction = (actual: NextAction, canonical: NextAction): boolean =>
   nextActionKeys.every((key) => actual[key] === canonical[key])
 
-const diagnosticRecordBaseSchema = z.strictObject({
-  schema_version: z.literal(1),
+const diagnosticRecordFieldsSchema = z.strictObject({
+  schema_version: z.literal(2),
   record_type: z.literal("diagnostic"),
   timestamp: timestampSchema,
   sequence: z.number().int().min(1),
-  level: z.enum(diagnosticLevels),
   category: z.tuple([z.literal("agent-plugin-kit"), z.literal("maintenance")]).readonly(),
   event: identifierSchema,
   run_id: runIdSchema,
@@ -186,10 +186,19 @@ const diagnosticRecordBaseSchema = z.strictObject({
   result_code: resultCodeSchema.exactOptional(),
   transaction_state: transactionStateSchema.exactOptional(),
   retry_safety: retrySafetySchema.exactOptional(),
-  next_action: nextActionSchema.exactOptional(),
   dropped_record_count: z.number().int().positive().exactOptional(),
   message: diagnosticMessageSchema,
 })
+const diagnosticRecordBaseSchema = z.union([
+  diagnosticRecordFieldsSchema.extend({
+    level: z.enum(contextualDiagnosticLevels),
+    next_action: nextActionSchema.exactOptional(),
+  }),
+  diagnosticRecordFieldsSchema.extend({
+    level: z.enum(failureDiagnosticLevels),
+    next_action: nextActionSchema,
+  }),
+])
 type DiagnosticRecordCandidate = z.infer<typeof diagnosticRecordBaseSchema>
 
 const canonicalDiagnosticMessageFor = (

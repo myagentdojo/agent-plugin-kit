@@ -323,6 +323,8 @@ const observationForOutcome = (
 }
 
 type DiagnosticNextAction = NonNullable<DiagnosticRecord["next_action"]>
+type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never
+type DiagnosticRecordWithoutSequence = DistributiveOmit<DiagnosticRecord, "sequence">
 
 type OutcomeValueMetadata = {
   transactionState: NonNullable<DiagnosticRecord["transaction_state"]>
@@ -353,33 +355,37 @@ const diagnosticWithoutSequenceFor = (
   level: DiagnosticRecord["level"],
   outcome: Extract<MaintenanceOutcome<unknown>, { status: "error" }>,
   command?: MaintenanceCommand["command"],
-): Omit<DiagnosticRecord, "sequence"> => ({
-  schema_version: 1,
-  record_type: "diagnostic",
-  timestamp,
-  level,
-  category: ["agent-plugin-kit", "maintenance"],
-  event,
-  run_id: runId,
-  ...(command === undefined ? {} : { command }),
-  station_id: outcome.stationId,
-  failure_class: outcome.error.failureClass,
-  result_code: outcome.resultCode,
-  transaction_state: outcome.error.transactionState,
-  retry_safety: outcome.error.retrySafety,
-  next_action: outcome.error.nextAction,
-  message: diagnosticFailureMessageFor(outcome.resultCode),
-})
+): DiagnosticRecordWithoutSequence => {
+  const fields = {
+    schema_version: 2,
+    record_type: "diagnostic",
+    timestamp,
+    category: ["agent-plugin-kit", "maintenance"] as const,
+    event,
+    run_id: runId,
+    ...(command === undefined ? {} : { command }),
+    station_id: outcome.stationId,
+    failure_class: outcome.error.failureClass,
+    result_code: outcome.resultCode,
+    transaction_state: outcome.error.transactionState,
+    retry_safety: outcome.error.retrySafety,
+    next_action: outcome.error.nextAction,
+    message: diagnosticFailureMessageFor(outcome.resultCode),
+  } as const
+  return level === "error" || level === "fatal"
+    ? { ...fields, level }
+    : { ...fields, level }
+}
 
 const eventFailureDiagnosticFor = (
   timestamp: string,
   runId: string,
   outcome: TrustedMaintenanceOutcome,
   command: MaintenanceCommand["command"],
-): Omit<DiagnosticRecord, "sequence"> => {
+): DiagnosticRecordWithoutSequence => {
   const metadata = outcomeValueMetadata(outcome)
   return {
-    schema_version: 1,
+    schema_version: 2,
     record_type: "diagnostic",
     timestamp,
     level: "error",
@@ -510,7 +516,7 @@ const resolveEvent = async (
 }
 
 type DiagnosticRuntime = {
-  record(record: Omit<DiagnosticRecord, "sequence">): Promise<void>
+  record(record: DiagnosticRecordWithoutSequence): Promise<void>
   dispose(): void
 }
 

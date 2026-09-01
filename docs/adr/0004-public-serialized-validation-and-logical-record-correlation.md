@@ -286,6 +286,9 @@ Two distinct paths exist and this decision keeps them distinct.
 - `@logtape/redaction` is an exact private production dependency of the
   Maintenance Command Facade Adapter. It creates no shared schema owner, root
   dependency, or Admission Bootstrap dependency.
+- Diagnostic schema version `2` records the accepted closed-message,
+  structured drop-count, and required error/fatal Next Action shape. Event
+  schema version remains `1`; the two version owners do not advance together.
 
 ### Machine envelope and version carriers
 

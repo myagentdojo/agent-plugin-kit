@@ -41,39 +41,55 @@ const diagnosticRecord = (
   sequence: number,
   level: DiagnosticRecord["level"],
   event = `fixture.${level}`,
-): DiagnosticRecord => Object.freeze({
-  schema_version: 1,
-  record_type: "diagnostic",
-  timestamp: "2026-08-27T00:00:00.000Z",
-  sequence,
-  level,
-  category: ["agent-plugin-kit", "maintenance"] as const,
-  event,
-  run_id: "contract-help-literal",
-  station_id: "maintenance.usage-refused",
-  failure_class: "usage",
-  result_code: "usage-refused",
-  transaction_state: "unchanged",
-  retry_safety: "safe",
-  ...(level === "error" || level === "fatal"
-    ? {
-        next_action: {
-          id: "maintenance.show-help",
-          action: "change_input" as const,
-          summary: "Choose a command from machine discovery.",
-          commandId: "help" as const,
-        },
-      }
-    : {}),
-  message: 'Maintenance command failed with result code "usage-refused".',
-})
+): DiagnosticRecord => {
+  const fields = {
+    schema_version: 2 as const,
+    record_type: "diagnostic" as const,
+    timestamp: "2026-08-27T00:00:00.000Z",
+    sequence,
+    category: ["agent-plugin-kit", "maintenance"] as const,
+    event,
+    run_id: "contract-help-literal",
+    station_id: "maintenance.usage-refused" as const,
+    failure_class: "usage" as const,
+    result_code: "usage-refused" as const,
+    transaction_state: "unchanged" as const,
+    retry_safety: "safe" as const,
+    message: 'Maintenance command failed with result code "usage-refused".' as const,
+  }
+  if (level !== "error" && level !== "fatal") return Object.freeze({ ...fields, level })
+  return Object.freeze({
+    ...fields,
+    level,
+    next_action: {
+      id: "maintenance.show-help",
+      action: "change_input",
+      summary: "Choose a command from machine discovery.",
+      commandId: "help",
+    } as const,
+  })
+}
 
 const fixedCorrelation: FacadeCorrelationSources = {
   now: () => "2026-08-27T00:00:00.000Z",
   eventId: () => "opaque-event-id",
 }
 
-const withoutNextAction = ({ next_action, ...record }: DiagnosticRecord): DiagnosticRecord => {
+// @ts-expect-error error and fatal diagnostics require one canonical repair action
+const missingCompileTimeRepair: DiagnosticRecord = {
+  schema_version: 2,
+  record_type: "diagnostic",
+  timestamp: "2026-08-27T00:00:00.000Z",
+  sequence: 1,
+  level: "error",
+  category: ["agent-plugin-kit", "maintenance"],
+  event: "fixture.missing-compile-time-repair",
+  run_id: "contract-help-literal",
+  message: 'Maintenance command failed with result code "usage-refused".',
+}
+void missingCompileTimeRepair
+
+const withoutNextAction = ({ next_action, ...record }: DiagnosticRecord): unknown => {
   void next_action
   return record
 }
@@ -498,7 +514,7 @@ test("closed diagnostics fail closed and native field redaction protects the sin
   const missingRepair = diagnosticHarness("debug")
   missingRepair.pipeline.record(withoutNextAction(
     diagnosticRecord(4, "error", "fixture.missing-repair"),
-  ))
+  ) as DiagnosticRecord)
   const forgedEventRepair = diagnosticHarness("debug")
   const eventRepair = {
     ...diagnosticRecord(5, "error", "event.delivery-failed"),
@@ -527,7 +543,7 @@ test("closed diagnostics fail closed and native field redaction protects the sin
       api_key: structuredSecret,
       safe_label: "preserved",
     },
-  } as DiagnosticRecord)
+  } as unknown as DiagnosticRecord)
   native.dispose()
 
   const nativeRecord = JSON.parse(writes[0] ?? "{}") as {
