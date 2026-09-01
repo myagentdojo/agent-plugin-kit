@@ -10,7 +10,7 @@ export type ProcessCleanupReceipt = {
   retainedResources: 0
 }
 
-export async function invokeBoundedProcess(
+async function invokeBoundedProcess(
   command: readonly string[],
   options: {
     cwd: string

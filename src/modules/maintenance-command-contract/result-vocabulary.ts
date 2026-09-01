@@ -95,7 +95,7 @@ const vocabularyExhaustivenessChecks: [
 
 void vocabularyExhaustivenessChecks
 
-export type ExitFamilyId =
+type ExitFamilyId =
   | "accepted-success"
   | "typed-unexpected"
   | "usage-refusal"
@@ -104,7 +104,7 @@ export type ExitFamilyId =
   | "transient-retry"
   | "integrity-or-input-refusal"
 
-export type ResultDescriptor = {
+type ResultDescriptor = {
   resultCode: ResultCode
   exitFamilyId: ExitFamilyId
   exitClass: 0 | 1 | 2 | 20 | 21 | 22 | 23

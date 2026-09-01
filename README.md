@@ -4,11 +4,11 @@ Contracts and maintenance tooling for Agent Plugin repositories, with a
 dependency-free Admission Bootstrap.
 
 The repository currently contains its accepted domain and Repository Topology,
-the Source Tree Interface skeleton, and a mixed GREEN and intentional RED
-Contract Test scaffold. Admission Bootstrap and Qualification Evidence are the
-current Source Tree Implementations. Every other Deep Module Implementation
-remains absent. The Maintenance Command Facade admits only deterministic help
-and usage-refusal behaviour; apply and inspect execution remain absent.
+the Source Tree Interface skeleton, and the complete current-stage Contract
+Test scaffold. Admission Bootstrap and Qualification Evidence are the current
+Source Tree Implementations. Every other Deep Module Implementation remains
+absent. The Maintenance Command Facade admits only deterministic help and
+usage-refusal behaviour; apply and inspect execution remain absent.
 
 ## Start here
 
@@ -45,15 +45,15 @@ native changed-code Fallow, and lifecycle-neutral Repository Verification.
 Product and public-process behaviour remains with ordinary Bun Contract Tests;
 Clean Fixture remains an independent evidence source.
 
-The product RED selector is:
+The product current-stage selector is:
 
 ```sh
-bun run test:intentional-red
+bun run test:current-stage
 ```
 
-It exercises the current product Contract Tests directly. During the partial
-build it intentionally exits non-zero; repository tooling does not parse or
-mirror its counts.
+It exercises the current product Contract Tests directly. It is a complete
+green proof for the accepted current-stage behaviour; repository tooling does
+not parse or mirror its counts.
 
 ## Run one owner's Contract Tests
 

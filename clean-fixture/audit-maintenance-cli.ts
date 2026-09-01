@@ -254,7 +254,7 @@ findings.push({
   surface: "runtime_failed_residual",
   status: "aligned",
   detail:
-    "Non-Claim: intentional RED does not prove runtime-failed residual mapping through a real process.",
+    "Non-Claim: the current-stage proof does not prove runtime-failed residual mapping through a real process.",
 })
 
 const requiredScenarios = [
@@ -330,7 +330,24 @@ const usageDiagnosticsMatch = (stderr: string, expectedPrimary: string): boolean
   const diagnostics = lines.slice(0, 2).map(jsonRecordFor).map(normalizedDiagnosticFor)
   return JSON.stringify(diagnostics) === JSON.stringify(usageDiagnosticExpectations)
 }
-const requiredObservations = requiredScenarios.map((scenario) => {
+
+type RequiredScenario = (typeof requiredScenarios)[number]
+
+const primaryDataFor = (stdout: string, stderr: string): { data?: Record<string, unknown> } => {
+  const primaryLine = (stdout || stderr).split("\n").filter(Boolean).at(-1)
+  const parsedPrimary = jsonRecordFor(primaryLine ?? "")
+  const data = typeof parsedPrimary?.data === "object" && parsedPrimary.data !== null && !Array.isArray(parsedPrimary.data)
+    ? parsedPrimary.data as Record<string, unknown>
+    : undefined
+  return data === undefined ? {} : { data }
+}
+
+const expectedStreamsMatch = (scenario: RequiredScenario, stdout: string, stderr: string): boolean =>
+  scenario.stationId === "maintenance.usage-refused"
+    ? stdout === "" && usageDiagnosticsMatch(stderr, scenario.expected.stderr.trimEnd())
+    : stderr === scenario.expected.stderr
+
+const observeRequiredScenario = (scenario: RequiredScenario) => {
   const result = Bun.spawnSync({
     cmd: [resolve(repositoryRoot, "src/adapters/maintenance-command-facade/maintenance.ts"), ...scenario.argv],
     cwd: repositoryRoot,
@@ -342,17 +359,10 @@ const requiredObservations = requiredScenarios.map((scenario) => {
   })
   const stdout = result.stdout.toString()
   const stderr = result.stderr.toString()
-  const primaryLine = (stdout || stderr).split("\n").filter(Boolean).at(-1)
-  const parsedPrimary = jsonRecordFor(primaryLine ?? "")
-  const data = typeof parsedPrimary?.data === "object" && parsedPrimary.data !== null && !Array.isArray(parsedPrimary.data)
-    ? parsedPrimary.data as Record<string, unknown>
-    : undefined
-  const primary: { data?: Record<string, unknown> } = data === undefined ? {} : { data }
+  const primary = primaryDataFor(stdout, stderr)
   const observed = result.exitCode === scenario.expected.exitCode &&
     stdout === scenario.expected.stdout &&
-    (scenario.stationId === "maintenance.usage-refused"
-      ? stdout === "" && usageDiagnosticsMatch(stderr, scenario.expected.stderr.trimEnd())
-      : stderr === scenario.expected.stderr)
+    expectedStreamsMatch(scenario, stdout, stderr)
   return {
     ...scenario,
     exitCode: result.exitCode,
@@ -363,7 +373,8 @@ const requiredObservations = requiredScenarios.map((scenario) => {
     deadlineMs: publicProcessDeadlineMs,
     timedOut: result.signalCode === "SIGKILL",
   }
-})
+}
+const requiredObservations = requiredScenarios.map(observeRequiredScenario)
 const implementationAbsent = requiredObservations.every(({ exitCode, stderr }) => exitCode === 1 && stderr.includes("implementation-absent"))
 const publicProcessesAligned = requiredObservations.every(({ observed }) => observed)
 findings.push({ surface: "public_process", status: publicProcessesAligned ? "aligned" : "drifted", detail: implementationAbsent ? "implementation-absent" : publicProcessesAligned ? "two-required-stations-observed" : "required-observation-drift" })

@@ -187,38 +187,80 @@ test("foreign cwd fixed help uses an explicit fixed run ID", () => {
     redacted: true,
   })
 })
-test("cleanup ledger pins exactly four public CLI executions", async () => {
+const processCleanupReceiptsAreClean = (
+  receipts: typeof localLinkContractSubject.processCleanupReceipts,
+) => receipts.every((receipt) =>
+  !receipt.timedOut && !receipt.hardSettlementTimedOut && receipt.descriptorClosure === "closed" &&
+  !receipt.descriptorRetainingDescendant && receipt.retainedResources === 0)
+
+const assertCleanupLedgers = () => {
   expect(localLinkCleanupLedger.filter((entry) => entry.startsWith("execute:"))).toHaveLength(4)
   expect(localLinkCleanupLedger.filter((entry) => entry.startsWith("ln:"))).toHaveLength(2)
-  const observations = localLinkContractSubject.observations
+  expect(localLinkContractSubject.cleanupLedger).toEqual(localLinkCleanupLedger)
+}
+
+type ProcessObservation = (typeof localLinkContractSubject.observations)[number]
+type FixedProcessObservations = readonly [
+  ProcessObservation,
+  ProcessObservation,
+  ProcessObservation,
+  ProcessObservation,
+]
+
+const assertHelpObservation = (observation: ProcessObservation) => {
+  expect(observation.exitCode).toBe(literalHelpProcess.exitCode)
+  expect(observation.stdout).toContain('"run_id":"local-link-help"')
+  expect(observation.stderr).toBe(literalHelpProcess.stderr)
+}
+
+const assertUsageObservation = (observation: ProcessObservation) => {
+  expect(observation.exitCode).toBe(literalUsageProcess.exitCode)
+  expect(observation.stdout).toBe(literalUsageProcess.stdout)
+  expect(observation.stderr).toContain('"run_id":"local-link-usage"')
+}
+
+const assertEventObservation = (observation: ProcessObservation) => {
+  expect(observation.exitCode).toBe(literalHelpProcess.exitCode)
+  expect(observation.stdout).toContain('"run_id":"local-link-event"')
+  expect(observation.stderr).toContain('"event":"event.delivery-failed"')
+}
+
+const assertSecondRefusalObservation = (observation: ProcessObservation) => {
+  expect(observation.exitCode).toBe(literalUsageProcess.exitCode)
+  expect(observation.stdout).toBe(literalUsageProcess.stdout)
+  expect(observation.stderr.split("\n").filter(Boolean).at(-1)).toContain('"record_type":"error_envelope"')
+}
+
+const assertPublicProcessObservations = () => {
+  const observations = localLinkContractSubject.observations as FixedProcessObservations
   expect(observations).toHaveLength(4)
-  expect(observations[0]?.exitCode).toBe(literalHelpProcess.exitCode)
-  expect(observations[0]?.stdout).toContain('"run_id":"local-link-help"')
-  expect(observations[0]?.stderr).toBe(literalHelpProcess.stderr)
-  expect(observations[1]?.exitCode).toBe(literalUsageProcess.exitCode)
-  expect(observations[1]?.stdout).toBe(literalUsageProcess.stdout)
-  expect(observations[1]?.stderr).toContain('"run_id":"local-link-usage"')
-  expect(observations[2]?.exitCode).toBe(literalHelpProcess.exitCode)
-  expect(observations[2]?.stdout).toContain('"run_id":"local-link-event"')
-  expect(observations[2]?.stderr).toContain('"event":"event.delivery-failed"')
-  expect(observations[3]?.exitCode).toBe(literalUsageProcess.exitCode)
-  expect(observations[3]?.stdout).toBe(literalUsageProcess.stdout)
-  expect(observations[3]?.stderr.split("\n").filter(Boolean).at(-1)).toContain('"record_type":"error_envelope"')
-  expect(localLinkContractSubject.processCleanupReceipts).toHaveLength(4)
-  expect(localLinkContractSubject.processCleanupReceipts.every((receipt) =>
-    !receipt.timedOut && !receipt.hardSettlementTimedOut && receipt.descriptorClosure === "closed" &&
-    !receipt.descriptorRetainingDescendant && receipt.retainedResources === 0)).toBe(true)
+  assertHelpObservation(observations[0])
+  assertUsageObservation(observations[1])
+  assertEventObservation(observations[2])
+  assertSecondRefusalObservation(observations[3])
   expect(localLinkContractSubject.publicObservability).toEqual([
     expect.objectContaining({ runId: "local-link-help", exitCode: literalHelpProcess.exitCode, stdoutStatus: "ok" }),
     expect.objectContaining({ runId: "local-link-usage", exitCode: literalUsageProcess.exitCode, stderrSequences: [1, 2] }),
     expect.objectContaining({ runId: "local-link-event", exitCode: literalHelpProcess.exitCode, eventSequenceGap: true }),
     expect.objectContaining({ runId: "local-link-second-refusal", exitCode: literalUsageProcess.exitCode, stderrSequences: [1, 2] }),
   ])
+}
+
+const assertProcessCleanup = () => {
+  expect(localLinkContractSubject.processCleanupReceipts).toHaveLength(4)
+  expect(processCleanupReceiptsAreClean(localLinkContractSubject.processCleanupReceipts)).toBe(true)
   expect(localLinkContractSubject.auditLedger.filter((entry) => entry.kind === "timeout-probe")).toHaveLength(1)
   expect(localLinkContractSubject.auditLedger.filter((entry) => entry.kind === "public-process")).toHaveLength(4)
   expect(localLinkContractSubject.auditLedger.some((entry) => entry.executable === "npm")).toBe(false)
-  expect(localLinkContractSubject.cleanupLedger).toEqual(localLinkCleanupLedger)
-})
+}
+
+const assertCleanupLedger = () => {
+  assertCleanupLedgers()
+  assertPublicProcessObservations()
+  assertProcessCleanup()
+}
+
+test("cleanup ledger pins exactly four public CLI executions", assertCleanupLedger)
 test("cleanup unlinks binary then package without deleting parents", () => {
   expect(localLinkCleanupLedger.slice(-2)).toEqual(["unlink:binary", "unlink:package"])
   expect(localLinkContractSubject.cleanupLedger.slice(-2)).toEqual(["unlink:binary", "unlink:package"])

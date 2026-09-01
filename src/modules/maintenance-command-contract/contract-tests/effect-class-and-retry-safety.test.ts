@@ -60,92 +60,140 @@ const canonicalInspectionFor = (request: MaintenanceApplyRequest): MaintenanceCo
 
 async function assertApply(
   key: keyof typeof mutatingRequests,
-  effectClass: CommandPreview["effectClass"],
+  spec: ApplySpec,
 ) {
-  const harness = key === "runtime"
-    ? createMaintenanceContractHarness({
-        runtimeResults: [
-          runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
-          runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
-          runtimeControl("REPAIR_APPLIED", { sideEffects: ["published-runtime"] }),
-        ],
-      })
-    : createMaintenanceContractHarness()
   const request = mutatingRequests[key]
-  const vector =
-    key === "release" ? approvalDigestVectors[0]
-    : key === "claude" ? approvalDigestVectors[1]
-    : key === "codex" ? approvalDigestVectors[2]
-    : undefined
-
-  if (vector) {
-    expect(digest(vector.candidateBytes)).toBe(vector.candidateDigest)
-    expect(digest(vector.inspectedStateBytes)).toBe(vector.inspectedStateDigest)
-    expect(digest(vector.expectedEffectsBytes)).toBe(vector.expectedEffectsDigest)
-    expect(digest(vector.approvalBytes)).toBe(vector.approvalDigest)
-  }
-
-  const retrySafety =
-    key === "materialize" || key === "package" ? "safe" : "requires-fresh-inspection"
+  const harness = createHarnessFor(key)
+  assertApprovalDigestVector(key)
   const inspection = canonicalInspectionFor(request)
   const preview = await harness.inspect(inspection)
   expect(preview, `implemented: ${request.command} classifies before apply`).toMatchObject({
     status: "ok",
     value: {
       command: inspection.command,
-      effectClass: inspection.command === request.command ? effectClass : "inspect",
-      retrySafety: inspection.command === request.command ? retrySafety : "safe",
+      effectClass: inspection.command === request.command ? spec.effectClass : "inspect",
+      retrySafety: inspection.command === request.command ? spec.retrySafety : "safe",
     },
   })
   const actual = await harness.apply(request)
+  assertSuccessfulApply(actual, request, spec.retrySafety)
+  await assertApplyOutcome(harness, key, request, inspection, spec)
+}
+
+type MutationKey = keyof typeof mutatingRequests
+type Harness = ReturnType<typeof createMaintenanceContractHarness>
+type ApplyOutcome = Awaited<ReturnType<Harness["apply"]>>
+type ApplySpec = {
+  effectClass: CommandPreview["effectClass"]
+  retrySafety: "safe" | "requires-fresh-inspection"
+  owner?: keyof Harness["applyLedgers"]
+}
+
+const applySpecs = {
+  materialize: { effectClass: "repository-local", retrySafety: "safe", owner: "payload" },
+  package: { effectClass: "repository-local", retrySafety: "safe", owner: "payload" },
+  runtime: { effectClass: "external", retrySafety: "requires-fresh-inspection" },
+  release: { effectClass: "external", retrySafety: "requires-fresh-inspection", owner: "release" },
+  claude: { effectClass: "external", retrySafety: "requires-fresh-inspection", owner: "claude" },
+  codex: { effectClass: "external", retrySafety: "requires-fresh-inspection", owner: "codex" },
+  canary: { effectClass: "external", retrySafety: "requires-fresh-inspection", owner: "canary" },
+} as const satisfies Record<MutationKey, ApplySpec>
+
+const createHarnessFor = (key: MutationKey): Harness => key === "runtime"
+  ? createMaintenanceContractHarness({
+      runtimeResults: [
+        runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+        runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+        runtimeControl("REPAIR_APPLIED", { sideEffects: ["published-runtime"] }),
+      ],
+    })
+  : createMaintenanceContractHarness()
+
+const approvalDigestVectorFor = (key: MutationKey) => {
+  switch (key) {
+    case "release": return approvalDigestVectors[0]
+    case "claude": return approvalDigestVectors[1]
+    case "codex": return approvalDigestVectors[2]
+    default: return undefined
+  }
+}
+
+const assertApprovalDigestVector = (key: MutationKey) => {
+  const vector = approvalDigestVectorFor(key)
+  if (vector === undefined) return
+  expect(digest(vector.candidateBytes)).toBe(vector.candidateDigest)
+  expect(digest(vector.inspectedStateBytes)).toBe(vector.inspectedStateDigest)
+  expect(digest(vector.expectedEffectsBytes)).toBe(vector.expectedEffectsDigest)
+  expect(digest(vector.approvalBytes)).toBe(vector.approvalDigest)
+}
+
+const assertSuccessfulApply = (
+  actual: ApplyOutcome,
+  request: MaintenanceApplyRequest,
+  retrySafety: ApplySpec["retrySafety"],
+) => {
   expect(actual, `implemented: ${request.command} preserves exact Retry Safety`).toMatchObject({
     status: "ok",
     value: { command: request.command, retrySafety },
   })
-  if (actual.status === "ok") {
-    expect("resultCode" in actual.value).toBeFalse()
-    expect("stationId" in actual.value).toBeFalse()
-    expect("exitClass" in actual.value).toBeFalse()
-  }
-  if (key === "runtime") {
-    expect(harness.runtimeSpawnLedger).toEqual([
-      {
-        argv: ["repair"],
-        result: runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
-      },
-      {
-        argv: ["repair"],
-        result: runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
-      },
-      {
-        argv: ["repair", "--apply"],
-        result: runtimeControl("REPAIR_APPLIED", { sideEffects: ["published-runtime"] }),
-      },
-    ])
-  } else {
-    const owner =
-      key === "materialize" || key === "package" ? "payload"
-      : key === "release" ? "release"
-      : key
-    expect(harness.applyLedgers[owner]).toEqual([request])
-    if (effectClass === "external") {
-      expect(await harness.apply(request)).toMatchObject({
-        status: "error",
-        resultCode: "recovery-required",
-      })
-      expect(harness.applyLedgers[owner]).toEqual([request])
-      await harness.inspect(inspection)
-      expect(await harness.apply(request)).toMatchObject({ status: "ok" })
-      expect(harness.applyLedgers[owner]).toEqual([request, request])
-    }
-  }
+  if (actual.status !== "ok") return
+  expect("resultCode" in actual.value).toBeFalse()
+  expect("stationId" in actual.value).toBeFalse()
+  expect("exitClass" in actual.value).toBeFalse()
 }
 
-test("payload materialize is repository-local", () => assertApply("materialize", "repository-local"))
-test("payload package is repository-local", () => assertApply("package", "repository-local"))
-test("runtime repair apply transports outside approval", () => assertApply("runtime", "external"))
+const assertRuntimeApplyOutcome = (harness: Harness) => {
+  expect(harness.runtimeSpawnLedger).toEqual([
+    {
+      argv: ["repair"],
+      result: runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+    },
+    {
+      argv: ["repair"],
+      result: runtimeControl("REPAIR_PREVIEW", { state: { before: "missing" } }),
+    },
+    {
+      argv: ["repair", "--apply"],
+      result: runtimeControl("REPAIR_APPLIED", { sideEffects: ["published-runtime"] }),
+    },
+  ])
+}
+
+const assertOwnerApplyOutcome = async (
+  harness: Harness,
+  request: MaintenanceApplyRequest,
+  inspection: MaintenanceCommand,
+  spec: ApplySpec,
+) => {
+  const owner = spec.owner
+  if (owner === undefined) throw new Error("owner apply outcome requires an owner ledger")
+  expect(harness.applyLedgers[owner]).toEqual([request])
+  if (spec.effectClass !== "external") return
+  expect(await harness.apply(request)).toMatchObject({
+    status: "error",
+    resultCode: "recovery-required",
+  })
+  expect(harness.applyLedgers[owner]).toEqual([request])
+  await harness.inspect(inspection)
+  expect(await harness.apply(request)).toMatchObject({ status: "ok" })
+  expect(harness.applyLedgers[owner]).toEqual([request, request])
+}
+
+const assertApplyOutcome = (
+  harness: Harness,
+  key: MutationKey,
+  request: MaintenanceApplyRequest,
+  inspection: MaintenanceCommand,
+  spec: ApplySpec,
+) => key === "runtime"
+  ? assertRuntimeApplyOutcome(harness)
+  : assertOwnerApplyOutcome(harness, request, inspection, spec)
+
+test("payload materialize is repository-local", () => assertApply("materialize", applySpecs.materialize))
+test("payload package is repository-local", () => assertApply("package", applySpecs.package))
+test("runtime repair apply transports outside approval", () => assertApply("runtime", applySpecs.runtime))
 test("release apply transports only its fixed approval vector", async () => {
-  await assertApply("release", "external")
+  await assertApply("release", applySpecs.release)
   const request = mutatingRequests.release
   const partial = createMaintenanceContractHarness({
     releaseResult: {
@@ -222,9 +270,9 @@ test("release apply transports only its fixed approval vector", async () => {
   })
   expect(reordered.applyLedgers.release).toEqual([request])
 })
-test("Claude apply transports only its fixed approval vector", () => assertApply("claude", "external"))
-test("Codex apply transports only its fixed approval vector", () => assertApply("codex", "external"))
-test("canary qualify transports protected authority", () => assertApply("canary", "external"))
+test("Claude apply transports only its fixed approval vector", () => assertApply("claude", applySpecs.claude))
+test("Codex apply transports only its fixed approval vector", () => assertApply("codex", applySpecs.codex))
+test("canary qualify transports protected authority", () => assertApply("canary", applySpecs.canary))
 
 test("inspection requests no capability and writes no durable target", async () => {
   const harness = createMaintenanceContractHarness()

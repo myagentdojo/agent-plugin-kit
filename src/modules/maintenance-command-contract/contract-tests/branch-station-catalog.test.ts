@@ -47,7 +47,7 @@ test("catalog declares exactly 118 deterministic station rows", () => {
   expect(canonicalNextActionFor("help", "runtime-repair-unneeded")).toBeUndefined()
   implemented("Station Map projection consumes the closed catalog")
 })
-test("required Intentional RED scenarios are exactly help and usage", () => {
+test("required current-stage scenarios are exactly help and usage", () => {
   expect(branchStationCatalog.filter(({ reachability }) => reachability === "required").map(({ stationId }) => stationId)).toEqual([...literalRequiredStationIds])
   const deferred = branchStationCatalog.find(({ reachability }) => reachability === "implementation-deferred")
   if (deferred === undefined) throw new Error("missing deferred Branch Station fixture")

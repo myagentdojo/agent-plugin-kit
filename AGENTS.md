@@ -78,24 +78,27 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
 - Focused quality Contract Tests: run `bun run test:quality:repository`.
 - Repository Verification: run `bun run verify:repository` for the current
   cross-owner and filesystem decision.
-- Product RED: run `bun run test:intentional-red` for the current product
-  Contract Tests. Preserve its direct output as issue evidence; Repository
-  Verification does not parse or reinterpret it.
-- Focused RED: run `bun run test:intentional-red:kit-interface`,
-  `bun run test:intentional-red:admission-bootstrap`,
-  `bun run test:intentional-red:maintenance-command-contract`,
-  `bun run test:intentional-red:qualification-evidence`, or
-  `bun run test:intentional-red:clean-fixture`.
-- CLI RED: run `bun run test:intentional-red:maintenance-cli:unit`,
-  `bun run test:intentional-red:maintenance-cli:catalog`,
-  `bun run test:intentional-red:maintenance-cli:process`,
-  `bun run test:intentional-red:maintenance-cli:observability`,
-  `bun run test:intentional-red:maintenance-cli:clean-fixture`,
-  `bun run test:intentional-red:maintenance-cli:local-link`, or the exact combined selector
-  `bun run test:intentional-red:maintenance-cli`.
+- Product current-stage selector: run `bun run test:current-stage` for the
+  current product Contract Tests. Preserve its direct output as issue
+  evidence; Repository Verification does not parse or reinterpret it.
+- Focused current-stage selectors: run
+  `bun run test:current-stage:kit-interface`,
+  `bun run test:current-stage:admission-bootstrap`,
+  `bun run test:current-stage:maintenance-command-contract`,
+  `bun run test:current-stage:qualification-evidence`, or
+  `bun run test:current-stage:clean-fixture`.
+- CLI current-stage selectors: run
+  `bun run test:current-stage:maintenance-cli:unit`,
+  `bun run test:current-stage:maintenance-cli:catalog`,
+  `bun run test:current-stage:maintenance-cli:process`,
+  `bun run test:current-stage:maintenance-cli:observability`,
+  `bun run test:current-stage:maintenance-cli:clean-fixture`,
+  `bun run test:current-stage:maintenance-cli:local-link`, or the exact
+  combined selector `bun run test:current-stage:maintenance-cli`.
 - CLI shells: `bun run audit:maintenance-cli` and
-  `bun run verify:maintenance-cli:local-link` intentionally exit one in RED.
-- Workspace RED: run
+  `bun run verify:maintenance-cli:local-link` are complete current-stage
+  proofs and must exit zero when their accepted behaviour aligns.
+- Workspace current-stage selectors: run
   `bun run --filter @agent-plugin-kit/admission-bootstrap test`,
   `bun run --filter @agent-plugin-kit/maintenance-command-contract test`, or
   `bun run --filter @agent-plugin-kit/qualification-evidence test`, or
