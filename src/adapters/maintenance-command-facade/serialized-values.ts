@@ -613,6 +613,7 @@ const quotedValueEnd = (value: string, start: number, quote: string): number => 
   if (boundaryWidth > 0) {
     if ((boundary - closed) % 2 !== 0) return value.length
     if (startsAssignment(value, boundary + boundaryWidth)) return boundary
+    return value.length
   }
   return isQuotedValueDelimiter(value, closed)
     ? closed
