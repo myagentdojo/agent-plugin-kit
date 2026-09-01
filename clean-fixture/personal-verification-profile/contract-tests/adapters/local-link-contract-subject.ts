@@ -210,6 +210,10 @@ const failureResultFor = async (
     (await pathPresent(join(roots.consumerRoot, "node_modules")))
   const linksRemain = (await pathPresent(packageDestination)) || (await pathPresent(binaryDestination))
   const receiptRemaining = await pathPresent(receiptPath)
+  const temporaryReceiptRemaining = await pathPresent(`${receiptPath}.tmp`)
+  if (fault === "receipt-write-failure" && temporaryReceiptRemaining) {
+    throw new Error("receipt-writer-left-temporary-file")
+  }
   if (!(refusal instanceof Error)) throw new Error(`failure-control-not-refused:${fault}`)
   return { refused: true, reason: refusal.message, parentsPreserved, linksRemain, receiptRemaining }
 }

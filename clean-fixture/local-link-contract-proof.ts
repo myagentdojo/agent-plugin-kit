@@ -609,11 +609,33 @@ const sameLink = (left: LinkIdentity, right: LinkIdentity): boolean =>
   left.canonicalTarget === right.canonicalTarget && left.device === right.device &&
   left.inode === right.inode && left.mode === right.mode
 
-const writeReceipt = async (path: string, receipt: OwnershipReceipt): Promise<void> => {
+type ReceiptWriteOptions = Readonly<{
+  failAfterTemporaryWrite?: boolean
+}>
+
+const removeTemporaryReceipt = async (temporary: string): Promise<void> => {
+  try {
+    await unlink(temporary)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+}
+
+const writeReceipt = async (
+  path: string,
+  receipt: OwnershipReceipt,
+  options: ReceiptWriteOptions = {},
+): Promise<void> => {
   const temporary = `${path}.tmp`
-  await writeFile(temporary, `${JSON.stringify(receipt)}\n`, { mode: 0o600 })
-  await chmod(temporary, 0o600)
-  await rename(temporary, path)
+  try {
+    await writeFile(temporary, `${JSON.stringify(receipt)}\n`, { mode: 0o600 })
+    await chmod(temporary, 0o600)
+    if (options.failAfterTemporaryWrite === true) throw new Error("ownership-receipt-write-failure")
+    await rename(temporary, path)
+  } catch (error) {
+    await removeTemporaryReceipt(temporary)
+    throw error
+  }
 }
 
 const validRunId = (runId: string): boolean => /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(runId)
@@ -1926,12 +1948,13 @@ const recordCleanedLink = async (
 ): Promise<void> => {
   const currentReceipt = await readOwnershipReceipt(context.receiptPath)
   assertReceiptContext(currentReceipt, context, state)
-  state.receipt = {
+  const nextReceipt = {
     ...currentReceipt,
     cleaned: { ...currentReceipt.cleaned, [kind]: true },
     command_ledger: [...state.actionLedger],
   }
-  await writeReceipt(context.receiptPath, state.receipt)
+  await writeReceipt(context.receiptPath, nextReceipt)
+  state.receipt = nextReceipt
 }
 
 const cleanupOwnedLink = async (
@@ -2031,12 +2054,7 @@ const failureReceiptCleanupReady = async (context: ProofContext): Promise<boolea
 const assertFailureReceiptOwnership = async (
   context: ProofContext,
   state: ProofState,
-  allowMalformed: boolean,
 ): Promise<void> => {
-  if (allowMalformed) {
-    assertOwnershipReceiptMetadata(await lstat(context.receiptPath))
-    return
-  }
   const durable = await readOwnershipReceipt(context.receiptPath)
   assertReceiptContext(durable, context, state)
 }
@@ -2054,11 +2072,10 @@ const removeReceiptDirectory = async (receiptDirectory: string): Promise<void> =
 const removeFailureReceipt = async (
   context: ProofContext,
   state: ProofState,
-  allowMalformed: boolean,
 ): Promise<boolean> => {
   if (!await failureReceiptCleanupReady(context)) return false
   if (await pathState(context.receiptPath) === "absent") return true
-  await assertFailureReceiptOwnership(context, state, allowMalformed)
+  await assertFailureReceiptOwnership(context, state)
   await unlink(context.receiptPath)
   await removeReceiptDirectory(context.receiptDirectory)
   return true
@@ -2168,10 +2185,6 @@ const createReceiptUpdater = (
   context: ProofContext,
   state: ProofState,
 ): ReceiptUpdater => async (update) => {
-  if (options.fault === "receipt-write-failure" && update.created?.package === true) {
-    state.unrecordedLinks.add("package")
-    throw new Error("ownership-receipt-write-failure")
-  }
   const durable = await readOwnershipReceipt(context.receiptPath)
   exactJson(
     {
@@ -2188,8 +2201,11 @@ const createReceiptUpdater = (
     },
     "ownership-receipt-tampered",
   )
-  state.receipt = { ...state.receipt, ...update }
-  await writeReceipt(context.receiptPath, state.receipt)
+  const nextReceipt = { ...state.receipt, ...update }
+  const writerFault = options.fault === "receipt-write-failure" && update.created?.package === true
+  if (writerFault) state.unrecordedLinks.add("package")
+  await writeReceipt(context.receiptPath, nextReceipt, { failAfterTemporaryWrite: writerFault })
+  state.receipt = nextReceipt
 }
 
 const applyOptionalFault = async (
@@ -2247,12 +2263,8 @@ const executePrimaryProofRun = async (
   return { primaryFailure, timeoutDescriptorControl, forbiddenCommandRefused, zeroNetworkAttempts }
 }
 
-const rollbackKindsFor = (
-  fault: LocalLinkFault | undefined,
-  state: ProofState,
-): ("package" | "binary")[] => (["binary", "package"] as const).filter((kind) =>
-  ((fault === "receipt-schema" || fault === "receipt-mistyped") && state.ownedLinks.has(kind)) ||
-  state.unrecordedLinks.has(kind))
+const rollbackKindsFor = (state: ProofState): ("package" | "binary")[] =>
+  (["binary", "package"] as const).filter((kind) => state.unrecordedLinks.has(kind))
 
 type CleanupProofRun = Readonly<{
   allCleanupFailures: unknown[]
@@ -2262,10 +2274,9 @@ type CleanupProofRun = Readonly<{
 const tryRemoveFailureReceipt = async (
   context: ProofContext,
   state: ProofState,
-  allowMalformed: boolean,
 ): Promise<unknown> => {
   try {
-    await removeFailureReceipt(context, state, allowMalformed)
+    await removeFailureReceipt(context, state)
     return undefined
   } catch (error) {
     return error
@@ -2273,12 +2284,11 @@ const tryRemoveFailureReceipt = async (
 }
 
 const cleanupFailedProofRun = async (
-  options: LocalLinkProofOptions,
   context: ProofContext,
   state: ProofState,
   primaryFailure: unknown,
 ): Promise<CleanupProofRun> => {
-  const rollbackFailures = await rollbackIdentityCheckedLinks(context, state, rollbackKindsFor(options.fault, state))
+  const rollbackFailures = await rollbackIdentityCheckedLinks(context, state, rollbackKindsFor(state))
   const cleanupFailures = await cleanupLinks(context, state)
   let observerFailure: unknown
   try {
@@ -2288,11 +2298,7 @@ const cleanupFailedProofRun = async (
   }
   const allCleanupFailures = [...rollbackFailures, ...cleanupFailures, ...(observerFailure === undefined ? [] : [observerFailure])]
   const receiptFailure = primaryFailure !== undefined || allCleanupFailures.length > 0
-    ? await tryRemoveFailureReceipt(
-      context,
-      state,
-      options.fault === "receipt-schema" || options.fault === "receipt-mistyped",
-    )
+    ? await tryRemoveFailureReceipt(context, state)
     : undefined
   return { allCleanupFailures, receiptFailure }
 }
@@ -2330,7 +2336,7 @@ export async function runLocalLinkContractProof(options: LocalLinkProofOptions):
   await writeReceipt(context.receiptPath, state.receipt)
 
   const primary = await executePrimaryProofRun(options, context, state, updateReceipt)
-  const cleanup = await cleanupFailedProofRun(options, context, state, primary.primaryFailure)
+  const cleanup = await cleanupFailedProofRun(context, state, primary.primaryFailure)
   const restoration = await proveRunRestoration(context)
   throwProofFailures(
     primary.primaryFailure,

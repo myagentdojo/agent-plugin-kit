@@ -26,6 +26,78 @@ test("temporary Kit and consumer parents are private and bounded", () => {
     failure: "local-link-ownership-refused",
     next_action: "Inspect the retained private ownership receipt and restore only proof-owned links before retrying.",
   })
+  const preflight = {
+    failure: "local-link-preflight-refused",
+    next_action: "Restore the Kit, consumer, dependency, or destination preflight invariant, then retry.",
+  } as const
+  const stateRoot = {
+    failure: "local-link-preflight-refused",
+    next_action: "Repair the private state root to an existing 0700 directory, then retry.",
+  } as const
+  const ownership = {
+    failure: "local-link-ownership-refused",
+    next_action: "Inspect the retained private ownership receipt and restore only proof-owned links before retrying.",
+  } as const
+  const restoration = {
+    failure: "local-link-restoration-refused",
+    next_action: "Restore the Kit and consumer repositories to their recorded preflight state, then retry.",
+  } as const
+  const process = {
+    failure: "local-link-process-refused",
+    next_action: "Run the focused local-link Contract Test and repair the public-process refusal before retrying.",
+  } as const
+  const proofFallback = {
+    failure: "local-link-proof-refused",
+    next_action: "Run the focused local-link Contract Test and repair its first failing invariant before retrying.",
+  } as const
+  const failureCases = [
+    ["run-id-invalid", preflight],
+    ["state-root-must-be-absolute", stateRoot],
+    ["state-root-unsafe", stateRoot],
+    ["public-process-scenario-count-invalid", preflight],
+    ["public-process-scenario-catalog-invalid", preflight],
+    ["package-identity-invalid", preflight],
+    ["public-binary-not-regular", preflight],
+    ["destination-parent-unsafe", preflight],
+    ["destination-parent-escaped", preflight],
+    ["link-destination-preexists", preflight],
+    ["proof-root-escaped", preflight],
+    ["proof-root-unsafe", preflight],
+    ["proof-directory-unsafe", preflight],
+    ["logtape-owner-pin-invalid", preflight],
+    ["owner-local-dependency-missing", preflight],
+    ["json-object-required", preflight],
+    ["tracked-index-row-invalid", preflight],
+    ["command-refused:git:1", preflight],
+    ["temporary-proof-marker-invalid", preflight],
+    ["ownership-receipt-invalid", ownership],
+    ["ownership-receipt-link-invalid", ownership],
+    ["ownership-receipt-state-drifted:package", ownership],
+    ["ownership-receipt-link-drifted:package", ownership],
+    ["owned-link-drifted:binary", ownership],
+    ["owned-node-not-symlink", ownership],
+    ["created-link-identity-invalid", ownership],
+    ["partial-link-failure", ownership],
+    ["link-command-audit-missing", ownership],
+    ["repository-state-drifted", restoration],
+    ["destination-parent-removed", restoration],
+    ["owned-link-remained", restoration],
+    ["network-attempt-detected", process],
+    ["public-process-diagnostic-value-drift", process],
+    ["process-settlement-deadline-exceeded", process],
+    ["descriptor-retaining-descendant-not-observed", process],
+    ["public-command-audit-missing", process],
+    ["forbidden-command-was-allowlisted", process],
+    ["scenario-ledger-drift", process],
+    ["timeout-control-missing", process],
+    ["command-not-allowlisted", process],
+    ["diagnostic-order-control-unavailable", process],
+    ["redaction-bypass-control-unavailable", process],
+    ["opaque-helper-failure:private-value", proofFallback],
+  ] as const
+  for (const [message, expected] of failureCases) {
+    expect(localLinkPublicFailureFor(new Error(message))).toEqual(expected)
+  }
 })
 test("link destinations must be absent before creation", () => {
   expect(localLinkContractSubject.preflightDestinations).toEqual(["absent", "absent"])
@@ -237,14 +309,14 @@ test("before and after digests prove no tracked manifest or lock drift", () => {
     refused: true,
     reason: "ownership-receipt-invalid",
     parentsPreserved: true,
-    linksRemain: false,
-    receiptRemaining: false,
+    linksRemain: true,
+    receiptRemaining: true,
   })
   expect(localLinkContractSubject.failureControls["receipt-mistyped"]).toEqual({
     refused: true,
     reason: "ownership-receipt-invalid",
     parentsPreserved: true,
-    linksRemain: false,
-    receiptRemaining: false,
+    linksRemain: true,
+    receiptRemaining: true,
   })
 })
