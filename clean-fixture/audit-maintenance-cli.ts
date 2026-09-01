@@ -9,7 +9,7 @@ import { literalDeclaredUnreachableRationales } from "../src/modules/maintenance
 import { literalProcessResult } from "./personal-verification-profile/contract-tests/fixtures/plugin-consumer"
 
 const repositoryRoot = resolve(import.meta.dir, "..")
-const facadeInterface = resolve(repositoryRoot, "src/adapters/maintenance-command-facade/interface.ts")
+const facadeImplementation = resolve(repositoryRoot, "src/adapters/maintenance-command-facade/implementation/maintenance-command-facade.ts")
 const facadeManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "src/adapters/maintenance-command-facade/package.json"), "utf8")) as { name: string }
 const helpEnvelope = JSON.parse(literalHelpProcess.stdout) as {
   schema_version: number
@@ -26,7 +26,7 @@ compare("package_identity", packageMetadata.name, "agent-plugin-kit")
 compare("package_version", help.package_version, packageMetadata.version)
 compare("binary", packageMetadata.bin, { "agent-plugin-kit": "./src/adapters/maintenance-command-facade/maintenance.ts" })
 compare("contract_id", helpEnvelope.data.contract_id, maintenanceCommandContractId)
-compare("result_schema_versions", [helpEnvelope.data.result_schema_version, help.schema_version, (help.versions as Record<string, number>).result], [resultSchemaVersion, resultSchemaVersion, resultSchemaVersion])
+compare("result_schema_versions", [helpEnvelope.data.result_schema_version, help.schemaVersion, (help.versions as Record<string, number>).result], [resultSchemaVersion, resultSchemaVersion, resultSchemaVersion])
 compare("command_contract_schema_version", commandContractSchemaVersion, resultSchemaVersion)
 compare("environment_dependencies", (help.environment_dependencies as { name: string }[]).map(({ name }) => name), ["AGENT_PLUGIN_KIT_EVENT_ENDPOINT", "AGENT_PLUGIN_KIT_EVENT_AUTH"])
 compare("command_vocabulary", (help.commands as { command: string }[]).map(({ command }) => command), commandVocabulary.map(({ command }) => command))
@@ -52,6 +52,74 @@ const requiredScenarios = [
   { stationId: "maintenance.usage-refused", argv: ["--run-id", "contract-help-literal", "unknown"], expected: literalUsageProcess },
 ] as const
 const publicProcessDeadlineMs = 2_000
+const usageDiagnosticExpectations = [
+  {
+    timestamp: true,
+    schema_version: 2,
+    record_type: "diagnostic",
+    sequence: 1,
+    category: ["agent-plugin-kit", "maintenance"],
+    event: "maintenance.outcome-context",
+    run_id: "contract-help-literal",
+    station_id: "maintenance.usage-refused",
+    result_code: "usage-refused",
+    transaction_state: "unchanged",
+    retry_safety: "safe",
+    message: 'Maintenance command reached result code "usage-refused".',
+    level: "info",
+  },
+  {
+    timestamp: true,
+    schema_version: 2,
+    record_type: "diagnostic",
+    sequence: 2,
+    category: ["agent-plugin-kit", "maintenance"],
+    event: "maintenance.usage-refused",
+    run_id: "contract-help-literal",
+    station_id: "maintenance.usage-refused",
+    failure_class: "usage",
+    result_code: "usage-refused",
+    transaction_state: "unchanged",
+    retry_safety: "safe",
+    message: 'Maintenance command failed with result code "usage-refused".',
+    level: "error",
+    next_action: {
+      id: "maintenance.show-help",
+      action: "change_input",
+      summary: "Choose a command from machine discovery.",
+      commandId: "help",
+    },
+  },
+] as const
+const jsonRecordFor = (line: string): Record<string, unknown> | undefined => {
+  try {
+    const parsed = JSON.parse(line) as unknown
+    return typeof parsed === "object" && parsed !== null
+      ? parsed as Record<string, unknown>
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+const jsonLinesFor = (stream: string): string[] | undefined => {
+  if (!stream.endsWith("\n")) return undefined
+  const lines = stream.slice(0, -1).split("\n")
+  return lines.every((line) => line !== "") ? lines : undefined
+}
+const normalizedDiagnosticFor = (record: Record<string, unknown> | undefined): unknown => {
+  if (record === undefined) return undefined
+  const { timestamp, ...stableFields } = record
+  return {
+    timestamp: typeof timestamp === "string" && !Number.isNaN(Date.parse(timestamp)),
+    ...stableFields,
+  }
+}
+const usageDiagnosticsMatch = (stderr: string, expectedPrimary: string): boolean => {
+  const lines = jsonLinesFor(stderr)
+  if (lines === undefined || lines.length !== 3 || lines[2] !== expectedPrimary) return false
+  const diagnostics = lines.slice(0, 2).map(jsonRecordFor).map(normalizedDiagnosticFor)
+  return JSON.stringify(diagnostics) === JSON.stringify(usageDiagnosticExpectations)
+}
 const requiredObservations = requiredScenarios.map((scenario) => {
   const result = Bun.spawnSync({
     cmd: [resolve(repositoryRoot, "src/adapters/maintenance-command-facade/maintenance.ts"), ...scenario.argv],
@@ -65,13 +133,16 @@ const requiredObservations = requiredScenarios.map((scenario) => {
   const stdout = result.stdout.toString()
   const stderr = result.stderr.toString()
   const primaryLine = (stdout || stderr).split("\n").filter(Boolean).at(-1)
-  let primary: { data?: Record<string, unknown> } | undefined
-  try {
-    primary = JSON.parse(primaryLine ?? "") as { data?: Record<string, unknown> }
-  } catch {
-    primary = undefined
-  }
-  const observed = result.exitCode === scenario.expected.exitCode && stdout === scenario.expected.stdout && stderr === scenario.expected.stderr
+  const parsedPrimary = jsonRecordFor(primaryLine ?? "")
+  const data = typeof parsedPrimary?.data === "object" && parsedPrimary.data !== null && !Array.isArray(parsedPrimary.data)
+    ? parsedPrimary.data as Record<string, unknown>
+    : undefined
+  const primary: { data?: Record<string, unknown> } = data === undefined ? {} : { data }
+  const observed = result.exitCode === scenario.expected.exitCode &&
+    stdout === scenario.expected.stdout &&
+    (scenario.stationId === "maintenance.usage-refused"
+      ? stdout === "" && usageDiagnosticsMatch(stderr, scenario.expected.stderr.trimEnd())
+      : stderr === scenario.expected.stderr)
   return {
     ...scenario,
     exitCode: result.exitCode,
@@ -99,7 +170,7 @@ const runtimeModuleSpecifiers = (file: string) => {
 }
 const relativeImports = (file: string) => {
   return runtimeModuleSpecifiers(file).flatMap((specifier) => {
-    if (specifier === facadeManifest.name) return [facadeInterface]
+    if (specifier === facadeManifest.name) return [facadeImplementation]
     if (specifier.startsWith(`${facadeManifest.name}/`)) throw new Error(`${file} imports a forbidden facade owner subpath: ${specifier}`)
     if (!specifier.startsWith(".")) return []
     const resolved = resolveRelativeModule(file, specifier)
@@ -129,7 +200,7 @@ const walkProductionImports = (file: string) => {
   if (visited.has(file)) return
   visited.add(file)
   for (const imported of relativeImports(file)) {
-    if (imported === facadeInterface) discovered.add(relative(repositoryRoot, file))
+    if (imported === facadeImplementation) discovered.add(relative(repositoryRoot, file))
     walkProductionImports(imported)
   }
 }

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { resolve } from "node:path"
 import { installedMaintenanceCliSubject } from "./adapters/maintenance-cli-contract-subjects"
 import {
   expectedBranchStationSourceSha256,
@@ -40,4 +41,27 @@ test("Clean Fixture reconciles installed RED inventory and Station Map projectio
     required_station_ids: ["help.previewed", "maintenance.usage-refused"],
     source_sha256: expectedBranchStationSourceSha256,
   })
+
+  const alignmentAudit = Bun.spawnSync({
+    cmd: ["bun", "clean-fixture/audit-maintenance-cli.ts"],
+    cwd: resolve(import.meta.dir, "../../.."),
+    env: { ...process.env, NO_COLOR: "1" },
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  expect(alignmentAudit.exitCode, "contract-absent: the Command Surface Alignment Proof must ship").toBe(0)
+  expect(alignmentAudit.stderr.toString(), "contract-absent: the audit must keep diagnostics off its machine stdout contract").toBe("")
+  const report = JSON.parse(alignmentAudit.stdout.toString()) as {
+    verdict: string
+    surface_findings: readonly { status: string }[]
+    required_observed_branch_total: number
+    observed_branch_coverage: number
+    stations: readonly { status: string; provenance: string }[]
+  }
+  expect(report.verdict, "contract-absent: the audit must emit the accepted ship verdict").toBe("ship")
+  expect(report.surface_findings.every(({ status }) => status === "aligned"), "contract-absent: every audited command surface must align").toBe(true)
+  expect(report.required_observed_branch_total, "contract-absent: the audit must retain both required Branch Stations").toBe(2)
+  expect(report.observed_branch_coverage, "contract-absent: only qualifying real-process evidence may count").toBe(2)
+  expect(report.stations.filter(({ status, provenance }) => status === "covered" && provenance === "real_process")).toHaveLength(2)
+  expect(report.stations.some(({ status, provenance }) => status === "covered" && provenance !== "real_process"), "contract-absent: synthetic Station Map rows must not count").toBe(false)
 })
