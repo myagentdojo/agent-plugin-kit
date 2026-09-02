@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { readFile } from "node:fs/promises"
 import type {
   DiagnosticAdapter,
   DiagnosticMode,
@@ -37,6 +38,7 @@ import {
   serializeFacadeSuccessEgress,
   sanitizeEventRecord,
 } from "../serialized-values"
+import { wireCommandRefusalFor } from "../../../modules/maintenance-command-contract/implementation/trusted-command-binding"
 
 const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
 
@@ -236,23 +238,212 @@ const routeFor = (parsed: ParsedGlobals): readonly string[] => {
   return parsed.route
 }
 
-const parseCommand = (
+const routeStartsWith = (actual: readonly string[], expected: readonly string[]): boolean =>
+  actual.length >= expected.length && expected.every((token, index) => actual[index] === token)
+
+const inputOptionSet = (descriptor: CommandDescriptor): ReadonlySet<string> =>
+  new Set(descriptor.inputs)
+
+const parseJsonText = (text: string): unknown | undefined => {
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return undefined
+  }
+}
+
+const isParseFailure = (value: unknown): value is ParseFailure =>
+  typeof value === "object" && value !== null && !Array.isArray(value) &&
+  typeof (value as { message?: unknown }).message === "string"
+
+const readJsonReference = async (reference: string): Promise<unknown | undefined> => {
+  try {
+    return parseJsonText(await readFile(reference, "utf8"))
+  } catch {
+    return undefined
+  }
+}
+
+const fileInputFor = async (
+  descriptor: CommandDescriptor,
+  route: readonly string[],
+): Promise<Readonly<Record<string, unknown>> | ParseFailure> => {
+  const inputs = inputOptionSet(descriptor)
+  const values: Record<string, unknown> = {}
+  for (let index = descriptor.route.length; index < route.length; index += 1) {
+    const option = route[index]
+    if (option === undefined || !inputs.has(option) || Object.hasOwn(values, option)) {
+      return { message: "Invalid maintenance command input." }
+    }
+    const reference = route[index + 1]
+    if (reference === undefined || reference.startsWith("--")) {
+      return { message: "Invalid maintenance command input." }
+    }
+    values[option] = reference
+    index += 1
+  }
+  return values
+}
+
+const requiredInputPresent = (
+  descriptor: CommandDescriptor,
+  values: Readonly<Record<string, unknown>>,
+): boolean => descriptor.inputs.every((input) => typeof values[input] === "string")
+
+const wireCandidateFor = async (
+  descriptor: CommandDescriptor,
+  route: readonly string[],
+  stdin: string,
+): Promise<unknown | ParseFailure> => {
+  const values = await fileInputFor(descriptor, route)
+  if (isParseFailure(values)) return values
+  if (!descriptor.stdin && stdin !== "") return { message: "Invalid maintenance command input." }
+  if (!requiredInputPresent(descriptor, values)) {
+    if (!descriptor.stdin || stdin === "" || stdin === "present") {
+      return { message: "Invalid maintenance command input." }
+    }
+  }
+  if (descriptor.stdin && Object.keys(values).length === 0) {
+    const parsedStdin = parseJsonText(stdin)
+    if (parsedStdin === undefined) return { message: "Invalid maintenance command input." }
+    if (descriptor.command === "canary:inspect" || descriptor.command === "canary:qualify") {
+      return {
+        schemaVersion: 1,
+        command: descriptor.command,
+        ...(descriptor.command === "canary:inspect"
+          ? { candidate: parsedStdin }
+          : { candidate: parsedStdin, authority: "" }),
+      }
+    }
+    return {
+      schemaVersion: 1,
+      command: descriptor.command,
+      ...(descriptor.command.startsWith("payload:")
+        ? { request: parsedStdin }
+        : { request: parsedStdin }),
+    }
+  }
+  const jsonBy = async (option: string): Promise<unknown | ParseFailure> => {
+    const reference = values[option]
+    if (typeof reference !== "string") return { message: "Invalid maintenance command input." }
+    const parsed = await readJsonReference(reference)
+    return parsed === undefined ? { message: "Invalid maintenance command input." } : parsed
+  }
+
+  switch (descriptor.command) {
+    case "payload:check":
+    case "payload:materialize":
+    case "payload:package": {
+      const request = await jsonBy("--request")
+      return isParseFailure(request)
+        ? request
+        : { schemaVersion: 1, command: descriptor.command, request }
+    }
+    case "release:inspect": {
+      const request = await jsonBy("--request")
+      return isParseFailure(request)
+        ? request
+        : { schemaVersion: 1, command: descriptor.command, request }
+    }
+    case "release:apply": {
+      const request = await jsonBy("--request")
+      if (isParseFailure(request)) return request
+      const approval = await jsonBy("--approval")
+      return isParseFailure(approval)
+        ? approval
+        : { schemaVersion: 1, command: descriptor.command, request, approval }
+    }
+    case "harness:claude:inspect":
+    case "harness:codex:inspect": {
+      const request = await jsonBy("--request")
+      return isParseFailure(request)
+        ? request
+        : { schemaVersion: 1, command: descriptor.command, request }
+    }
+    case "harness:claude:apply":
+    case "harness:codex:apply": {
+      const request = await jsonBy("--request")
+      if (isParseFailure(request)) return request
+      const approval = await jsonBy("--approval")
+      return isParseFailure(approval)
+        ? approval
+        : { schemaVersion: 1, command: descriptor.command, request, approval }
+    }
+    case "canary:inspect": {
+      const candidate = await jsonBy("--candidate")
+      return isParseFailure(candidate)
+        ? candidate
+        : { schemaVersion: 1, command: descriptor.command, candidate }
+    }
+    case "canary:qualify": {
+      const candidate = await jsonBy("--candidate")
+      if (isParseFailure(candidate)) return candidate
+      const authority = values["--authority"]
+      return typeof authority !== "string"
+        ? { message: "Invalid maintenance command input." }
+        : { schemaVersion: 1, command: descriptor.command, candidate, authority }
+    }
+    case "help":
+    case "runtime:repair":
+    case "runtime:repair-apply":
+      return {
+        schemaVersion: 1,
+        command: descriptor.command,
+        ...(descriptor.command === "runtime:repair"
+          ? { argv: ["repair"] }
+          : descriptor.command === "runtime:repair-apply"
+            ? { argv: ["repair", "--apply"] }
+            : {}),
+      }
+  }
+}
+
+const parseCommand = async (
   argv: readonly string[],
   stdin: string,
-): {
+  wireBinding: MaintenanceCommandFacadeAssembly["wireBinding"],
+): Promise<{
   command: MaintenanceCommand
   runId: string | undefined
   diagnosticMode: DiagnosticMode | undefined
   eventMode: EventMode
-} | ParseFailure => {
+} | ParseFailure> => {
   const parsed = parseGlobals(argv)
   if ("message" in parsed) return parsed
   const route = routeFor(parsed)
-  if (!helpAlias(route) || stdin !== "") {
+  if (helpAlias(route) && stdin === "") {
+    return {
+      command: { command: "help" },
+      runId: parsed.runId,
+      diagnosticMode: parsed.diagnosticMode,
+      eventMode: parsed.eventMode,
+    }
+  }
+  if (helpAlias(route)) {
     return parseFailureFor("Unknown maintenance command.", parsed)
   }
+  const descriptor = commandVocabulary
+    .filter((candidate) => routeStartsWith(route, candidate.route))
+    .sort((left, right) => right.route.length - left.route.length)[0]
+  if (descriptor === undefined) return parseFailureFor("Unknown maintenance command.", parsed)
+  const wireCandidate = await wireCandidateFor(descriptor, route, stdin)
+  if (isParseFailure(wireCandidate)) return parseFailureFor(wireCandidate.message, parsed)
+  if (wireBinding === undefined) return parseFailureFor("Maintenance command is not admitted.", parsed)
+  const bound = await wireBinding(wireCandidate)
+  if (bound.status !== "bound") {
+    const message = bound.code === "wire-version-unsupported"
+      ? "Unsupported maintenance command version."
+      : bound.code === "wire-command-invalid"
+        ? "Invalid maintenance command input."
+        : bound.code === "authority-unavailable" || bound.code === "authority-reference-invalid"
+          ? "Maintenance command authority is unavailable."
+          : bound.code.endsWith("-invalid")
+            ? "Invalid maintenance command input."
+          : "Maintenance command is not admitted."
+    return parseFailureFor(message, parsed)
+  }
   return {
-    command: { command: "help" },
+    command: bound.command,
     runId: parsed.runId,
     diagnosticMode: parsed.diagnosticMode,
     eventMode: parsed.eventMode,
@@ -558,7 +749,7 @@ const diagnosticAdapterFor = async (
 
 const createDiagnosticRuntime = (
   assembly: MaintenanceCommandFacadeAssembly,
-  parsed: ReturnType<typeof parseCommand>,
+  parsed: Awaited<ReturnType<typeof parseCommand>>,
   secrets: readonly string[],
   nextSequence: () => number,
 ): DiagnosticRuntime => {
@@ -685,7 +876,7 @@ const acceptEventFor = async (
 
 const runParsedInvocation = async (
   assembly: MaintenanceCommandFacadeAssembly,
-  parsed: ReturnType<typeof parseCommand>,
+  parsed: Awaited<ReturnType<typeof parseCommand>>,
   runtime: DiagnosticRuntime,
   correlation: FacadeCorrelationSources,
   runId: string,
@@ -712,7 +903,7 @@ export const createMaintenanceCommandFacade: MaintenanceCommandFacadeFactory = (
   assembly,
 ): MaintenanceCommandFacade => ({
   async invoke(invocation): Promise<ProcessObservation> {
-    const parsed = parseCommand(invocation.argv, invocation.stdin)
+    const parsed = await parseCommand(invocation.argv, invocation.stdin, assembly.wireBinding)
     const runId = parsed.runId ?? generatedRunId()
     let sequence = 0
     const nextSequence = (): number => {

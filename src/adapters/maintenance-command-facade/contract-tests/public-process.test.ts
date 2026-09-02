@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { stat } from "node:fs/promises"
 import { resolve } from "node:path"
 import { literalUsageProcess } from "../../../modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results"
@@ -6,6 +9,18 @@ import { invokeClosedStreamNegativeControl, invokePublicProcess, invokeRetainedD
 import { fixedHelpScenarios, fixedRunId, fixedUsageScenario } from "./fixtures/literal-cli-scenarios"
 import { outcomeContextContract } from "./fixtures/literal-observability-cases"
 import type { ProcessObservation } from "../interface"
+import { mutatingRequests } from "../../../modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results"
+
+const withJsonFile = async <T>(value: unknown, run: (path: string) => Promise<T>): Promise<T> => {
+  const root = mkdtempSync(join(tmpdir(), "agent-plugin-kit-public-process-"))
+  const path = join(root, "input.json")
+  writeFileSync(path, `${JSON.stringify(value)}\n`, { mode: 0o600 })
+  try {
+    return await run(path)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
 
 const invokeAndExpect = async (argv: readonly string[], expected: ProcessObservation, claim: string) => {
   const actual = await invokePublicProcess(argv)
@@ -162,3 +177,65 @@ test("hostile color environments preserve exact machine bytes", async () => {
   const actual = await invokePublicProcess(fixedHelpScenarios[3].argv, { FORCE_COLOR: "3", TERM: "xterm-256color", NO_COLOR: "0" })
   expect(actual, "contract-absent: machine output must ignore hostile color environments").toEqual(fixedHelpScenarios[3].expected)
 })
+test("public process maps an invalid owner fragment without raw validation detail", () => withJsonFile(
+  { repositoryRoot: 42, mode: "check" },
+  async (path) => {
+    const actual = await invokePublicProcess([
+      "--run-id",
+      fixedRunId,
+      "payload",
+      "check",
+      "--request",
+      path,
+    ])
+    expect(actual.stdout).toBe("")
+    expect(actual.exitCode).toBe(2)
+    expect(actual.stderr).toContain('"message":"Invalid maintenance command input."')
+    expect(actual.stderr).not.toContain(path)
+    expect(actual.stderr).not.toContain("ZodError")
+  },
+))
+test("public process maps an unknown nested approval version before binding", () => withJsonFile(
+  { ...mutatingRequests.release.approval, schemaVersion: 2 },
+  async (approvalPath) => withJsonFile(
+    mutatingRequests.release.request,
+    async (requestPath) => {
+      const actual = await invokePublicProcess([
+        "--run-id",
+        fixedRunId,
+        "release",
+        "apply",
+        "--request",
+        requestPath,
+        "--approval",
+        approvalPath,
+      ])
+      expect(actual.stdout).toBe("")
+      expect(actual.exitCode).toBe(2)
+      expect(actual.stderr).toContain('"message":"Invalid maintenance command input."')
+      expect(actual.stderr).not.toContain("ZodError")
+    },
+  ),
+))
+test("public process treats authority input as an opaque reference", () => withJsonFile(
+  { identity: mutatingRequests.canary.candidate.identity, inertPayloadSha256: mutatingRequests.canary.candidate.inertPayloadSha256 },
+  async (candidatePath) => withJsonFile(
+    { capabilities: ["forged"], secret: "authority-file-must-not-be-read" },
+    async (authorityPath) => {
+      const actual = await invokePublicProcess([
+        "--run-id",
+        fixedRunId,
+        "canary",
+        "qualify",
+        "--candidate",
+        candidatePath,
+        "--authority",
+        authorityPath,
+      ])
+      expect(actual.stdout).toBe("")
+      expect(actual.exitCode).toBe(2)
+      expect(actual.stderr).not.toContain("authority-file-must-not-be-read")
+      expect(actual.stderr).not.toContain("capabilities")
+    },
+  ),
+))

@@ -2,9 +2,17 @@ import { createHash } from "node:crypto"
 import { isIP } from "node:net"
 import { z } from "zod"
 import type {
+  AdmissionRefusal,
+  AdmissionRequest,
   CandidateIdentity,
   PackageIdentity,
+  PackageObservation,
+  ReleaseCandidateApproval,
   ReleaseIdentity,
+  ReleaseMutationRequest,
+  ReleasePlan,
+  ReleaseRequest,
+  ReleaseResult,
   RepositoryIdentity,
   SourceIdentity,
   WorkflowIdentity,
@@ -219,6 +227,166 @@ export const candidateIdentitySchema = z.strictObject({
   package: packageIdentitySchema,
   workflow: workflowIdentitySchema,
 }).refine(candidateHasOneFullCommitPin)
+
+const sha256Schema = z.templateLiteral(["sha256:", z.string()])
+const effectIdsSchema = z.array(z.string()).readonly()
+
+export const admissionRequestSchema = z.strictObject({
+  candidate: candidateIdentitySchema,
+  repository: repositoryIdentitySchema,
+  provenance: sourceIdentitySchema,
+  source: sourceIdentitySchema,
+  release: releaseIdentitySchema,
+  package: packageIdentitySchema,
+  workflow: workflowIdentitySchema,
+})
+
+export const admissionRefusalSchema = z.strictObject({
+  code: z.enum([
+    "repository-mismatch",
+    "provenance-mismatch",
+    "source-pin-mismatch",
+    "release-pin-mismatch",
+    "package-pin-mismatch",
+    "workflow-pin-mismatch",
+  ]),
+  nextAction: z.literal("Correct the mismatched immutable identity observation."),
+})
+
+export const packageObservationSchema = z.strictObject({
+  identity: packageIdentitySchema,
+  payloadSha256: sha256Schema,
+})
+
+export const releaseRequestSchema = z.strictObject({
+  candidate: candidateIdentitySchema,
+  intent: z.enum(["impact", "readiness", "maintenance", "publication", "resume", "repair"]),
+})
+
+export const releaseMutationRequestSchema = z.strictObject({
+  candidate: candidateIdentitySchema,
+  intent: z.enum(["impact", "readiness", "maintenance", "publication", "resume", "repair"]),
+  expectedEffectIds: effectIdsSchema,
+})
+
+export const releasePlanSchema = z.strictObject({
+  candidate: candidateIdentitySchema,
+  expectedEffectIds: effectIdsSchema,
+  approvalDigest: sha256Schema,
+})
+
+export const releaseResultSchema = z.strictObject({
+  candidate: candidateIdentitySchema,
+  completedEffectIds: effectIdsSchema,
+  remainingEffectIds: effectIdsSchema,
+})
+
+export const releaseCandidateApprovalSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  issuer: z.literal("release-and-git-engine"),
+  candidate: candidateIdentitySchema,
+  candidateIdentitySha256: sha256Schema,
+  inspectedStateSha256: sha256Schema,
+  expectedEffectsSha256: sha256Schema,
+  digest: sha256Schema,
+})
+
+function isPlainJsonTree(value: unknown, seen = new Set<object>()): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true
+  if (typeof value === "number") return Number.isFinite(value)
+  if (typeof value !== "object" || seen.has(value)) return false
+  seen.add(value)
+  let valid = true
+  if (Array.isArray(value)) {
+    valid = Object.getPrototypeOf(value) === Array.prototype &&
+      Reflect.ownKeys(value).every((key) =>
+        key === "length" || (typeof key === "string" && /^(0|[1-9]\d*)$/.test(key)))
+    for (let index = 0; valid && index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index) || !isPlainJsonTree(value[index], seen)) valid = false
+    }
+  } else {
+    valid = Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== "string") {
+        valid = false
+        break
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      if (descriptor === undefined || !descriptor.enumerable || !("value" in descriptor) || !isPlainJsonTree(descriptor.value, seen)) {
+        valid = false
+        break
+      }
+    }
+  }
+  seen.delete(value)
+  return valid
+}
+
+const parseValue = <T>(schema: z.ZodType<T>, value: unknown): T | undefined => {
+  if (!isPlainJsonTree(value)) return undefined
+  const parsed = schema.safeParse(value)
+  return parsed.success ? parsed.data : undefined
+}
+
+const serializeValue = <T>(schema: z.ZodType<T>, value: T): string => {
+  const parsed = parseValue(schema, value)
+  if (parsed === undefined) throw new Error("release-and-git-engine: invalid serialized value")
+  return JSON.stringify(parsed)
+}
+
+export const parseAdmissionRequest = (value: unknown): AdmissionRequest | undefined =>
+  parseValue(admissionRequestSchema, value)
+
+export const parseAdmissionRefusal = (value: unknown): AdmissionRefusal | undefined =>
+  parseValue(admissionRefusalSchema, value)
+
+export const parseCandidateIdentity = (value: unknown): CandidateIdentity | undefined =>
+  parseValue(candidateIdentitySchema, value)
+
+export const parsePackageObservation = (value: unknown): PackageObservation | undefined =>
+  parseValue(packageObservationSchema, value)
+
+export const parseReleaseCandidateApproval = (value: unknown): ReleaseCandidateApproval | undefined =>
+  parseValue(releaseCandidateApprovalSchema, value)
+
+export const parseReleaseMutationRequest = (value: unknown): ReleaseMutationRequest | undefined =>
+  parseValue(releaseMutationRequestSchema, value)
+
+export const parseReleasePlan = (value: unknown): ReleasePlan | undefined =>
+  parseValue(releasePlanSchema, value)
+
+export const parseReleaseRequest = (value: unknown): ReleaseRequest | undefined =>
+  parseValue(releaseRequestSchema, value)
+
+export const parseReleaseResult = (value: unknown): ReleaseResult | undefined =>
+  parseValue(releaseResultSchema, value)
+
+export const serializeAdmissionRequest = (value: AdmissionRequest): string =>
+  serializeValue(admissionRequestSchema, value)
+
+export const serializeAdmissionRefusal = (value: AdmissionRefusal): string =>
+  serializeValue(admissionRefusalSchema, value)
+
+export const serializeCandidateIdentity = (value: CandidateIdentity): string =>
+  serializeValue(candidateIdentitySchema, value)
+
+export const serializePackageObservation = (value: PackageObservation): string =>
+  serializeValue(packageObservationSchema, value)
+
+export const serializeReleaseCandidateApproval = (value: ReleaseCandidateApproval): string =>
+  serializeValue(releaseCandidateApprovalSchema, value)
+
+export const serializeReleaseMutationRequest = (value: ReleaseMutationRequest): string =>
+  serializeValue(releaseMutationRequestSchema, value)
+
+export const serializeReleasePlan = (value: ReleasePlan): string =>
+  serializeValue(releasePlanSchema, value)
+
+export const serializeReleaseRequest = (value: ReleaseRequest): string =>
+  serializeValue(releaseRequestSchema, value)
+
+export const serializeReleaseResult = (value: ReleaseResult): string =>
+  serializeValue(releaseResultSchema, value)
 
 type InferredRepositoryIdentity = z.infer<typeof repositoryIdentitySchema>
 type InferredSourceIdentity = z.infer<typeof sourceIdentitySchema>

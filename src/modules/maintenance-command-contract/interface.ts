@@ -1,5 +1,6 @@
 import type {
   CanaryCandidate,
+  CanaryAuthorityReference,
   ProtectedCanaryAuthority,
 } from "../canary-qualification/interface"
 import type {
@@ -16,6 +17,10 @@ import type {
   ReleaseMutationRequest,
   ReleaseRequest,
 } from "../release-and-git-engine/interface"
+import type {
+  CandidateIdentity,
+} from "../release-and-git-engine/interface"
+import type { PreparedPluginPayload } from "../plugin-payload-production/interface"
 
 export type EffectClass = "inspect" | "repository-local" | "external"
 
@@ -95,6 +100,38 @@ export type MaintenanceApplyRequest =
     }
 
 export type MutatingMaintenanceCommand = MaintenanceApplyRequest["command"]
+
+/**
+ * Unbranded command fragments assembled from CLI and JSON input. These types
+ * deliberately carry ordinary Candidate Identity data rather than the
+ * Admitted Identity or Protected Canary Authority capabilities used by the
+ * domain command below.
+ */
+export type ClaudeWireRequest = {
+  candidate: CandidateIdentity
+  payload: PreparedPluginPayload
+  profileIdentity: string
+}
+
+export type CodexWireRequest = ClaudeWireRequest & {
+  checkoutIdentity: string
+}
+
+export type WireCommand =
+  | { schemaVersion: 1; command: "help" }
+  | { schemaVersion: 1; command: "payload:check"; request: PayloadProductionRequest & { mode: "check" } }
+  | { schemaVersion: 1; command: "payload:materialize"; request: PayloadProductionRequest & { mode: "materialize" } }
+  | { schemaVersion: 1; command: "payload:package"; request: PayloadProductionRequest & { mode: "package" } }
+  | { schemaVersion: 1; command: "runtime:repair"; argv: readonly ["repair"] }
+  | { schemaVersion: 1; command: "runtime:repair-apply"; argv: readonly ["repair", "--apply"] }
+  | { schemaVersion: 1; command: "release:inspect"; request: ReleaseRequest }
+  | { schemaVersion: 1; command: "release:apply"; request: ReleaseMutationRequest; approval: ReleaseCandidateApproval }
+  | { schemaVersion: 1; command: "harness:claude:inspect"; request: ClaudeWireRequest }
+  | { schemaVersion: 1; command: "harness:claude:apply"; request: ClaudeWireRequest & { expectedEffectIds: readonly string[] }; approval: ClaudeTransitionApproval }
+  | { schemaVersion: 1; command: "harness:codex:inspect"; request: CodexWireRequest }
+  | { schemaVersion: 1; command: "harness:codex:apply"; request: CodexWireRequest & { expectedEffectIds: readonly string[] }; approval: CodexTransitionApproval }
+  | { schemaVersion: 1; command: "canary:inspect"; candidate: CanaryCandidate }
+  | { schemaVersion: 1; command: "canary:qualify"; candidate: CanaryCandidate; authority: CanaryAuthorityReference }
 
 export type MaintenanceCommand =
   | { command: "help" }

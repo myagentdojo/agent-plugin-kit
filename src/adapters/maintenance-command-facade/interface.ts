@@ -120,6 +120,15 @@ export type FacadeCorrelationSources = {
 
 export type MaintenanceCommandFacadeAssembly = {
   commands: MaintenanceCommands
+  /**
+   * Optional Maintenance-owned Wire Command binding. The Facade assembles
+   * argv and file JSON as unknown and never creates a capability-bearing
+   * Maintenance Command itself.
+   */
+  wireBinding?: (value: unknown) => Promise<
+    | { status: "bound"; command: MaintenanceCommand }
+    | { status: "refused"; code: string }
+  >
   diagnosticFactory?: () => Promise<DiagnosticAdapter | undefined>
   eventFactory?: () => Promise<EventAdapter | undefined>
   correlation?: FacadeCorrelationSources

@@ -19,6 +19,7 @@ import type {
   RetrySafety,
   StationId,
   TransactionState,
+  WireCommand,
 } from "./interface"
 import type { BranchStation, BranchStationMembership } from "./branch-stations"
 import {
@@ -28,6 +29,24 @@ import {
   stationSlugFor,
 } from "./branch-stations"
 import { commandVocabulary } from "./command-vocabulary"
+import {
+  payloadProductionRequestSchema,
+} from "../plugin-payload-production/serialized-values"
+import {
+  releaseCandidateApprovalSchema,
+  releaseMutationRequestSchema,
+  releaseRequestSchema,
+} from "../release-and-git-engine/serialized-values"
+import {
+  claudeTransitionApprovalSchema,
+  claudeWireRequestSchema,
+  codexTransitionApprovalSchema,
+  codexWireRequestSchema,
+} from "../harness-journeys/serialized-values"
+import {
+  canaryAuthorityReferenceSchema,
+  canaryCandidateSchema,
+} from "../canary-qualification/serialized-values"
 import {
   actionVocabulary,
   effectClassVocabulary,
@@ -376,6 +395,82 @@ const commandResultSchema = z.strictObject({
   agent: agentPayloadSchema,
   stderr: z.string(),
 }).superRefine(refineCommandResultValue)
+
+const wireEffectIdsSchema = z.array(z.string()).readonly()
+const repairArgvSchema = z.tuple([z.literal("repair")]).readonly()
+const repairApplyArgvSchema = z.tuple([z.literal("repair"), z.literal("--apply")]).readonly()
+
+/**
+ * The outer schema is intentionally discriminated by command, while
+ * `parseWireCommand` performs the schema-version gate before this union is
+ * evaluated. That makes an unknown outer version a Maintenance refusal before
+ * any owner-local nested schema can inspect its fragment.
+ */
+export const wireCommandSchema = z.discriminatedUnion("command", [
+  z.strictObject({ schemaVersion: z.literal(1), command: z.literal("help") }),
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    command: z.literal("payload:check"),
+    request: payloadProductionRequestSchema.extend({ mode: z.literal("check") }),
+  }),
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    command: z.literal("payload:materialize"),
+    request: payloadProductionRequestSchema.extend({ mode: z.literal("materialize") }),
+  }),
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    command: z.literal("payload:package"),
+    request: payloadProductionRequestSchema.extend({ mode: z.literal("package") }),
+  }),
+  z.strictObject({ schemaVersion: z.literal(1), command: z.literal("runtime:repair"), argv: repairArgvSchema }),
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    command: z.literal("runtime:repair-apply"),
+    argv: repairApplyArgvSchema,
+  }),
+  z.strictObject({ schemaVersion: z.literal(1), command: z.literal("release:inspect"), request: releaseRequestSchema }),
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    command: z.literal("release:apply"),
+    request: releaseMutationRequestSchema,
+    approval: releaseCandidateApprovalSchema,
+  }),
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    command: z.literal("harness:claude:inspect"),
+    request: claudeWireRequestSchema,
+  }),
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    command: z.literal("harness:claude:apply"),
+    request: claudeWireRequestSchema.extend({ expectedEffectIds: wireEffectIdsSchema }),
+    approval: claudeTransitionApprovalSchema,
+  }),
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    command: z.literal("harness:codex:inspect"),
+    request: codexWireRequestSchema,
+  }),
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    command: z.literal("harness:codex:apply"),
+    request: codexWireRequestSchema.extend({ expectedEffectIds: wireEffectIdsSchema }),
+    approval: codexTransitionApprovalSchema,
+  }),
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    command: z.literal("canary:inspect"),
+    candidate: canaryCandidateSchema,
+  }),
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    command: z.literal("canary:qualify"),
+    candidate: canaryCandidateSchema,
+    authority: canaryAuthorityReferenceSchema,
+  }),
+])
+
 export const maintenanceSuccessEnvelopeDataSchema = z.union([
   z.strictObject({
     contract_id: z.literal(maintenanceCommandContractId),
@@ -939,6 +1034,34 @@ export function parseMaintenancePreviewOutcome(value: unknown): MaintenancePrevi
 export function parseMaintenanceResultOutcome(value: unknown): MaintenanceResultOutcome | undefined {
   return parseValue(resultOutcomeSchema, value)
 }
+
+/**
+ * Parse one complete Maintenance Wire Command. The explicit descriptor check
+ * is the outer version boundary: nested validators are not consulted for an
+ * unsupported version. Owner-mapped refusal is intentionally represented by
+ * `undefined` here so callers can map it to their own stable refusal envelope
+ * without exposing raw Zod issues or input bytes.
+ */
+export function parseWireCommand(value: unknown): WireCommand | undefined {
+  if (!isPlainJsonTree(value) || typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined
+  }
+  const version = Object.getOwnPropertyDescriptor(value, "schemaVersion")
+  if (version === undefined || !(("value" in version) && version.value === 1)) return undefined
+  return parseValue(wireCommandSchema, value)
+}
+
+export function serializeWireCommand(value: WireCommand): string {
+  return serializeValue(wireCommandSchema, value)
+}
+
+type InferredWireCommand = z.infer<typeof wireCommandSchema>
+const wireCommandTypeChecks: [
+  InferredWireCommand extends WireCommand ? true : false,
+  WireCommand extends InferredWireCommand ? true : false,
+] = [true, true]
+
+void wireCommandTypeChecks
 
 export function serializeMaintenancePreviewOutcome(value: MaintenancePreviewOutcome): string {
   return serializeValue(previewOutcomeSchema, value)
