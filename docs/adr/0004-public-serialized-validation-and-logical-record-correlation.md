@@ -127,8 +127,9 @@ value, or public Implementation path.
   the compiler and not by review.
 - The equivalence assertion is evaluated with `exactOptionalPropertyTypes`
   enabled, so optional-key meaning is part of what it proves.
-- Zod 4 is the required major version. The exact version string is selected at
-  Implementation admission and pinned identically in every declaring manifest.
+- Zod `4.4.3` is pinned identically in the root and every declaring Owner
+  Manifest. Lifecycle-neutral Repository Verification enforces that agreement
+  without owning a mirrored contract transition.
 
 ### Optional keys and JSON round trip
 
@@ -137,11 +138,10 @@ value, or public Implementation path.
   the value `undefined`. A nullable key is always present and carries an
   explicit `null`. The existing Interfaces already use both spellings:
   `EvidenceLineage.release` is omissible; `EvidenceCell.observable` is
-  nullable. The current `NextAction.commandId?: MaintenanceCommand["command"]
-  | null` is a third form and is corrected at Implementation admission to the
-  always-present nullable spelling, matching Result Vocabulary projection.
-  Pinned literals that currently omit `commandId` are respecified in the same
-  Repository Qualification Contract checkpoint.
+  nullable. `NextAction.commandId` now uses the always-present nullable
+  spelling, `MaintenanceCommand["command"] | null`, matching Result Vocabulary
+  projection. The earlier optional-key correction and mirrored checkpoint are
+  acceptance history, not current work.
 - No Public Serialized Value carries `undefined` as a value at any depth. That
   rule is what makes `exactOptionalPropertyTypes` safe to enable without
   changing wire meaning.
