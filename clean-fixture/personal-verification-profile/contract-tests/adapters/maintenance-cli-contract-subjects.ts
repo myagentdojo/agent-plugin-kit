@@ -74,81 +74,31 @@ const productionEnvironmentFor = (root: string): Readonly<Record<string, string 
 }
 
 const productionOwnerProbeSource = `
-import { readFile } from "node:fs/promises"
+import { readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
 
 const [packageRoot, consumerRoot, candidatePath, authorityPath] = process.argv.slice(2)
 if (packageRoot === undefined || consumerRoot === undefined || candidatePath === undefined || authorityPath === undefined) {
   throw new Error("owner proof arguments are incomplete")
 }
-const moduleAt = async (relative) => import(pathToFileURL(join(packageRoot, relative)).href)
+const binary = join(consumerRoot, "node_modules/.bin/agent-plugin-kit")
 const candidate = JSON.parse(await readFile(candidatePath, "utf8"))
 const payload = { regularFiles: [".claude-plugin/plugin.json"], payloadSha256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
 const canaryCandidate = { identity: candidate, inertPayloadSha256: payload.payloadSha256 }
-const help = JSON.parse(await readFile(join(consumerRoot, "help.json"), "utf8"))
-const plugin = await moduleAt("src/modules/plugin-payload-production/serialized-values.ts")
-const release = await moduleAt("src/modules/release-and-git-engine/serialized-values.ts")
-const harness = await moduleAt("src/modules/harness-journeys/serialized-values.ts")
-const canary = await moduleAt("src/modules/canary-qualification/serialized-values.ts")
-const maintenance = await moduleAt("src/modules/maintenance-command-contract/serialized-values.ts")
-const qualification = await moduleAt("src/modules/qualification-evidence/serialized-values.ts")
-const qualificationInterface = await moduleAt("src/modules/qualification-evidence/interface.ts")
-const facade = await moduleAt("src/adapters/maintenance-command-facade/serialized-values.ts")
-const authorityAdapter = await moduleAt("src/modules/canary-qualification/adapters/protected-file-authority-source.ts")
-const binding = await moduleAt("src/modules/maintenance-command-contract/implementation/trusted-command-binding.ts")
-const parseOwners = {
-  "plugin-payload-production": plugin.parsePayloadProductionRequest({ repositoryRoot: "/fixture/plugin", mode: "check" }) !== undefined,
-  "release-and-git-engine": release.parseCandidateIdentity(candidate) !== undefined,
-  "harness-journeys": harness.parseClaudeWireRequest({ candidate, payload, profileIdentity: "clean-fixture" }) !== undefined,
-  "canary-qualification": canary.parseCanaryCandidate(canaryCandidate) !== undefined,
-  "qualification-evidence": qualification.parseVerificationProfile(qualificationInterface.VerificationProfile.personal) !== undefined,
-  "maintenance-command-facade": facade.validateFacadeSuccessEnvelope(help) !== undefined,
+const writeJson = async (name, value) => {
+  const path = join(consumerRoot, name)
+  await writeFile(path, JSON.stringify(value) + "\\n")
+  return path
 }
-const validatorExports = {
-  "plugin-payload-production": ["payloadProductionResultSchema"].filter((name) => Object.hasOwn(plugin, name)),
-  "release-and-git-engine": ["admissionRequestSchema", "admissionRefusalSchema", "packageObservationSchema", "releasePlanSchema", "releaseResultSchema"].filter((name) => Object.hasOwn(release, name)),
-  "harness-journeys": ["claudeInspectionSchema", "codexInspectionSchema", "claudeApplyResultSchema", "codexApplyResultSchema"].filter((name) => Object.hasOwn(harness, name)),
-  "canary-qualification": ["canaryAuthoritySourceRefusalSchema", "canaryPlanSchema", "canaryResultSchema"].filter((name) => Object.hasOwn(canary, name)),
-  "maintenance-command-contract": ["wireCommandSchema"].filter((name) => Object.hasOwn(maintenance, name)),
-}
-const steps = []
-const protectedSource = authorityAdapter.createProtectedFileAuthoritySource()
-const references = []
-const result = await binding.bindTrustedCommand({
-  schemaVersion: 1,
-  command: "canary:qualify",
-  candidate: canaryCandidate,
-  authority: authorityPath,
-}, {
-  admittedIdentity: candidate,
-  trace: (step) => steps.push(step),
-  canary: {
-    inspect: async (input) => ({ candidate: input.identity, target: "fixture", immutableReference: "refs/tags/v1.0.0" }),
-    acceptPlan: (plan) => release.candidateIdentitiesMatch(plan.candidate, candidate),
-    authoritySource: {
-      resolve: async (reference, identity, plan) => {
-        references.push({
-          reference,
-          identityMatches: release.candidateIdentitiesMatch(identity, candidate),
-          planMatches: release.candidateIdentitiesMatch(plan.candidate, candidate),
-        })
-        return protectedSource.resolve(reference, identity, plan)
-      },
-    },
-  },
-})
-let qualificationObserved = false
-let boundAuthorityOpaque = false
-if (result.status === "bound" && result.command.command === "canary:qualify") {
-  boundAuthorityOpaque = result.command.authority !== undefined && !Object.hasOwn(result.command, "schemaVersion")
-  qualificationObserved = true
-  steps.push("qualify")
-}
-const publicProcess = await (async () => {
-  const binary = join(packageRoot, "src/adapters/maintenance-command-facade/maintenance.ts")
+const payloadRequestPath = await writeJson("payload-request.json", { repositoryRoot: "/fixture/plugin", mode: "check" })
+const releaseRequestPath = await writeJson("release-request.json", { candidate, intent: "maintenance" })
+const claudeRequestPath = await writeJson("claude-request.json", { candidate, payload, profileIdentity: "clean-fixture" })
+const codexRequestPath = await writeJson("codex-request.json", { candidate, payload, profileIdentity: "clean-fixture", checkoutIdentity: "checkout-b" })
+const canaryCandidatePath = await writeJson("canary-candidate.json", canaryCandidate)
+
+const runPublic = async (args) => {
   const child = Bun.spawn({
-    cmd: ["bun", "--no-install", binary, "--run-id", "clean-fixture-authority", "canary", "qualify", "--candidate", candidatePath, "--authority", authorityPath],
+    cmd: ["bun", "--no-install", binary, ...args],
     cwd: consumerRoot,
     env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },
     stdin: "ignore",
@@ -157,33 +107,69 @@ const publicProcess = await (async () => {
   })
   const [exitCode, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
   return { exitCode, stdout, stderr }
-})()
+}
+const observe = (result) => ({
+  exitCode: result.exitCode,
+  stdoutEmpty: result.stdout === "",
+  maintenanceNotAdmitted: result.stderr.includes('"message":"Maintenance command is not admitted."'),
+  invalidInput: result.stderr.includes('"message":"Invalid maintenance command input."'),
+})
+const validCommands = {
+  payloadCheck: ["--run-id", "clean-fixture-payload", "maintenance", "payload", "check", "--request", payloadRequestPath],
+  releaseInspect: ["--run-id", "clean-fixture-release", "maintenance", "release", "inspect", "--request", releaseRequestPath],
+  harnessClaudeInspect: ["--run-id", "clean-fixture-claude", "maintenance", "harness", "claude", "inspect", "--request", claudeRequestPath],
+  harnessCodexInspect: ["--run-id", "clean-fixture-codex", "maintenance", "harness", "codex", "inspect", "--request", codexRequestPath],
+  canaryInspect: ["--run-id", "clean-fixture-canary", "maintenance", "canary", "inspect", "--candidate", canaryCandidatePath],
+  canaryQualify: ["--run-id", "clean-fixture-qualification", "maintenance", "canary", "qualify", "--candidate", canaryCandidatePath, "--authority", authorityPath],
+}
+const publicProcess = Object.fromEntries(await Promise.all(
+  Object.entries(validCommands).map(async ([label, args]) => [label, observe(await runPublic(args))]),
+))
+const invalidInput = observe(await runPublic(["--run-id", "clean-fixture-invalid", "maintenance", "payload", "check"]))
+const help = await runPublic(["--run-id", "clean-fixture-help", "--help"])
+const qualificationRuntime = await import("agent-plugin-kit/qualification-evidence")
+const qualificationResult = qualificationRuntime.qualificationEvidence.reduce({
+  candidate,
+  profile: qualificationRuntime.VerificationProfile.personal,
+  cells: [],
+})
+const qualification = qualificationResult.status === "refused"
+  ? { status: qualificationResult.status, code: qualificationResult.refusal.code }
+  : { status: qualificationResult.status, code: null }
 console.log(JSON.stringify({
-  parseOwners: { ...parseOwners, "maintenance-command-contract": result.status === "bound" },
-  validatorExports,
-  references,
-  steps,
-  boundAuthorityOpaque,
-  qualificationObserved,
-  publicProcess: {
-    exitCode: publicProcess.exitCode,
-    stdoutEmpty: publicProcess.stdout === "",
-    hostileContentAbsent: !publicProcess.stderr.includes("authority-file-must-not-be-read"),
+  parseOwners: {
+    "plugin-payload-production": publicProcess.payloadCheck.maintenanceNotAdmitted,
+    "release-and-git-engine": publicProcess.releaseInspect.maintenanceNotAdmitted,
+    "harness-journeys": publicProcess.harnessClaudeInspect.maintenanceNotAdmitted && publicProcess.harnessCodexInspect.maintenanceNotAdmitted,
+    "canary-qualification": publicProcess.canaryInspect.maintenanceNotAdmitted,
+    "qualification-evidence": qualification.status === "refused" && qualification.code === "zero-cell",
+    "maintenance-command-facade": help.exitCode === 0 && help.stdout !== "" && help.stderr === "",
+    "maintenance-command-contract": publicProcess.canaryQualify.maintenanceNotAdmitted,
   },
+  publicProcess: { ...publicProcess, help: observe(help) },
+  invalidInput,
+  qualification,
 }))
 `
 
 export type ProductionOwnerProof = Readonly<{
   parseOwners: Readonly<Record<string, boolean>>
-  validatorExports: Readonly<Record<string, readonly string[]>>
   installedPrivateValidatorPaths: readonly string[]
   publicValidatorExports: readonly string[]
   zodVersions: Readonly<Record<string, string>>
-  references: readonly Readonly<{ reference: string; identityMatches: boolean; planMatches: boolean }>[]
-  steps: readonly string[]
-  boundAuthorityOpaque: boolean
-  qualificationObserved: boolean
-  publicProcess: Readonly<{ exitCode: number; stdoutEmpty: boolean; hostileContentAbsent: boolean }>
+  publicProcess: Readonly<Record<string, Readonly<{
+    exitCode: number
+    stdoutEmpty: boolean
+    maintenanceNotAdmitted: boolean
+    invalidInput: boolean
+  }>>>
+  invalidInput: Readonly<{
+    exitCode: number
+    stdoutEmpty: boolean
+    maintenanceNotAdmitted: boolean
+    invalidInput: boolean
+  }>
+  qualification: Readonly<{ status: string; code: string | null }>
 }>
 
 let productionOwnerProofPromise: Promise<ProductionOwnerProof> | undefined
@@ -306,7 +292,7 @@ const runOwnerProofProbe = async (
   const authorityPath = join(consumerRoot, "authority.txt")
   writeFileSync(candidatePath, `${JSON.stringify(candidate)}\n`, { mode: 0o600 })
   writeFileSync(authorityPath, "authority-file-must-not-be-read\n", { mode: 0o600 })
-  const binary = join(packageRoot, "src/adapters/maintenance-command-facade/maintenance.ts")
+  const binary = join(consumerRoot, "node_modules/.bin/agent-plugin-kit")
   const help = await runChild(["bun", "--no-install", binary, "--run-id", "clean-fixture-help", "--help"], consumerRoot, environment)
   if (help.exitCode !== 0 || help.stderr !== "") throw new Error("owner proof help process failed")
   writeFileSync(join(consumerRoot, "help.json"), help.stdout, { mode: 0o600 })

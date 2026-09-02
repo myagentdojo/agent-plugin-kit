@@ -36,6 +36,7 @@ import {
 export type MaintenanceContractHarness = {
   readonly commands: MaintenanceCommands
   readonly applyLedgers: Readonly<Record<string, MaintenanceApplyRequest[]>>
+  readonly executionSteps: readonly string[]
   readonly runtimeSpawnLedger: RuntimeSpawnRecord[]
   readonly ownerInspectionLedger: readonly unknown[]
   /**
@@ -53,6 +54,7 @@ export type MaintenanceContractHarness = {
 // fallow-ignore-next-line unused-type -- exported test collaborator contract is intentionally used by the harness annotation
 export type MaintenanceTestCollaborators = {
   recordApply(owner: string, request: MaintenanceApplyRequest): void
+  recordStep(step: string): void
   invokeRuntime(argv: readonly string[]): RuntimeCustodyResult
   readDurableTargets(): Readonly<Record<string, string>>
   mutateDurableTarget(target: string, value: string): void
@@ -102,6 +104,7 @@ export function createMaintenanceContractHarness(
     codex: [],
     canary: [],
   }
+  const executionSteps: string[] = []
   const runtimeSpawnLedger: RuntimeSpawnRecord[] = []
   const ownerInspectionLedger: unknown[] = []
   const inspectionInputLedger: MaintenanceInspectionInput[] = []
@@ -120,6 +123,9 @@ export function createMaintenanceContractHarness(
       const ledger = applyLedgers[owner]
       if (!ledger) throw new Error(`unknown test collaborator ${owner}`)
       ledger.push(request)
+    },
+    recordStep(step) {
+      executionSteps.push(step)
     },
     invokeRuntime(argv) {
       const result = runtimeResults.shift()
@@ -205,6 +211,7 @@ export function createMaintenanceContractHarness(
       return { candidate: candidate.identity, target: "fixture", immutableReference: "fixture" }
     },
     async qualify(candidate, _authority) {
+      testCollaborators.recordStep("qualify")
       testCollaborators.recordApply("canary", { command: "canary:qualify", candidate, authority: _authority })
       return { candidate: candidate.identity, hostedRunId: "fixture", installedPayloadSha256: candidate.inertPayloadSha256 }
     },
@@ -218,6 +225,7 @@ export function createMaintenanceContractHarness(
   return {
     commands,
     applyLedgers,
+    executionSteps,
     runtimeSpawnLedger,
     ownerInspectionLedger,
     inspectionInputLedger,

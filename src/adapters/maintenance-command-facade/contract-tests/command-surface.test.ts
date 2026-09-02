@@ -223,6 +223,19 @@ test("non-help argv stays a usage refusal without later-owner dispatch", async (
     "invalid argv must fail closed without discarding an admitted run ID",
   )
 })
+test("stdin without a named input option is rejected by the Facade", async () => {
+  const recording = createMaintenanceCommandsRecordingAdapter()
+  const actual = await createMaintenanceCommandFacade({ commands: recording.commands }).invoke({
+    argv: ["maintenance", "payload", "check"],
+    environment: {},
+    stdin: '{"repositoryRoot":"/fixture/plugin","mode":"check"}',
+  })
+  expect(actual.stdout).toBe("")
+  expect(actual.exitCode).toBe(2)
+  expect(actual.stderr).toContain('"message":"Invalid maintenance command input."')
+  expect(actual.stderr).not.toContain('"message":"Maintenance command is not admitted."')
+  expect(recording.calls).toEqual([])
+})
 test("examples use fixed run IDs and safe placeholders", async () => {
   expect(commandVocabulary.every(({ example }) => example.includes("contract-help-literal"))).toBe(true)
   absent((await observeCommandSurface())?.parsedRoutes, commandVocabulary.map(({ route }) => route.join(" ")), "the facade must render deterministic safe examples")

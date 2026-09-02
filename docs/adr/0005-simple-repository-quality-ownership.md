@@ -81,6 +81,13 @@ finding, incomplete type-aware evidence, an invalid comparison base, resolved
 zone order, accepted and refused edges, reachable unzoned source, and
 suppression hygiene.
 
+Current-stage product proof remains separate from Repository Verification.
+`tooling/current-stage-test-runner.ts` owns the product Contract Test inventory,
+the exact per-file and aggregate expected counts, JUnit parsing, and process
+outcome integrity. Repository Verification does not parse JUnit or mirror those
+counts; reducing those checks would weaken product proof and is outside this
+decision.
+
 ## Clean Fixture Boundary
 
 Clean Fixture remains independent product and public-process proof. Its

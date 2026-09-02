@@ -13,6 +13,7 @@ import {
 } from "../serialized-values"
 import type { WireCommand } from "../interface"
 import { mutatingRequests } from "./fixtures/literal-command-results"
+import { createMaintenanceContractHarness } from "./adapters/mutation-recording-module-adapter"
 
 const candidate = mutatingRequests.release.request.candidate
 const admittedIdentity = mutatingRequests.claude.request.identity
@@ -207,4 +208,32 @@ test("Canary binding refuses plan acceptance or source resolution without using 
     },
   })
   expect(refusedBySource).toEqual({ status: "refused", code: "authority-plan-mismatch" })
+})
+
+test("bound Canary qualification records terminal qualify through the owner collaborator", async () => {
+  const bound = await bindTrustedCommand(canaryQualify, {
+    admittedIdentity,
+    canary: {
+      async inspect(input) {
+        return { candidate: input.identity, target: "fixture", immutableReference: "fixture" }
+      },
+      acceptPlan: () => true,
+      authoritySource: {
+        async resolve() {
+          return { status: "resolved" as const, authority: Object.create(null) as never }
+        },
+      },
+    },
+  })
+  expect(bound.status).toBe("bound")
+  if (bound.status !== "bound" || bound.command.command !== "canary:qualify") return
+
+  const harness = createMaintenanceContractHarness()
+  expect(await harness.inspect(bound.command)).toMatchObject({ status: "ok" })
+  expect(await harness.apply(bound.command)).toMatchObject({
+    status: "ok",
+    value: { command: "canary:qualify" },
+  })
+  expect(harness.executionSteps).toEqual(["qualify"])
+  expect(harness.applyLedgers.canary).toHaveLength(1)
 })

@@ -52,8 +52,11 @@ bun run test:current-stage
 ```
 
 It exercises the current product Contract Tests directly. It is a complete
-green proof for the accepted current-stage behaviour; repository tooling does
-not parse or mirror its counts.
+green proof for the accepted current-stage behaviour. The current-stage
+selector at `tooling/current-stage-test-runner.ts` owns its product test-file
+inventory, pinned per-file and aggregate counts, JUnit parsing, and process
+outcome integrity. Repository Verification does not parse JUnit or mirror
+those product counts.
 
 ## Run one owner's Contract Tests
 

@@ -298,21 +298,6 @@ const invalidMaintenanceInput = (): ParseFailure => ({
 	message: "Invalid maintenance command input.",
 })
 
-const stdinWireCandidateFor = (
-	descriptor: CommandDescriptor,
-	stdin: string,
-): unknown | ParseFailure => {
-	const parsed = parseJsonText(stdin)
-	if (parsed === undefined) return invalidMaintenanceInput()
-	if (descriptor.command === "canary:inspect") {
-		return { schemaVersion: 1, command: descriptor.command, candidate: parsed }
-	}
-	if (descriptor.command === "canary:qualify") {
-		return { schemaVersion: 1, command: descriptor.command, candidate: parsed, authority: "" }
-	}
-	return { schemaVersion: 1, command: descriptor.command, request: parsed }
-}
-
 const jsonInputFor = async (
 	values: Readonly<Record<string, unknown>>,
 	option: string,
@@ -413,10 +398,7 @@ const wireInputFailureFor = (
 	stdin: string,
 ): ParseFailure | undefined => {
 	if (!descriptor.stdin && stdin !== "") return invalidMaintenanceInput()
-	const missingInput = !requiredInputPresent(descriptor, values)
-	if (missingInput && (!descriptor.stdin || stdin === "" || stdin === "present")) {
-		return invalidMaintenanceInput()
-	}
+	if (!requiredInputPresent(descriptor, values)) return invalidMaintenanceInput()
 	return undefined
 }
 
@@ -429,9 +411,6 @@ const wireCandidateFor = async (
 	if (isParseFailure(values)) return values
 	const inputFailure = wireInputFailureFor(descriptor, values, stdin)
 	if (inputFailure !== undefined) return inputFailure
-	if (descriptor.stdin && Object.keys(values).length === 0) {
-		return stdinWireCandidateFor(descriptor, stdin)
-	}
 	return fileWireCandidateFor(descriptor, values, stdin)
 }
 
