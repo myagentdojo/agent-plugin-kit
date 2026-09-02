@@ -94,8 +94,9 @@ const facade = createMaintenanceCommandFacade({
         },
       }),
 })
-const requestReadsStdin = (argv: readonly string[]): boolean =>
-  argv.some((token, index) => token === "--request" && argv[index + 1] === "-")
+const stdinInputOptions = new Set(["--request", "--approval", "--candidate", "--authority"])
+const explicitInputReadsStdin = (argv: readonly string[]): boolean =>
+  argv.some((token, index) => stdinInputOptions.has(token) && argv[index + 1] === "-")
 
 const readCompleteStdin = async (): Promise<string> => {
   const decoder = new TextDecoder()
@@ -108,7 +109,7 @@ const readCompleteStdin = async (): Promise<string> => {
 
 const detectStdin = async (argv: readonly string[]): Promise<string> => {
   if (process.stdin.isTTY) return ""
-  if (requestReadsStdin(argv)) return readCompleteStdin()
+  if (explicitInputReadsStdin(argv)) return readCompleteStdin()
   for await (const chunk of Bun.stdin.stream()) {
     if (chunk.byteLength > 0) return "present"
   }

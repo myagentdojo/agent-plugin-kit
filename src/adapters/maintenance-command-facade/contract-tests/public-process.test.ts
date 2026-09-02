@@ -150,6 +150,46 @@ test("explicit request stdin rejects more than one JSON value", async () => {
   expect(actual.exitCode).toBe(2)
   expect(actual.stderr).toContain('"message":"Invalid maintenance command input."')
 })
+test("candidate, approval, and authority inputs each accept one explicit stdin value", async () => {
+  const candidate = mutatingRequests.canary.candidate
+  const candidateObservation = await invokePublicProcess(
+    ["--run-id", fixedRunId, "maintenance", "canary", "inspect", "--candidate", "-"],
+    {},
+    import.meta.dir,
+    `${JSON.stringify(candidate)}\n`,
+  )
+  const approvalObservation = await withJsonFile(mutatingRequests.release.request, (requestPath) =>
+    invokePublicProcess(
+      ["--run-id", fixedRunId, "maintenance", "release", "apply", "--request", requestPath, "--approval", "-"],
+      {},
+      import.meta.dir,
+      `${JSON.stringify(mutatingRequests.release.approval)}\n`,
+    ))
+  const authorityObservation = await withJsonFile(candidate, (candidatePath) =>
+    invokePublicProcess(
+      ["--run-id", fixedRunId, "maintenance", "canary", "qualify", "--candidate", candidatePath, "--authority", "-"],
+      {},
+      import.meta.dir,
+      '"/protected/authority"\n',
+    ))
+  for (const observation of [candidateObservation, approvalObservation, authorityObservation]) {
+    expect(observation.stdout).toBe("")
+    expect(observation.exitCode).toBe(2)
+    expect(observation.stderr).toContain('"message":"Maintenance command is not admitted."')
+    expect(observation.stderr).not.toContain('"message":"Invalid maintenance command input."')
+  }
+})
+test("at most one explicit input may select stdin", async () => {
+  const actual = await invokePublicProcess(
+    ["--run-id", fixedRunId, "maintenance", "release", "apply", "--request", "-", "--approval", "-"],
+    {},
+    import.meta.dir,
+    `${JSON.stringify(mutatingRequests.release.request)}\n`,
+  )
+  expect(actual.stdout).toBe("")
+  expect(actual.exitCode).toBe(2)
+  expect(actual.stderr).toContain('"message":"Invalid maintenance command input."')
+})
 test("root executable has Bun shebang, executable mode, and optional event configuration", async () => {
   const mode = (await stat(resolve(import.meta.dir, "../maintenance.ts"))).mode & 0o111
   expect(mode).not.toBe(0)

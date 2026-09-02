@@ -359,6 +359,19 @@ const candidateWireCandidateFor = async (
 		: { schemaVersion: 1, command, candidate }
 }
 
+const authorityReferenceFor = (
+	values: Readonly<Record<string, unknown>>,
+	stdin: string,
+): string | ParseFailure => {
+	const reference = values["--authority"]
+	if (typeof reference !== "string") return invalidMaintenanceInput()
+	if (reference !== "-") return reference
+	const parsed = parseJsonText(stdin)
+	return typeof parsed === "string" && parsed !== "-" && parsed.length > 0
+		? parsed
+		: invalidMaintenanceInput()
+}
+
 const fixedWireCandidateFor = (
 	command: CommandDescriptor["command"],
 ): Readonly<Record<string, unknown>> => {
@@ -377,9 +390,9 @@ const fileWireCandidateFor = async (
 	if (descriptor.command === "canary:qualify") {
 		const candidate = await jsonInputFor(values, "--candidate", stdin)
 		if (isParseFailure(candidate)) return candidate
-		const authority = values["--authority"]
-		return typeof authority !== "string" || authority === "-"
-			? invalidMaintenanceInput()
+		const authority = authorityReferenceFor(values, stdin)
+		return isParseFailure(authority)
+			? authority
 			: { schemaVersion: 1, command: descriptor.command, candidate, authority }
 	}
 	if (descriptor.command === "canary:inspect") {

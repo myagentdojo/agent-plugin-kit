@@ -5,10 +5,10 @@ dependency-free Admission Bootstrap.
 
 The repository currently contains its accepted domain and Repository Topology,
 the Source Tree Interface skeleton, and the complete current-stage Contract
-Test scaffold. Admission Bootstrap and Qualification Evidence are the current
-Source Tree Implementations. Every other Deep Module Implementation remains
-absent. The Maintenance Command Facade admits only deterministic help and
-usage-refusal behaviour; apply and inspect execution remain absent.
+Test scaffold. Admission Bootstrap, Qualification Evidence, and the Maintenance
+Command Contract are the current Deep Module Implementations. The Maintenance
+Command Facade also implements deterministic parsing, validation, help, and
+usage-refusal behaviour. Other apply and inspect execution remains absent.
 
 ## Start here
 

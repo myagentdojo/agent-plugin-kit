@@ -66,14 +66,14 @@ export const expectedSubpathTypeExports = {
   "./maintenance-command-contract": [
     "EffectClass", "TransactionState", "RetrySafety", "MaintenanceAction", "FailureClass",
     "MaintenanceErrorFailureClass", "NextAction", "MaintenanceApplyRequest",
-    "MutatingMaintenanceCommand", "ClaudeWireRequest", "CodexWireRequest", "WireCommand",
+    "MutatingMaintenanceCommand", "WireCommand",
     "MaintenanceCommand", "ResultCode", "StationId",
     "MaintenanceError", "MaintenanceOutcome", "JsonValue", "AgentPayload", "CommandPreview",
     "CommandResult", "MaintenanceSuccessEnvelopeData", "MaintenanceErrorEnvelopeDataCommon",
     "MaintenanceErrorEnvelopeData", "MaintenanceErrorEnvelopeProjection", "MaintenanceCommands",
   ],
   "./harness-journeys": [
-    "ClaudeRequest", "CodexRequest", "ClaudeInspection", "CodexInspection",
+    "ClaudeRequest", "CodexRequest", "ClaudeWireRequest", "CodexWireRequest", "ClaudeInspection", "CodexInspection",
     "ClaudeTransitionRequest", "CodexTransitionRequest", "ClaudeTransitionApproval",
     "CodexTransitionApproval", "ClaudeApplyResult", "CodexApplyResult", "HarnessJourneys",
   ],

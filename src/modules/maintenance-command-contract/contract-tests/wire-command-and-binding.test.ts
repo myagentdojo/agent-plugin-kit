@@ -65,10 +65,16 @@ test("Wire Command ingress is strict, capability-negative, and owner-mapped", ()
 
 test("nested owner validators are composed exactly once", () => {
   const cases: readonly [WireCommand, readonly string[]][] = [
-    [payloadCheckWire, ["plugin-payload-production.request"]],
+    [wireCommands[1]!, ["plugin-payload-production.request"]],
+    [wireCommands[2]!, ["plugin-payload-production.request"]],
+    [wireCommands[3]!, ["plugin-payload-production.request"]],
+    [wireCommands[6]!, ["release-and-git-engine.request"]],
     [releaseApplyWire, ["release-and-git-engine.request", "release-and-git-engine.approval"]],
+    [wireCommands[8]!, ["harness-journeys.request"]],
     [claudeApplyWire, ["harness-journeys.request", "harness-journeys.approval"]],
+    [wireCommands[10]!, ["harness-journeys.request"]],
     [codexApplyWire, ["harness-journeys.request", "harness-journeys.approval"]],
+    [wireCommands[12]!, ["canary-qualification.candidate"]],
     [canaryQualify, ["canary-qualification.candidate", "canary-qualification.authority"]],
   ]
   for (const [command, expected] of cases) {

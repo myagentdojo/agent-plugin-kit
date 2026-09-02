@@ -57,9 +57,14 @@ Manifest. Focused pinned-version canaries protect this configuration.
 
 ## Changed-Code Quality
 
-Fallow runs directly. The repository config requires complete type-aware
-evidence and promotes every applicable warn-default rule to `error`, so the
-native process exit is the gate. Its ordered zones classify the Source Tree,
+Fallow runs directly and promotes every applicable warn-default rule to
+`error`. Fallow 3.19.0 has a fixed 40-item evidence-output ceiling for its
+project-wide `type-coupling` query, so the repository runs type-aware analysis
+in best-effort mode and pipes the native JSON through one inline, fail-closed
+predicate. The predicate accepts only that exact truncated `type-coupling`
+shape when every TypeScript project is complete with zero blocking diagnostics;
+it rejects every other partial or unavailable query and always re-emits the
+unchanged native report. Its ordered zones classify the Source Tree,
 Clean Fixture, and Repository Quality Tooling. Every Module Interface, private
 production lane, Contract Test lane, and Adapter is explicit. Directory-wide
 auto-discovery is intentionally absent: it would silently grant a public
@@ -70,10 +75,11 @@ unzoned and fails closed until this decision is updated. Explicit rules admit
 only accepted value or type-only edges. Reachable source coverage and
 reasoned, non-stale suppressions fail closed.
 
-The repository does not parse or normalize Fallow JSON. Pinned-version tests
-prove a promoted finding, incomplete type-aware evidence, an invalid comparison
-base, resolved zone order, accepted and refused edges, reachable unzoned
-source, and suppression hygiene.
+The repository does not normalize Fallow JSON or maintain a Fallow helper.
+Pinned-version tests prove the inline compatibility predicate, a promoted
+finding, incomplete type-aware evidence, an invalid comparison base, resolved
+zone order, accepted and refused edges, reachable unzoned source, and
+suppression hygiene.
 
 ## Clean Fixture Boundary
 
