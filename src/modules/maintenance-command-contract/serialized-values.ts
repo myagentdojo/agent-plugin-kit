@@ -400,28 +400,60 @@ const wireEffectIdsSchema = z.array(z.string()).readonly()
 const repairArgvSchema = z.tuple([z.literal("repair")]).readonly()
 const repairApplyArgvSchema = z.tuple([z.literal("repair"), z.literal("--apply")]).readonly()
 
+export type WireCommandValidationOwner =
+  | "plugin-payload-production.request"
+  | "release-and-git-engine.request"
+  | "release-and-git-engine.approval"
+  | "harness-journeys.request"
+  | "harness-journeys.approval"
+  | "canary-qualification.candidate"
+  | "canary-qualification.authority"
+
+export type WireCommandValidationTrace = (owner: WireCommandValidationOwner) => void
+
+const observedNestedSchema = <T>(
+  schema: z.ZodType<T>,
+  owner: WireCommandValidationOwner,
+  trace: WireCommandValidationTrace | undefined,
+): z.ZodType<T> => z.preprocess((value) => {
+  trace?.(owner)
+  return value
+}, schema)
+
 /**
  * The outer schema is intentionally discriminated by command, while
  * `parseWireCommand` performs the schema-version gate before this union is
  * evaluated. That makes an unknown outer version a Maintenance refusal before
  * any owner-local nested schema can inspect its fragment.
  */
-const wireCommandSchema = z.discriminatedUnion("command", [
+const wireCommandSchemaFor = (trace?: WireCommandValidationTrace) => z.discriminatedUnion("command", [
   z.strictObject({ schemaVersion: z.literal(1), command: z.literal("help") }),
   z.strictObject({
     schemaVersion: z.literal(1),
     command: z.literal("payload:check"),
-    request: payloadProductionRequestSchema.extend({ mode: z.literal("check") }),
+    request: observedNestedSchema(
+      payloadProductionRequestSchema.extend({ mode: z.literal("check") }),
+      "plugin-payload-production.request",
+      trace,
+    ),
   }),
   z.strictObject({
     schemaVersion: z.literal(1),
     command: z.literal("payload:materialize"),
-    request: payloadProductionRequestSchema.extend({ mode: z.literal("materialize") }),
+    request: observedNestedSchema(
+      payloadProductionRequestSchema.extend({ mode: z.literal("materialize") }),
+      "plugin-payload-production.request",
+      trace,
+    ),
   }),
   z.strictObject({
     schemaVersion: z.literal(1),
     command: z.literal("payload:package"),
-    request: payloadProductionRequestSchema.extend({ mode: z.literal("package") }),
+    request: observedNestedSchema(
+      payloadProductionRequestSchema.extend({ mode: z.literal("package") }),
+      "plugin-payload-production.request",
+      trace,
+    ),
   }),
   z.strictObject({ schemaVersion: z.literal(1), command: z.literal("runtime:repair"), argv: repairArgvSchema }),
   z.strictObject({
@@ -429,47 +461,61 @@ const wireCommandSchema = z.discriminatedUnion("command", [
     command: z.literal("runtime:repair-apply"),
     argv: repairApplyArgvSchema,
   }),
-  z.strictObject({ schemaVersion: z.literal(1), command: z.literal("release:inspect"), request: releaseRequestSchema }),
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    command: z.literal("release:inspect"),
+    request: observedNestedSchema(releaseRequestSchema, "release-and-git-engine.request", trace),
+  }),
   z.strictObject({
     schemaVersion: z.literal(1),
     command: z.literal("release:apply"),
-    request: releaseMutationRequestSchema,
-    approval: releaseCandidateApprovalSchema,
+    request: observedNestedSchema(releaseMutationRequestSchema, "release-and-git-engine.request", trace),
+    approval: observedNestedSchema(releaseCandidateApprovalSchema, "release-and-git-engine.approval", trace),
   }),
   z.strictObject({
     schemaVersion: z.literal(1),
     command: z.literal("harness:claude:inspect"),
-    request: claudeWireRequestSchema,
+    request: observedNestedSchema(claudeWireRequestSchema, "harness-journeys.request", trace),
   }),
   z.strictObject({
     schemaVersion: z.literal(1),
     command: z.literal("harness:claude:apply"),
-    request: claudeWireRequestSchema.extend({ expectedEffectIds: wireEffectIdsSchema }),
-    approval: claudeTransitionApprovalSchema,
+    request: observedNestedSchema(
+      claudeWireRequestSchema.extend({ expectedEffectIds: wireEffectIdsSchema }),
+      "harness-journeys.request",
+      trace,
+    ),
+    approval: observedNestedSchema(claudeTransitionApprovalSchema, "harness-journeys.approval", trace),
   }),
   z.strictObject({
     schemaVersion: z.literal(1),
     command: z.literal("harness:codex:inspect"),
-    request: codexWireRequestSchema,
+    request: observedNestedSchema(codexWireRequestSchema, "harness-journeys.request", trace),
   }),
   z.strictObject({
     schemaVersion: z.literal(1),
     command: z.literal("harness:codex:apply"),
-    request: codexWireRequestSchema.extend({ expectedEffectIds: wireEffectIdsSchema }),
-    approval: codexTransitionApprovalSchema,
+    request: observedNestedSchema(
+      codexWireRequestSchema.extend({ expectedEffectIds: wireEffectIdsSchema }),
+      "harness-journeys.request",
+      trace,
+    ),
+    approval: observedNestedSchema(codexTransitionApprovalSchema, "harness-journeys.approval", trace),
   }),
   z.strictObject({
     schemaVersion: z.literal(1),
     command: z.literal("canary:inspect"),
-    candidate: canaryCandidateSchema,
+    candidate: observedNestedSchema(canaryCandidateSchema, "canary-qualification.candidate", trace),
   }),
   z.strictObject({
     schemaVersion: z.literal(1),
     command: z.literal("canary:qualify"),
-    candidate: canaryCandidateSchema,
-    authority: canaryAuthorityReferenceSchema,
+    candidate: observedNestedSchema(canaryCandidateSchema, "canary-qualification.candidate", trace),
+    authority: observedNestedSchema(canaryAuthorityReferenceSchema, "canary-qualification.authority", trace),
   }),
 ])
+
+const wireCommandSchema = wireCommandSchemaFor()
 
 export const maintenanceSuccessEnvelopeDataSchema = z.union([
   z.strictObject({
@@ -1043,13 +1089,16 @@ export function parseMaintenanceResultOutcome(value: unknown): MaintenanceResult
  * `undefined` here so callers can map it to their own stable refusal envelope
  * without exposing raw Zod issues or input bytes.
  */
-export function parseWireCommand(value: unknown): WireCommand | undefined {
+export function parseWireCommand(
+  value: unknown,
+  trace?: WireCommandValidationTrace,
+): WireCommand | undefined {
   if (!isPlainJsonTree(value) || typeof value !== "object" || value === null || Array.isArray(value)) {
     return undefined
   }
   const version = Object.getOwnPropertyDescriptor(value, "schemaVersion")
   if (version === undefined || !(("value" in version) && version.value === 1)) return undefined
-  return parseValue(wireCommandSchema, value)
+  return parseValue(trace === undefined ? wireCommandSchema : wireCommandSchemaFor(trace), value)
 }
 
 export function serializeWireCommand(value: WireCommand): string {

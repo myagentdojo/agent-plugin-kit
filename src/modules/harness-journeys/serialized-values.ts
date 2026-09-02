@@ -1,26 +1,16 @@
 import { z } from "zod"
 import type {
   ClaudeApplyResult,
+  ClaudeWireRequest,
   ClaudeInspection,
   ClaudeTransitionApproval,
   CodexApplyResult,
+  CodexWireRequest,
   CodexInspection,
   CodexTransitionApproval,
 } from "./interface"
-import type { CandidateIdentity } from "../release-and-git-engine/interface"
-import type { PreparedPluginPayload } from "../plugin-payload-production/interface"
 import { candidateIdentitySchema } from "../release-and-git-engine/serialized-values"
 import { preparedPluginPayloadSchema } from "../plugin-payload-production/serialized-values"
-
-export type ClaudeWireRequest = {
-  candidate: CandidateIdentity
-  payload: PreparedPluginPayload
-  profileIdentity: string
-}
-
-export type CodexWireRequest = ClaudeWireRequest & {
-  checkoutIdentity: string
-}
 
 const sha256Schema = z.templateLiteral(["sha256:", z.string()])
 const effectIdsSchema = z.array(z.string()).readonly()
@@ -176,6 +166,8 @@ export const serializeClaudeApplyResult = (value: ClaudeApplyResult): string =>
 export const serializeCodexApplyResult = (value: CodexApplyResult): string =>
   serializeValue(codexApplyResultSchema, value)
 
+type InferredClaudeWireRequest = z.infer<typeof claudeWireRequestSchema>
+type InferredCodexWireRequest = z.infer<typeof codexWireRequestSchema>
 type InferredClaudeInspection = z.infer<typeof claudeInspectionSchema>
 type InferredCodexInspection = z.infer<typeof codexInspectionSchema>
 type InferredClaudeTransitionApproval = z.infer<typeof claudeTransitionApprovalSchema>
@@ -184,6 +176,10 @@ type InferredClaudeApplyResult = z.infer<typeof claudeApplyResultSchema>
 type InferredCodexApplyResult = z.infer<typeof codexApplyResultSchema>
 
 const bidirectionalTypeChecks: [
+  InferredClaudeWireRequest extends ClaudeWireRequest ? true : false,
+  ClaudeWireRequest extends InferredClaudeWireRequest ? true : false,
+  InferredCodexWireRequest extends CodexWireRequest ? true : false,
+  CodexWireRequest extends InferredCodexWireRequest ? true : false,
   InferredClaudeInspection extends ClaudeInspection ? true : false,
   ClaudeInspection extends InferredClaudeInspection ? true : false,
   InferredCodexInspection extends CodexInspection ? true : false,
@@ -196,6 +192,9 @@ const bidirectionalTypeChecks: [
   ClaudeApplyResult extends InferredClaudeApplyResult ? true : false,
   InferredCodexApplyResult extends CodexApplyResult ? true : false,
   CodexApplyResult extends InferredCodexApplyResult ? true : false,
-] = [true, true, true, true, true, true, true, true, true, true, true, true]
+] = [
+  true, true, true, true, true, true, true, true, true, true, true, true,
+  true, true, true, true,
+]
 
 void bidirectionalTypeChecks

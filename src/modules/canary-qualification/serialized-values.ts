@@ -115,12 +115,15 @@ export const serializeCanaryPlan = (value: CanaryPlan): string =>
 export const serializeCanaryResult = (value: CanaryResult): string =>
   serializeValue(canaryResultSchema, value)
 
+type InferredCanaryAuthorityReference = z.infer<typeof canaryAuthorityReferenceSchema>
 type InferredCanaryAuthoritySourceRefusal = z.infer<typeof canaryAuthoritySourceRefusalSchema>
 type InferredCanaryCandidate = z.infer<typeof canaryCandidateSchema>
 type InferredCanaryPlan = z.infer<typeof canaryPlanSchema>
 type InferredCanaryResult = z.infer<typeof canaryResultSchema>
 
 const bidirectionalTypeChecks: [
+  InferredCanaryAuthorityReference extends CanaryAuthorityReference ? true : false,
+  CanaryAuthorityReference extends InferredCanaryAuthorityReference ? true : false,
   InferredCanaryAuthoritySourceRefusal extends CanaryAuthoritySourceRefusal ? true : false,
   CanaryAuthoritySourceRefusal extends InferredCanaryAuthoritySourceRefusal ? true : false,
   InferredCanaryCandidate extends CanaryCandidate ? true : false,
@@ -129,6 +132,6 @@ const bidirectionalTypeChecks: [
   CanaryPlan extends InferredCanaryPlan ? true : false,
   InferredCanaryResult extends CanaryResult ? true : false,
   CanaryResult extends InferredCanaryResult ? true : false,
-] = [true, true, true, true, true, true, true, true]
+] = [true, true, true, true, true, true, true, true, true, true]
 
 void bidirectionalTypeChecks

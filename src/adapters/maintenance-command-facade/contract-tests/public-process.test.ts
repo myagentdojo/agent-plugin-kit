@@ -116,6 +116,40 @@ test("the public process refuses stdin without waiting for the producer to close
     openStdin,
   )
 })
+test("the real public process parses one request JSON value from explicit stdin", async () => {
+  const actual = await invokePublicProcess(
+    ["--run-id", fixedRunId, "maintenance", "payload", "check", "--request", "-"],
+    {},
+    import.meta.dir,
+    '{"repositoryRoot":"/fixture/plugin","mode":"check"}\n',
+  )
+  expect(actual.stdout).toBe("")
+  expect(actual.exitCode).toBe(2)
+  expect(actual.stderr).toContain('"message":"Maintenance command is not admitted."')
+  expect(actual.stderr).not.toContain('"message":"Invalid maintenance command input."')
+})
+test("explicit request stdin rejects malformed JSON", async () => {
+  const actual = await invokePublicProcess(
+    ["--run-id", fixedRunId, "maintenance", "payload", "check", "--request", "-"],
+    {},
+    import.meta.dir,
+    '{"repositoryRoot":',
+  )
+  expect(actual.stdout).toBe("")
+  expect(actual.exitCode).toBe(2)
+  expect(actual.stderr).toContain('"message":"Invalid maintenance command input."')
+})
+test("explicit request stdin rejects more than one JSON value", async () => {
+  const actual = await invokePublicProcess(
+    ["--run-id", fixedRunId, "maintenance", "payload", "check", "--request", "-"],
+    {},
+    import.meta.dir,
+    '{"repositoryRoot":"/fixture/plugin","mode":"check"} {"repositoryRoot":"/fixture/plugin","mode":"check"}',
+  )
+  expect(actual.stdout).toBe("")
+  expect(actual.exitCode).toBe(2)
+  expect(actual.stderr).toContain('"message":"Invalid maintenance command input."')
+})
 test("root executable has Bun shebang, executable mode, and optional event configuration", async () => {
   const mode = (await stat(resolve(import.meta.dir, "../maintenance.ts"))).mode & 0o111
   expect(mode).not.toBe(0)

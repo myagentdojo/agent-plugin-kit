@@ -5,9 +5,11 @@ import type {
 } from "../canary-qualification/interface"
 import type {
   ClaudeRequest,
+  ClaudeWireRequest,
   ClaudeTransitionApproval,
   ClaudeTransitionRequest,
   CodexRequest,
+  CodexWireRequest,
   CodexTransitionApproval,
   CodexTransitionRequest,
 } from "../harness-journeys/interface"
@@ -17,10 +19,6 @@ import type {
   ReleaseMutationRequest,
   ReleaseRequest,
 } from "../release-and-git-engine/interface"
-import type {
-  CandidateIdentity,
-} from "../release-and-git-engine/interface"
-import type { PreparedPluginPayload } from "../plugin-payload-production/interface"
 
 export type EffectClass = "inspect" | "repository-local" | "external"
 
@@ -100,22 +98,6 @@ export type MaintenanceApplyRequest =
     }
 
 export type MutatingMaintenanceCommand = MaintenanceApplyRequest["command"]
-
-/**
- * Unbranded command fragments assembled from CLI and JSON input. These types
- * deliberately carry ordinary Candidate Identity data rather than the
- * Admitted Identity or Protected Canary Authority capabilities used by the
- * domain command below.
- */
-export type ClaudeWireRequest = {
-  candidate: CandidateIdentity
-  payload: PreparedPluginPayload
-  profileIdentity: string
-}
-
-export type CodexWireRequest = ClaudeWireRequest & {
-  checkoutIdentity: string
-}
 
 export type WireCommand =
   | { schemaVersion: 1; command: "help" }

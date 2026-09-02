@@ -281,7 +281,17 @@ test("quality Fallow gate re-emits bounded partial evidence and refuses every ot
 		_meta: {
 			type_aware: {
 				projects: [{ status: "complete", blocking_diagnostic_count: 0 }],
-				queries: [{ status: "partial", reason_code: "evidence-limit", truncated: true }],
+				queries: [{
+					query_id: 0,
+					capability: "type-coupling",
+					assertion: "coupling-found",
+					status: "partial",
+					reason_code: "evidence-limit",
+					total_evidence_count: 51,
+					truncated: true,
+					omissions: [{ reason_code: "evidence-limit", count: 11 }],
+					actions: ["Narrow the query to a specific symbol, entry point, or healthy TypeScript project and retry."],
+				}],
 			},
 		},
 	}
@@ -302,8 +312,14 @@ test("quality Fallow gate re-emits bounded partial evidence and refuses every ot
 		["zero projects", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, projects: [] } } }],
 		["incomplete project", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, projects: [{ status: "partial", blocking_diagnostic_count: 0 }] } } }],
 		["blocking diagnostic", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, projects: [{ status: "complete", blocking_diagnostic_count: 1 }] } } }],
+		["different query capability", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ ...acceptedReport._meta.type_aware.queries[0], capability: "symbol-use" }] } } }],
+		["different query assertion", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ ...acceptedReport._meta.type_aware.queries[0], assertion: "symbol-used" }] } } }],
 		["different partial reason", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ status: "partial", reason_code: "blocking-diagnostics", truncated: true }] } } }],
 		["untruncated evidence limit", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ status: "partial", reason_code: "evidence-limit", truncated: false }] } } }],
+		["missing evidence count", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ ...acceptedReport._meta.type_aware.queries[0], total_evidence_count: undefined }] } } }],
+		["wrong omission shape", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ ...acceptedReport._meta.type_aware.queries[0], omissions: [{ reason_code: "blocking-diagnostics", count: 11 }] }] } } }],
+		["wrong omission count", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ ...acceptedReport._meta.type_aware.queries[0], omissions: [{ reason_code: "evidence-limit", count: 0 }] }] } } }],
+		["missing next action", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ ...acceptedReport._meta.type_aware.queries[0], actions: [] }] } } }],
 		["unavailable query", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ status: "unavailable", reason_code: "evidence-limit", truncated: true }] } } }],
 		["missing meta", { kind: "audit", verdict: "pass" }],
 		["null type-aware", { ...acceptedReport, _meta: { type_aware: null } }],

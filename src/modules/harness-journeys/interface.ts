@@ -14,6 +14,17 @@ export type CodexRequest = ClaudeRequest & {
   checkoutIdentity: string
 }
 
+/** Unbranded Harness fragments used by the Maintenance Wire Command. */
+export type ClaudeWireRequest = {
+  candidate: CandidateIdentity
+  payload: PreparedPluginPayload
+  profileIdentity: string
+}
+
+export type CodexWireRequest = ClaudeWireRequest & {
+  checkoutIdentity: string
+}
+
 export type ClaudeInspection = {
   candidate: CandidateIdentity
   profileIdentity: string

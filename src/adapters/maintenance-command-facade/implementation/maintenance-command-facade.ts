@@ -256,7 +256,8 @@ const isParseFailure = (value: unknown): value is ParseFailure =>
   typeof value === "object" && value !== null && !Array.isArray(value) &&
   typeof (value as { message?: unknown }).message === "string"
 
-const readJsonReference = async (reference: string): Promise<unknown | undefined> => {
+const readJsonReference = async (reference: string, stdin: string): Promise<unknown | undefined> => {
+	if (reference === "-") return parseJsonText(stdin)
 	try {
 		return parseJsonText(await readFile(reference, "utf8"))
 	} catch {
@@ -279,10 +280,13 @@ const fileInputFor = async (
     if (reference === undefined || reference.startsWith("--")) {
       return { message: "Invalid maintenance command input." }
     }
-    values[option] = reference
-    index += 1
-  }
-  return values
+		values[option] = reference
+		index += 1
+	}
+	if (Object.values(values).filter((value) => value === "-").length > 1) {
+		return { message: "Invalid maintenance command input." }
+	}
+	return values
 }
 
 const requiredInputPresent = (
@@ -312,18 +316,20 @@ const stdinWireCandidateFor = (
 const jsonInputFor = async (
 	values: Readonly<Record<string, unknown>>,
 	option: string,
+	stdin: string,
 ): Promise<unknown | ParseFailure> => {
 	const reference = values[option]
 	if (typeof reference !== "string") return invalidMaintenanceInput()
-	const parsed = await readJsonReference(reference)
+	const parsed = await readJsonReference(reference, stdin)
 	return parsed === undefined ? invalidMaintenanceInput() : parsed
 }
 
 const requestWireCandidateFor = async (
 	command: CommandDescriptor["command"],
 	values: Readonly<Record<string, unknown>>,
+	stdin: string,
 ): Promise<unknown | ParseFailure> => {
-	const request = await jsonInputFor(values, "--request")
+	const request = await jsonInputFor(values, "--request", stdin)
 	return isParseFailure(request)
 		? request
 		: { schemaVersion: 1, command, request }
@@ -332,10 +338,11 @@ const requestWireCandidateFor = async (
 const requestAndApprovalWireCandidateFor = async (
 	command: CommandDescriptor["command"],
 	values: Readonly<Record<string, unknown>>,
+	stdin: string,
 ): Promise<unknown | ParseFailure> => {
-	const request = await jsonInputFor(values, "--request")
+	const request = await jsonInputFor(values, "--request", stdin)
 	if (isParseFailure(request)) return request
-	const approval = await jsonInputFor(values, "--approval")
+	const approval = await jsonInputFor(values, "--approval", stdin)
 	return isParseFailure(approval)
 		? approval
 		: { schemaVersion: 1, command, request, approval }
@@ -344,8 +351,9 @@ const requestAndApprovalWireCandidateFor = async (
 const candidateWireCandidateFor = async (
 	command: CommandDescriptor["command"],
 	values: Readonly<Record<string, unknown>>,
+	stdin: string,
 ): Promise<unknown | ParseFailure> => {
-	const candidate = await jsonInputFor(values, "--candidate")
+	const candidate = await jsonInputFor(values, "--candidate", stdin)
 	return isParseFailure(candidate)
 		? candidate
 		: { schemaVersion: 1, command, candidate }
@@ -364,23 +372,24 @@ const fixedWireCandidateFor = (
 const fileWireCandidateFor = async (
 	descriptor: CommandDescriptor,
 	values: Readonly<Record<string, unknown>>,
+	stdin: string,
 ): Promise<unknown | ParseFailure> => {
 	if (descriptor.command === "canary:qualify") {
-		const candidate = await jsonInputFor(values, "--candidate")
+		const candidate = await jsonInputFor(values, "--candidate", stdin)
 		if (isParseFailure(candidate)) return candidate
 		const authority = values["--authority"]
-		return typeof authority !== "string"
+		return typeof authority !== "string" || authority === "-"
 			? invalidMaintenanceInput()
 			: { schemaVersion: 1, command: descriptor.command, candidate, authority }
 	}
 	if (descriptor.command === "canary:inspect") {
-		return candidateWireCandidateFor(descriptor.command, values)
+		return candidateWireCandidateFor(descriptor.command, values, stdin)
 	}
 	if (descriptor.protectedInput === "approval") {
-		return requestAndApprovalWireCandidateFor(descriptor.command, values)
+		return requestAndApprovalWireCandidateFor(descriptor.command, values, stdin)
 	}
 	if (descriptor.inputs.includes("--request")) {
-		return requestWireCandidateFor(descriptor.command, values)
+		return requestWireCandidateFor(descriptor.command, values, stdin)
 	}
 	return fixedWireCandidateFor(descriptor.command)
 }
@@ -410,7 +419,7 @@ const wireCandidateFor = async (
 	if (descriptor.stdin && Object.keys(values).length === 0) {
 		return stdinWireCandidateFor(descriptor, stdin)
 	}
-	return fileWireCandidateFor(descriptor, values)
+	return fileWireCandidateFor(descriptor, values, stdin)
 }
 
 const bindingRefusalMessages: Readonly<Record<string, string>> = {

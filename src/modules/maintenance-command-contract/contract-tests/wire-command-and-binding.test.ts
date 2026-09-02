@@ -63,6 +63,40 @@ test("Wire Command ingress is strict, capability-negative, and owner-mapped", ()
   )
 })
 
+test("nested owner validators are composed exactly once", () => {
+  const cases: readonly [WireCommand, readonly string[]][] = [
+    [payloadCheckWire, ["plugin-payload-production.request"]],
+    [releaseApplyWire, ["release-and-git-engine.request", "release-and-git-engine.approval"]],
+    [claudeApplyWire, ["harness-journeys.request", "harness-journeys.approval"]],
+    [codexApplyWire, ["harness-journeys.request", "harness-journeys.approval"]],
+    [canaryQualify, ["canary-qualification.candidate", "canary-qualification.authority"]],
+  ]
+  for (const [command, expected] of cases) {
+    const observed: string[] = []
+    expect(parseWireCommand(command, (owner) => observed.push(owner))).toEqual(command)
+    expect(observed, `contract-absent: ${command.command} must consult each nested owner once`).toEqual([...expected])
+  }
+})
+
+test("nested validation composition short-circuits unknown outer versions", () => {
+  const observed: string[] = []
+  expect(parseWireCommand({ ...releaseApplyWire, schemaVersion: 2 }, (owner) => observed.push(owner))).toBeUndefined()
+  expect(observed).toEqual([])
+})
+
+test("nested validation trace rejects bypass and double-invocation mutations", () => {
+  const expected = ["release-and-git-engine.request", "release-and-git-engine.approval"]
+  const assertExactTrace = (observed: readonly string[]) => {
+    expect(observed, "contract-absent: nested owner validation must remain exactly once").toEqual(expected)
+  }
+  expect(() => assertExactTrace(["release-and-git-engine.approval"])).toThrow()
+  expect(() => assertExactTrace([
+    "release-and-git-engine.request",
+    "release-and-git-engine.request",
+    "release-and-git-engine.approval",
+  ])).toThrow()
+})
+
 test("unknown outer version is refused before nested validation", async () => {
   const steps: TrustedCommandBindingStep[] = []
   const result = await bindTrustedCommand({

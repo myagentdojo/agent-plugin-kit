@@ -94,8 +94,21 @@ const facade = createMaintenanceCommandFacade({
         },
       }),
 })
-const detectStdin = async (): Promise<string> => {
+const requestReadsStdin = (argv: readonly string[]): boolean =>
+  argv.some((token, index) => token === "--request" && argv[index + 1] === "-")
+
+const readCompleteStdin = async (): Promise<string> => {
+  const decoder = new TextDecoder()
+  let value = ""
+  for await (const chunk of Bun.stdin.stream()) {
+    value += decoder.decode(chunk, { stream: true })
+  }
+  return value + decoder.decode()
+}
+
+const detectStdin = async (argv: readonly string[]): Promise<string> => {
   if (process.stdin.isTTY) return ""
+  if (requestReadsStdin(argv)) return readCompleteStdin()
   for await (const chunk of Bun.stdin.stream()) {
     if (chunk.byteLength > 0) return "present"
   }
@@ -103,9 +116,10 @@ const detectStdin = async (): Promise<string> => {
 }
 const runMaintenanceProcess = async (): Promise<void> => {
   const containedExitCode = installProcessStreamFailureContainment()
-  const stdin = await detectStdin()
+  const argv = process.argv.slice(2)
+  const stdin = await detectStdin(argv)
   const observation = await facade.invoke({
-    argv: process.argv.slice(2),
+    argv,
     environment: {
       AGENT_PLUGIN_KIT_EVENT_ENDPOINT: process.env.AGENT_PLUGIN_KIT_EVENT_ENDPOINT,
       AGENT_PLUGIN_KIT_EVENT_AUTH: process.env.AGENT_PLUGIN_KIT_EVENT_AUTH,

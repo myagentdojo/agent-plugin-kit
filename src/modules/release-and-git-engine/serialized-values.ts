@@ -397,6 +397,14 @@ type InferredReleaseIdentity = z.infer<typeof releaseIdentitySchema>
 type InferredPackageIdentity = z.infer<typeof packageIdentitySchema>
 type InferredWorkflowIdentity = z.infer<typeof workflowIdentitySchema>
 type InferredCandidateIdentity = z.infer<typeof candidateIdentitySchema>
+type InferredAdmissionRequest = z.infer<typeof admissionRequestSchema>
+type InferredAdmissionRefusal = z.infer<typeof admissionRefusalSchema>
+type InferredPackageObservation = z.infer<typeof packageObservationSchema>
+type InferredReleaseRequest = z.infer<typeof releaseRequestSchema>
+type InferredReleaseMutationRequest = z.infer<typeof releaseMutationRequestSchema>
+type InferredReleasePlan = z.infer<typeof releasePlanSchema>
+type InferredReleaseResult = z.infer<typeof releaseResultSchema>
+type InferredReleaseCandidateApproval = z.infer<typeof releaseCandidateApprovalSchema>
 
 const bidirectionalTypeChecks: [
   InferredRepositoryIdentity extends RepositoryIdentity ? true : false,
@@ -411,6 +419,26 @@ const bidirectionalTypeChecks: [
   WorkflowIdentity extends InferredWorkflowIdentity ? true : false,
   InferredCandidateIdentity extends CandidateIdentity ? true : false,
   CandidateIdentity extends InferredCandidateIdentity ? true : false,
-] = [true, true, true, true, true, true, true, true, true, true, true, true]
+  InferredAdmissionRequest extends AdmissionRequest ? true : false,
+  AdmissionRequest extends InferredAdmissionRequest ? true : false,
+  InferredAdmissionRefusal extends AdmissionRefusal ? true : false,
+  AdmissionRefusal extends InferredAdmissionRefusal ? true : false,
+  InferredPackageObservation extends PackageObservation ? true : false,
+  PackageObservation extends InferredPackageObservation ? true : false,
+  InferredReleaseRequest extends ReleaseRequest ? true : false,
+  ReleaseRequest extends InferredReleaseRequest ? true : false,
+  InferredReleaseMutationRequest extends ReleaseMutationRequest ? true : false,
+  ReleaseMutationRequest extends InferredReleaseMutationRequest ? true : false,
+  InferredReleasePlan extends ReleasePlan ? true : false,
+  ReleasePlan extends InferredReleasePlan ? true : false,
+  InferredReleaseResult extends ReleaseResult ? true : false,
+  ReleaseResult extends InferredReleaseResult ? true : false,
+  InferredReleaseCandidateApproval extends ReleaseCandidateApproval ? true : false,
+  ReleaseCandidateApproval extends InferredReleaseCandidateApproval ? true : false,
+] = [
+  true, true, true, true, true, true, true, true, true, true, true, true,
+  true, true, true, true, true, true, true, true, true, true, true, true,
+  true, true, true, true,
+]
 
 void bidirectionalTypeChecks
