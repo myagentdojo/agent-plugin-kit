@@ -9,6 +9,7 @@ export const currentStageTestFiles = [
 	"src/modules/maintenance-command-contract/contract-tests/effect-class-and-retry-safety.test.ts",
 	"src/modules/maintenance-command-contract/contract-tests/human-and-agent-result-vocabulary.test.ts",
 	"src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
+	"src/modules/maintenance-command-contract/contract-tests/wire-command-and-binding.test.ts",
 	"src/modules/qualification-evidence/contract-tests/candidate-lineage-reduction.test.ts",
 	"src/modules/qualification-evidence/contract-tests/proof-layer-and-non-claim.test.ts",
 	"clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts",
@@ -20,11 +21,16 @@ export const currentStageTestFiles = [
 	"src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts",
 	"src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts",
 	"src/adapters/maintenance-command-facade/contract-tests/observability.test.ts",
+	"src/modules/plugin-payload-production/contract-tests/serialized-values.test.ts",
+	"src/modules/release-and-git-engine/contract-tests/serialized-values.test.ts",
+	"src/modules/harness-journeys/contract-tests/serialized-values.test.ts",
+	"src/modules/canary-qualification/contract-tests/serialized-values.test.ts",
+	"src/modules/canary-qualification/contract-tests/authority-source.test.ts",
 ] as const
 
-const expectedTests = [3, 2, 6, 9, 7, 8, 8, 7, 3, 3, 2, 2, 5, 8, 12, 11, 12] as const
+const expectedTests = [3, 2, 6, 9, 7, 8, 8, 8, 7, 3, 3, 2, 2, 8, 8, 12, 14, 12, 3, 3, 4, 3, 3] as const
 const expectedTestsByFile = new Map<string, number>(currentStageTestFiles.map((file, index) => [file, expectedTests[index] ?? 0]))
-export const currentStageExpectedTestCount = 108
+export const currentStageExpectedTestCount = 138
 
 export type GuardCode =
 	| "selector-duplicate" | "selector-missing" | "selector-unexpected" | "selector-order" | "selector-file-missing" | "selector-discovery"

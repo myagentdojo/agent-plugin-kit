@@ -5,7 +5,11 @@ import {
   requiredStationProjectionAligned,
   rootConsumerEnumerationAligned,
 } from "../../audit-maintenance-cli"
-import { installedMaintenanceCliSubject } from "./adapters/maintenance-cli-contract-subjects"
+import { observeAdmissionSourceImport } from "./adapters/admission-source-projection"
+import {
+  installedMaintenanceCliSubject,
+  productionOwnerProof,
+} from "./adapters/maintenance-cli-contract-subjects"
 import {
   expectedBranchStationSourceSha256,
   expectedDependencyFreeHelpRuntimeTrace,
@@ -32,7 +36,7 @@ test("fixed-run Clean Fixture namespaced events-off help ignores invalid endpoin
   absent(installedMaintenanceCliSubject?.observations[3], cleanFixtureHelpScenarios[3].expected, "events off must win over invalid endpoint configuration")
 })
 test("Clean Fixture reconciles installed current-stage inventory and Station Map projection", () => {
-  expect(expectedInstalledFiles).toHaveLength(117)
+  expect(expectedInstalledFiles).toHaveLength(128)
   absent(installedMaintenanceCliSubject?.installedFiles, expectedInstalledFiles, "the Git Clean Fixture must prove installed inventory")
   absent(installedMaintenanceCliSubject.importedFiles, expectedDependencyFreeHelpRuntimeTrace, "dependency-free help must load the exact installed runtime closure")
   expect(installedMaintenanceCliSubject.externalDependencyPerturbationRefused).toBeTrue()
@@ -97,4 +101,79 @@ test("Clean Fixture reconciles installed current-stage inventory and Station Map
     stations: report.stations.map((station) => ({ ...station, descriptor_closure: "closed" })),
   }
   expect(auditReportSchema.safeParse(descriptorClaim).success, "contract-absent: an unsupported descriptor claim must be refused").toBeFalse()
+})
+
+test("Clean Fixture production install parses through every owner-local validator privately", async () => {
+  const proof = await productionOwnerProof()
+  expect(proof.parseOwners).toEqual({
+    "plugin-payload-production": true,
+    "release-and-git-engine": true,
+    "harness-journeys": true,
+    "canary-qualification": true,
+    "qualification-evidence": true,
+    "maintenance-command-facade": true,
+    "maintenance-command-contract": true,
+  })
+  expect(proof.validatorExports).toEqual({
+    "plugin-payload-production": [],
+    "release-and-git-engine": [],
+    "harness-journeys": [],
+    "canary-qualification": [],
+    "maintenance-command-contract": [],
+  })
+  expect(proof.installedPrivateValidatorPaths).toEqual([
+    "src/modules/plugin-payload-production/serialized-values.ts",
+    "src/modules/release-and-git-engine/serialized-values.ts",
+    "src/modules/harness-journeys/serialized-values.ts",
+    "src/modules/canary-qualification/serialized-values.ts",
+    "src/modules/qualification-evidence/serialized-values.ts",
+    "src/modules/maintenance-command-contract/serialized-values.ts",
+    "src/adapters/maintenance-command-facade/serialized-values.ts",
+  ])
+  expect(proof.publicValidatorExports).toEqual([])
+  expect(proof.zodVersions).toEqual({
+    "package.json": "4.4.3",
+    "src/modules/plugin-payload-production/package.json": "4.4.3",
+    "src/modules/release-and-git-engine/package.json": "4.4.3",
+    "src/modules/harness-journeys/package.json": "4.4.3",
+    "src/modules/canary-qualification/package.json": "4.4.3",
+    "src/modules/qualification-evidence/package.json": "4.4.3",
+    "src/modules/maintenance-command-contract/package.json": "4.4.3",
+    "src/adapters/maintenance-command-facade/package.json": "4.4.3",
+  })
+})
+
+test("Clean Fixture proves Admission Bootstrap cannot resolve Zod", () => {
+  const observation = observeAdmissionSourceImport({ bareSpecifierPerturbation: "zod" })
+  expect(observation.exitCode).not.toBe(0)
+  expect(observation.stdout).toBe("")
+  expect(observation.stderr).toContain("Cannot find package 'zod'")
+  expect(observation.ambientNodeModules).toEqual([])
+  expect(observation.fixtureRemoved).toBeTrue()
+})
+
+test("Clean Fixture proves ordered opaque Canary authority through a public process", async () => {
+  const proof = await productionOwnerProof()
+  expect(proof.steps).toEqual([
+    "parse",
+    "candidate-agreement",
+    "inspect",
+    "plan-acceptance",
+    "authority-resolution",
+    "bind",
+    "qualify",
+  ])
+  expect(proof.references).toHaveLength(1)
+  expect(proof.references[0]).toMatchObject({
+    identityMatches: true,
+    planMatches: true,
+  })
+  expect(proof.references[0]?.reference).toEndWith("/authority.txt")
+  expect(proof.boundAuthorityOpaque).toBeTrue()
+  expect(proof.qualificationObserved).toBeTrue()
+  expect(proof.publicProcess).toEqual({
+    exitCode: 2,
+    stdoutEmpty: true,
+    hostileContentAbsent: true,
+  })
 })

@@ -406,7 +406,7 @@ const repairApplyArgvSchema = z.tuple([z.literal("repair"), z.literal("--apply")
  * evaluated. That makes an unknown outer version a Maintenance refusal before
  * any owner-local nested schema can inspect its fragment.
  */
-export const wireCommandSchema = z.discriminatedUnion("command", [
+const wireCommandSchema = z.discriminatedUnion("command", [
   z.strictObject({ schemaVersion: z.literal(1), command: z.literal("help") }),
   z.strictObject({
     schemaVersion: z.literal(1),

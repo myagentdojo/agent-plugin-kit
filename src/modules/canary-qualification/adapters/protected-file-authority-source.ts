@@ -41,4 +41,3 @@ export const createProtectedFileAuthoritySource = (): CanaryAuthoritySource => (
     return { status: "resolved", authority: protectedAuthority }
   },
 })
-

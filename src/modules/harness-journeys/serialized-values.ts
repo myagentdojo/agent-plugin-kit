@@ -38,13 +38,13 @@ export const codexWireRequestSchema = z.strictObject({
   checkoutIdentity: z.string(),
 })
 
-export const claudeInspectionSchema = z.strictObject({
+const claudeInspectionSchema = z.strictObject({
   candidate: candidateIdentitySchema,
   profileIdentity: z.string(),
   expectedEffectIds: effectIdsSchema,
 })
 
-export const codexInspectionSchema = z.strictObject({
+const codexInspectionSchema = z.strictObject({
   candidate: candidateIdentitySchema,
   profileIdentity: z.string(),
   expectedEffectIds: effectIdsSchema,
@@ -71,12 +71,12 @@ export const codexTransitionApprovalSchema = z.strictObject({
   digest: sha256Schema,
 })
 
-export const claudeApplyResultSchema = z.strictObject({
+const claudeApplyResultSchema = z.strictObject({
   completedEffectIds: effectIdsSchema,
   remainingEffectIds: effectIdsSchema,
 })
 
-export const codexApplyResultSchema = z.strictObject({
+const codexApplyResultSchema = z.strictObject({
   completedEffectIds: effectIdsSchema,
   remainingEffectIds: effectIdsSchema,
   freshTaskCommand: z.array(z.string()).readonly(),

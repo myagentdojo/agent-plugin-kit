@@ -231,7 +231,7 @@ export const candidateIdentitySchema = z.strictObject({
 const sha256Schema = z.templateLiteral(["sha256:", z.string()])
 const effectIdsSchema = z.array(z.string()).readonly()
 
-export const admissionRequestSchema = z.strictObject({
+const admissionRequestSchema = z.strictObject({
   candidate: candidateIdentitySchema,
   repository: repositoryIdentitySchema,
   provenance: sourceIdentitySchema,
@@ -241,7 +241,7 @@ export const admissionRequestSchema = z.strictObject({
   workflow: workflowIdentitySchema,
 })
 
-export const admissionRefusalSchema = z.strictObject({
+const admissionRefusalSchema = z.strictObject({
   code: z.enum([
     "repository-mismatch",
     "provenance-mismatch",
@@ -253,7 +253,7 @@ export const admissionRefusalSchema = z.strictObject({
   nextAction: z.literal("Correct the mismatched immutable identity observation."),
 })
 
-export const packageObservationSchema = z.strictObject({
+const packageObservationSchema = z.strictObject({
   identity: packageIdentitySchema,
   payloadSha256: sha256Schema,
 })
@@ -269,13 +269,13 @@ export const releaseMutationRequestSchema = z.strictObject({
   expectedEffectIds: effectIdsSchema,
 })
 
-export const releasePlanSchema = z.strictObject({
+const releasePlanSchema = z.strictObject({
   candidate: candidateIdentitySchema,
   expectedEffectIds: effectIdsSchema,
   approvalDigest: sha256Schema,
 })
 
-export const releaseResultSchema = z.strictObject({
+const releaseResultSchema = z.strictObject({
   candidate: candidateIdentitySchema,
   completedEffectIds: effectIdsSchema,
   remainingEffectIds: effectIdsSchema,

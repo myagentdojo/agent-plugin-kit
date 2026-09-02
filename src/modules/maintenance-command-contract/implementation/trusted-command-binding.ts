@@ -277,7 +277,7 @@ export async function bindTrustedCommand(
 }
 
 /** Bind a command that has already crossed the structural parse boundary. */
-export async function bindParsedTrustedCommand(
+async function bindParsedTrustedCommand(
   command: WireCommand,
   dependencies: TrustedCommandBindingDependencies,
 ): Promise<TrustedCommandBindingResult> {

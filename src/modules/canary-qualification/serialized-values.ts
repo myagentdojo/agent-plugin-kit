@@ -12,7 +12,7 @@ const sha256Schema = z.templateLiteral(["sha256:", z.string()])
 
 export const canaryAuthorityReferenceSchema = z.string().min(1)
 
-export const canaryAuthoritySourceRefusalSchema = z.strictObject({
+const canaryAuthoritySourceRefusalSchema = z.strictObject({
   status: z.literal("refused"),
   code: z.enum([
     "authority-reference-invalid",
@@ -27,13 +27,13 @@ export const canaryCandidateSchema = z.strictObject({
   inertPayloadSha256: sha256Schema,
 })
 
-export const canaryPlanSchema = z.strictObject({
+const canaryPlanSchema = z.strictObject({
   candidate: candidateIdentitySchema,
   target: z.string(),
   immutableReference: z.string(),
 })
 
-export const canaryResultSchema = z.strictObject({
+const canaryResultSchema = z.strictObject({
   candidate: candidateIdentitySchema,
   hostedRunId: z.string(),
   installedPayloadSha256: sha256Schema,
@@ -85,7 +85,7 @@ const serializeValue = <T>(schema: z.ZodType<T>, value: T): string => {
 export const parseCanaryAuthorityReference = (value: unknown): CanaryAuthorityReference | undefined =>
   parseValue(canaryAuthorityReferenceSchema, value)
 
-export const parseCanaryAuthoritySourceRefusal = (value: unknown): CanaryAuthoritySourceRefusal | undefined =>
+const parseCanaryAuthoritySourceRefusal = (value: unknown): CanaryAuthoritySourceRefusal | undefined =>
   parseValue(canaryAuthoritySourceRefusalSchema, value)
 
 export const parseCanaryCandidate = (value: unknown): CanaryCandidate | undefined =>
@@ -100,7 +100,7 @@ export const parseCanaryResult = (value: unknown): CanaryResult | undefined =>
 export const serializeCanaryAuthorityReference = (value: CanaryAuthorityReference): string =>
   serializeValue(canaryAuthorityReferenceSchema, value)
 
-export const serializeCanaryAuthoritySourceRefusal = (value: CanaryAuthoritySourceRefusal): string =>
+const serializeCanaryAuthoritySourceRefusal = (value: CanaryAuthoritySourceRefusal): string =>
   serializeValue(canaryAuthoritySourceRefusalSchema, value)
 
 export const serializeCanaryCandidate = (value: CanaryCandidate): string =>

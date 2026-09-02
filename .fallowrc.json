@@ -42,6 +42,38 @@
         "patterns": ["src/modules/canary-qualification/interface.ts"]
       },
       {
+        "name": "deep-module-private/canary-qualification",
+        "patterns": ["src/modules/canary-qualification/adapters/**/*.ts"]
+      },
+      {
+        "name": "deep-module-serialized-values/canary-qualification",
+        "patterns": ["src/modules/canary-qualification/serialized-values.ts"]
+      },
+      {
+        "name": "deep-module-serialized-values/harness-journeys",
+        "patterns": ["src/modules/harness-journeys/serialized-values.ts"]
+      },
+      {
+        "name": "deep-module-serialized-values/plugin-payload-production",
+        "patterns": ["src/modules/plugin-payload-production/serialized-values.ts"]
+      },
+      {
+        "name": "deep-module-contract-tests/canary-qualification",
+        "patterns": ["src/modules/canary-qualification/contract-tests/**/*.ts"]
+      },
+      {
+        "name": "deep-module-contract-tests/harness-journeys",
+        "patterns": ["src/modules/harness-journeys/contract-tests/**/*.ts"]
+      },
+      {
+        "name": "deep-module-contract-tests/plugin-payload-production",
+        "patterns": ["src/modules/plugin-payload-production/contract-tests/**/*.ts"]
+      },
+      {
+        "name": "deep-module-contract-tests/release-and-git-engine",
+        "patterns": ["src/modules/release-and-git-engine/contract-tests/**/*.ts"]
+      },
+      {
         "name": "deep-modules/harness-journeys",
         "patterns": ["src/modules/harness-journeys/interface.ts"]
       },
@@ -173,6 +205,76 @@
         "allowTypeOnly": ["deep-modules/release-and-git-engine"]
       },
       {
+        "from": "deep-module-private/canary-qualification",
+        "allow": ["deep-module-serialized-values/release-and-git-engine"],
+        "allowTypeOnly": [
+          "deep-modules/canary-qualification",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "deep-module-serialized-values/canary-qualification",
+        "allow": ["deep-module-serialized-values/release-and-git-engine"],
+        "allowTypeOnly": [
+          "deep-modules/canary-qualification",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "deep-module-serialized-values/harness-journeys",
+        "allow": [
+          "deep-module-serialized-values/plugin-payload-production",
+          "deep-module-serialized-values/release-and-git-engine"
+        ],
+        "allowTypeOnly": [
+          "deep-modules/harness-journeys",
+          "deep-modules/plugin-payload-production",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "deep-module-serialized-values/plugin-payload-production",
+        "allow": ["deep-module-serialized-values/release-and-git-engine"],
+        "allowTypeOnly": [
+          "deep-modules/plugin-payload-production",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "deep-module-contract-tests/canary-qualification",
+        "allow": [
+          "deep-module-private/canary-qualification",
+          "deep-module-serialized-values/canary-qualification"
+        ],
+        "allowTypeOnly": [
+          "deep-modules/canary-qualification",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "deep-module-contract-tests/harness-journeys",
+        "allow": ["deep-module-serialized-values/harness-journeys"],
+        "allowTypeOnly": [
+          "deep-modules/harness-journeys",
+          "deep-modules/plugin-payload-production",
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
+        "from": "deep-module-contract-tests/plugin-payload-production",
+        "allow": ["deep-module-serialized-values/plugin-payload-production"],
+        "allowTypeOnly": [
+          "deep-modules/plugin-payload-production"
+        ]
+      },
+      {
+        "from": "deep-module-contract-tests/release-and-git-engine",
+        "allow": ["deep-module-serialized-values/release-and-git-engine"],
+        "allowTypeOnly": [
+          "deep-modules/release-and-git-engine"
+        ]
+      },
+      {
         "from": "deep-modules/harness-journeys",
         "allowTypeOnly": [
           "deep-modules/plugin-payload-production",
@@ -204,6 +306,12 @@
       },
       {
         "from": "deep-module-private/maintenance-command-contract",
+        "allow": [
+          "deep-module-serialized-values/canary-qualification",
+          "deep-module-serialized-values/harness-journeys",
+          "deep-module-serialized-values/plugin-payload-production",
+          "deep-module-serialized-values/release-and-git-engine"
+        ],
         "allowTypeOnly": [
           "deep-modules/canary-qualification",
           "deep-modules/harness-journeys",

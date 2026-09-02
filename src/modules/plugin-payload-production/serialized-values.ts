@@ -19,7 +19,7 @@ export const preparedPluginPayloadSchema = z.strictObject({
   payloadSha256: sha256Schema,
 })
 
-export const payloadProductionResultSchema = z.discriminatedUnion("kind", [
+const payloadProductionResultSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("checked"),
     payload: preparedPluginPayloadSchema.exactOptional(),

@@ -31,9 +31,15 @@
     },
     "src/modules/canary-qualification": {
       "name": "@agent-plugin-kit/canary-qualification",
+      "dependencies": {
+        "zod": "4.4.3",
+      },
     },
     "src/modules/harness-journeys": {
       "name": "@agent-plugin-kit/harness-journeys",
+      "dependencies": {
+        "zod": "4.4.3",
+      },
     },
     "src/modules/maintenance-command-contract": {
       "name": "@agent-plugin-kit/maintenance-command-contract",
@@ -43,6 +49,9 @@
     },
     "src/modules/plugin-payload-production": {
       "name": "@agent-plugin-kit/plugin-payload-production",
+      "dependencies": {
+        "zod": "4.4.3",
+      },
     },
     "src/modules/qualification-evidence": {
       "name": "@agent-plugin-kit/qualification-evidence",
