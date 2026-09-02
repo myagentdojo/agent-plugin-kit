@@ -199,25 +199,27 @@ const prepareOwnerProofSource = async (
   const sourceClone = await runChild(["git", "clone", "--quiet", repositoryRoot, sourceRoot], root, environment)
   if (sourceClone.exitCode !== 0) throw new Error("owner proof source checkout failed")
   const patchPath = join(root, "working-tree.patch")
-  const workingTree = await runChild(["git", "diff", "--binary", "HEAD"], repositoryRoot, environment)
-  if (workingTree.exitCode !== 0) throw new Error("owner proof working-tree capture failed")
-  writeFileSync(patchPath, workingTree.stdout, { mode: 0o600 })
-  const apply = await runChild(["git", "apply", "--binary", patchPath], sourceRoot, environment)
-  if (apply.exitCode !== 0) throw new Error(`owner proof working-tree application failed: ${apply.stderr}`)
-  const stage = await runChild(["git", "add", "--all"], sourceRoot, environment)
-  if (stage.exitCode !== 0) throw new Error("owner proof source staging failed")
-  const commit = await runChild([
-    "git",
-    "-c",
-    "user.name=agent-plugin-kit-owner-proof",
-    "-c",
-    "user.email=agent-plugin-kit-owner-proof@example.invalid",
-    "commit",
-    "--quiet",
-    "-m",
-    "owner-proof-source",
-  ], sourceRoot, environment)
-  if (commit.exitCode !== 0) throw new Error(`owner proof source commit failed: ${commit.stderr}`)
+	const workingTree = await runChild(["git", "diff", "--binary", "HEAD"], repositoryRoot, environment)
+	if (workingTree.exitCode !== 0) throw new Error("owner proof working-tree capture failed")
+	if (workingTree.stdout !== "") {
+		writeFileSync(patchPath, workingTree.stdout, { mode: 0o600 })
+		const apply = await runChild(["git", "apply", "--binary", patchPath], sourceRoot, environment)
+		if (apply.exitCode !== 0) throw new Error(`owner proof working-tree application failed: ${apply.stderr}`)
+		const stage = await runChild(["git", "add", "--all"], sourceRoot, environment)
+		if (stage.exitCode !== 0) throw new Error("owner proof source staging failed")
+		const commit = await runChild([
+			"git",
+			"-c",
+			"user.name=agent-plugin-kit-owner-proof",
+			"-c",
+			"user.email=agent-plugin-kit-owner-proof@example.invalid",
+			"commit",
+			"--quiet",
+			"-m",
+			"owner-proof-source",
+		], sourceRoot, environment)
+		if (commit.exitCode !== 0) throw new Error(`owner proof source commit failed: ${commit.stderr}`)
+	}
   const sourceCommit = (await runChild(["git", "rev-parse", "HEAD^{commit}"], sourceRoot, environment)).stdout.trim()
   if (!/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("owner proof source commit is not pinned")
   return sourceCommit
