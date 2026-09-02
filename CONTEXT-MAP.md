@@ -15,11 +15,14 @@ Consumer rules: [`docs/agents/domain.md`](docs/agents/domain.md).
 
 ## Owner routes
 
-The current Interface, Admission Bootstrap, Maintenance Command Contract,
-Qualification Evidence, Repository Quality Tooling Implementation, and Clean
-Fixture Contract Test paths are current. Other Source Tree Contract Test paths,
-every unadmitted Source Tree Implementation path, and hosted workflows are future and
-remain absent until their owning artifact has real accepted content.
+Current Source Tree Contract Test owners are Admission Bootstrap, Maintenance
+Command Contract, Qualification Evidence, Maintenance Command Facade Adapter,
+Plugin Payload Production, Release and Git Engine, Harness Journeys, and Canary
+Qualification. The Kit Repository Interface is proved through the Clean Fixture
+package-export Contract Test; Repository Quality Tooling has its own independent
+Contract Tests. Reusable Workflow Adapter and Runtime Custody currently have
+Interface-only owners. Unadmitted Source Tree Implementation paths and hosted
+workflows remain absent until their owning artifact has real accepted content.
 
 | Question | Governing language | Decision or proposal | Current or future Interface or Adapter | Current or future Contract Tests or independent proof | Current repository tooling or future Source Tree Implementation |
 | --- | --- | --- | --- | --- | --- |
