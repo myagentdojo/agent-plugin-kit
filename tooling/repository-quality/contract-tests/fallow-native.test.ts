@@ -106,6 +106,7 @@ async function checkArchitecture(root: string) {
 		"audit",
 		"--changed-since",
 		"HEAD",
+		"--no-type-aware",
 		"--format",
 		"json",
 		"--quiet",
@@ -247,6 +248,14 @@ test("resolves the complete architecture policy in first-match order", async () 
 		"deep-module-contract-tests/qualification-evidence",
 		"maintenance-command-facade-contract-tests",
 		"deep-modules/canary-qualification",
+		"deep-module-private/canary-qualification",
+		"deep-module-serialized-values/canary-qualification",
+		"deep-module-serialized-values/harness-journeys",
+		"deep-module-serialized-values/plugin-payload-production",
+		"deep-module-contract-tests/canary-qualification",
+		"deep-module-contract-tests/harness-journeys",
+		"deep-module-contract-tests/plugin-payload-production",
+		"deep-module-contract-tests/release-and-git-engine",
 		"deep-modules/harness-journeys",
 		"deep-modules/maintenance-command-contract",
 		"deep-modules/plugin-payload-production",
@@ -291,6 +300,44 @@ test("resolves the complete architecture policy in first-match order", async () 
 			],
 		},
 		{ from: "deep-modules/canary-qualification", allow: [] },
+		{
+			from: "deep-module-private/canary-qualification",
+			allow: ["deep-module-serialized-values/release-and-git-engine"],
+		},
+		{
+			from: "deep-module-serialized-values/canary-qualification",
+			allow: ["deep-module-serialized-values/release-and-git-engine"],
+		},
+		{
+			from: "deep-module-serialized-values/harness-journeys",
+			allow: [
+				"deep-module-serialized-values/plugin-payload-production",
+				"deep-module-serialized-values/release-and-git-engine",
+			],
+		},
+		{
+			from: "deep-module-serialized-values/plugin-payload-production",
+			allow: ["deep-module-serialized-values/release-and-git-engine"],
+		},
+		{
+			from: "deep-module-contract-tests/canary-qualification",
+			allow: [
+				"deep-module-private/canary-qualification",
+				"deep-module-serialized-values/canary-qualification",
+			],
+		},
+		{
+			from: "deep-module-contract-tests/harness-journeys",
+			allow: ["deep-module-serialized-values/harness-journeys"],
+		},
+		{
+			from: "deep-module-contract-tests/plugin-payload-production",
+			allow: ["deep-module-serialized-values/plugin-payload-production"],
+		},
+		{
+			from: "deep-module-contract-tests/release-and-git-engine",
+			allow: ["deep-module-serialized-values/release-and-git-engine"],
+		},
 		{ from: "deep-modules/harness-journeys", allow: [] },
 		{ from: "deep-modules/maintenance-command-contract", allow: [] },
 		{ from: "deep-modules/plugin-payload-production", allow: [] },
@@ -300,7 +347,15 @@ test("resolves the complete architecture policy in first-match order", async () 
 		},
 		{ from: "deep-modules/release-and-git-engine", allow: [] },
 		{ from: "deep-modules/runtime-custody", allow: [] },
-		{ from: "deep-module-private/maintenance-command-contract", allow: [] },
+		{
+			from: "deep-module-private/maintenance-command-contract",
+			allow: [
+				"deep-module-serialized-values/canary-qualification",
+				"deep-module-serialized-values/harness-journeys",
+				"deep-module-serialized-values/plugin-payload-production",
+				"deep-module-serialized-values/release-and-git-engine",
+			],
+		},
 		{
 			from: "deep-module-private/qualification-evidence",
 			allow: [
@@ -339,6 +394,22 @@ test("resolves the complete architecture policy in first-match order", async () 
 		"maintenance-command-facade-contract-tests":
 			"src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts",
 		"deep-modules/canary-qualification": "src/modules/canary-qualification/interface.ts",
+		"deep-module-private/canary-qualification":
+			"src/modules/canary-qualification/adapters/protected-file-authority-source.ts",
+		"deep-module-serialized-values/canary-qualification":
+			"src/modules/canary-qualification/serialized-values.ts",
+		"deep-module-serialized-values/harness-journeys":
+			"src/modules/harness-journeys/serialized-values.ts",
+		"deep-module-serialized-values/plugin-payload-production":
+			"src/modules/plugin-payload-production/serialized-values.ts",
+		"deep-module-contract-tests/canary-qualification":
+			"src/modules/canary-qualification/contract-tests/authority-source.test.ts",
+		"deep-module-contract-tests/harness-journeys":
+			"src/modules/harness-journeys/contract-tests/serialized-values.test.ts",
+		"deep-module-contract-tests/plugin-payload-production":
+			"src/modules/plugin-payload-production/contract-tests/serialized-values.test.ts",
+		"deep-module-contract-tests/release-and-git-engine":
+			"src/modules/release-and-git-engine/contract-tests/serialized-values.test.ts",
 		"deep-modules/harness-journeys": "src/modules/harness-journeys/interface.ts",
 		"deep-modules/maintenance-command-contract":
 			"src/modules/maintenance-command-contract/interface.ts",
