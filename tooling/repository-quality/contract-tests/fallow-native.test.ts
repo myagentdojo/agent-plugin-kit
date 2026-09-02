@@ -330,6 +330,14 @@ test("quality Fallow gate re-emits bounded partial evidence and refuses every ot
 	expect(accepted.exitCode).toBe(0)
 	expect(accepted.stderr).toBe("")
 	expect(accepted.stdout).toBe(`${JSON.stringify(acceptedReport)}\n`)
+	const lexicallyDistinctReport = `${JSON.stringify(acceptedReport).replace(
+		'"blocking_diagnostic_count":0',
+		'"blocking_diagnostic_count":0.0',
+	)}\n`
+	const lexicallyDistinct = await runQualityGatePredicate(predicate, lexicallyDistinctReport)
+	expect(lexicallyDistinct.exitCode).toBe(0)
+	expect(lexicallyDistinct.stderr).toBe("")
+	expect(lexicallyDistinct.stdout).toBe(lexicallyDistinctReport)
 	const emptyQueriesReport = {
 		...acceptedReport,
 		_meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [] } },
