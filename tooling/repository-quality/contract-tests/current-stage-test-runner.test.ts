@@ -49,9 +49,9 @@ test("accepts literal Bun JUnit and refuses malformed, incomplete, non-green, or
 	] as const) expectFailure(validateJunitReport(report), code)
 })
 
-test("refuses failed or timed-out children and proves timeout cleanup", async () => {
+test("refuses failed or timed-out children and kills a descriptor-retaining process group", async () => {
 	expectFailure(validateCurrentStageProcess({ exitCode: 1, signalCode: null, report: validJunit }), "test-process-failed")
 	expectFailure(validateCurrentStageProcess({ exitCode: 0, signalCode: "SIGKILL", report: validJunit }), "test-process-timeout")
 	const proof = await proveCurrentStageTimeoutCleanup()
-	expect(proof).toMatchObject({ timedOut: true, childSettled: true, childTerminated: true, signalCode: "SIGKILL" })
+	expect(proof).toMatchObject({ timedOut: true, childSettled: true, childTerminated: true, descendantTerminated: true, streamsSettled: true, temporaryStateCleaned: true, signalCode: "SIGKILL" })
 })

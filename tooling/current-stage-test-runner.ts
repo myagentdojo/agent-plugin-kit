@@ -286,15 +286,26 @@ export function validateCurrentStageProcess(result: CurrentStageProcessResult): 
 	return result.exitCode === 0 ? validateJunitReport(result.report) : fail("test-process-failed", `exit=${result.exitCode}`)
 }
 
-export async function proveCurrentStageTimeoutCleanup(): Promise<Readonly<{ timedOut: boolean; childSettled: boolean; childTerminated: boolean; temporaryStateCleaned: boolean; signalCode: NodeJS.Signals | null }>> {
-	const root = mkdtempSync(join(tmpdir(), "agent-plugin-kit-timeout-proof-")); writeFileSync(join(root, "state"), "temporary")
+export async function proveCurrentStageTimeoutCleanup(): Promise<Readonly<{ timedOut: boolean; childSettled: boolean; childTerminated: boolean; descendantTerminated: boolean; streamsSettled: boolean; temporaryStateCleaned: boolean; signalCode: NodeJS.Signals | null }>> {
+	if (process.platform === "win32") throw new Error("timeout cleanup proof requires POSIX process groups")
+	const root = mkdtempSync(join(tmpdir(), "agent-plugin-kit-timeout-proof-")), ready = join(root, "ready"), descendantPath = join(root, "descendant.pid")
+	const alive = (pid: number): boolean => { try { process.kill(pid, 0); return true } catch { return false } }
+	const pause = (milliseconds: number): Promise<void> => new Promise((done) => setTimeout(done, milliseconds))
 	let result: Omit<Awaited<ReturnType<typeof proveCurrentStageTimeoutCleanup>>, "temporaryStateCleaned"> | undefined
+	let child: ReturnType<typeof Bun.spawn> | undefined
 	try {
-		const child = Bun.spawn({ cmd: [process.execPath, "-e", "setInterval(() => {}, 1000)"], cwd: root, stdin: "ignore", stdout: "ignore", stderr: "ignore", timeout: 50, killSignal: "SIGKILL" })
-		const exitCode = await child.exited
-		let alive = true; try { process.kill(child.pid, 0) } catch { alive = false }
-		result = { timedOut: child.signalCode === "SIGKILL", childSettled: Number.isInteger(exitCode), childTerminated: !alive, signalCode: child.signalCode }
-	} finally { rmSync(root, { recursive: true, force: true }) }
+		const script = `const fs = require("node:fs"); const descendant = Bun.spawn({ cmd: [process.execPath, "-e", "setInterval(() => {}, 1000)"], stdin: "ignore", stdout: "inherit", stderr: "inherit" }); fs.writeFileSync(${JSON.stringify(descendantPath)}, String(descendant.pid)); fs.writeFileSync(${JSON.stringify(ready)}, "ready"); setInterval(() => {}, 1000)`
+		child = Bun.spawn({ cmd: [process.execPath, "-e", script], cwd: root, detached: true, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
+		if (!(child.stdout instanceof ReadableStream) || !(child.stderr instanceof ReadableStream)) throw new Error("timeout proof did not receive pipe streams")
+		const stdout = new Response(child.stdout).text(), stderr = new Response(child.stderr).text()
+		for (let attempt = 0; attempt < 100 && !existsSync(ready); attempt += 1) await pause(5)
+		if (!existsSync(ready)) throw new Error("timeout descendant did not become ready")
+		const descendant = Number.parseInt(readFileSync(descendantPath, "utf8"), 10)
+		if (!Number.isSafeInteger(descendant) || !alive(descendant)) throw new Error("timeout descendant was not retained")
+		await pause(50); process.kill(-child.pid, "SIGKILL")
+		const [exitCode] = await Promise.race([Promise.all([child.exited, stdout, stderr]), pause(1_000).then(() => { throw new Error("timeout process group did not settle") })])
+		result = { timedOut: child.signalCode === "SIGKILL", childSettled: Number.isInteger(exitCode), childTerminated: !alive(child.pid), descendantTerminated: !alive(descendant), streamsSettled: true, signalCode: child.signalCode }
+	} finally { if (child !== undefined) try { process.kill(-child.pid, "SIGKILL") } catch {}; rmSync(root, { recursive: true, force: true }) }
 	if (result === undefined) throw new Error("timeout proof did not settle")
 	return { ...result, temporaryStateCleaned: !existsSync(root) }
 }

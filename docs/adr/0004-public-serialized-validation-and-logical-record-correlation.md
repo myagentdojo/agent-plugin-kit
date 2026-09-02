@@ -490,8 +490,9 @@ question, because the resolution facts are already knowable.
   `bunfig.toml` pins `[install] auto = "disable"`, so no auto-install rescues
   a production dependency the root manifest does not declare.
 - Version agreement is exact string agreement across every declaring manifest.
-  No range, no resolution alias, and no Bun catalog is accepted; catalogs
-  remain absent under the intentional RED contract.
+  No range, no resolution alias, and no Bun catalog is accepted. Catalogs are
+  not part of the current-stage contract; later Implementation may add one only
+  through an explicit reviewed decision.
 - This deliberately amends ADR 0002. That decision reserved third-party
   production dependencies to the Source Tree owner that needs them and used
   `@logtape/logtape` as the precedent for facade-only ownership. Root now also
@@ -679,7 +680,7 @@ perturbation that must turn that group RED.
    approval version; accept an approval version not listed for outer version 1;
    or inspect a nested value before refusing an unknown outer version.
 2. **Evidence-state contracts.** Owner: Qualification Evidence. Selector:
-   `bun run test:intentional-red:qualification-evidence`. Proves every
+   `bun run test:current-stage:qualification-evidence`. Proves every
    accepted Evidence Cell and Reduced Claim variant, per-cell mismatch refusal
    at the serialized parse of `unknown`, and every Qualification Refusal Code
    meaning through `QualificationOutcome`. Perturbations: pair a status with a
@@ -688,7 +689,7 @@ perturbation that must turn that group RED.
    resolving cell resolve from an incomparable Proof Layer.
 3. **Logical Record Correlation contracts.** Owner: Maintenance Command Facade
    Adapter. Selector:
-   `bun run test:intentional-red:maintenance-cli:observability`. Proves one
+   `bun run test:current-stage:maintenance-cli:observability`. Proves one
    shared within-run sequence space, gaps remaining gaps, duplicate
    observations preserving identity and sequence, terminal outcome only from
    the primary envelope, no reconstruction operation or retained state owner,
@@ -701,8 +702,8 @@ perturbation that must turn that group RED.
    Facade evidence.
 4. **Public-process and Clean Fixture contracts.** Owner: Clean Fixture, with
    the facade for stream and envelope bytes. Selector:
-   `bun run test:intentional-red:clean-fixture` together with
-   `bun run test:intentional-red:maintenance-cli:process`. Proves a
+   `bun run test:current-stage:clean-fixture` together with
+   `bun run test:current-stage:maintenance-cli:process`. Proves a
    production-only install with no hoisting assumption, one real parse through
    each schema owner, private validator sibling installation without a new
    package export, exact stdout, stderr, Exit Code, and redaction bytes. It also
@@ -720,8 +721,8 @@ perturbation that must turn that group RED.
 
 That gate proves serialized-value validation, discriminated public state, and
 Logical Record Correlation. It proves neither reconstruction, durable replay,
-nor delivery. Every path above stays absent until its owning gate under the
-intentional RED rule in `AGENTS.md`.
+nor delivery. The current-stage contract is present and governed by its
+accepted tests; later Implementation remains bounded by the stated Non-Claims.
 
 The group 3 Contract Test compares the pipeline's observed step trace with a
 test-owned literal order. Separate direct-Adapter evidence plants a structured
