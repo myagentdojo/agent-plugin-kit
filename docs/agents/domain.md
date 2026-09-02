@@ -23,8 +23,10 @@ root context insufficient.
 | --- | --- |
 | [`0001-language-to-topology.md`](../adr/0001-language-to-topology.md) | Ubiquitous Language to Repository Topology. |
 | [`0002-owner-manifests-and-dependency-locality.md`](../adr/0002-owner-manifests-and-dependency-locality.md) | Owner Manifests and owner-local dependency Locality. |
-| [`0003-repository-quality-and-verification-transition.md`](../adr/0003-repository-quality-and-verification-transition.md) | Repository Quality Tooling, Repository Qualification, and Clean Fixture evidence ownership. |
+| [`0003-repository-quality-and-verification-transition.md`](../adr/0003-repository-quality-and-verification-transition.md) | Superseded historical transition design. |
 | [`0004-public-serialized-validation-and-logical-record-correlation.md`](../adr/0004-public-serialized-validation-and-logical-record-correlation.md) | Owner-local Public Serialized Value validation, trusted capability binding, and Logical Record Correlation. |
+| [`0005-simple-repository-quality-ownership.md`](../adr/0005-simple-repository-quality-ownership.md) | Biome, TypeScript, native Fallow, Repository Verification, and Clean Fixture proof ownership. |
+| [`0006-qualification-evidence-public-runtime.md`](../adr/0006-qualification-evidence-public-runtime.md) | Qualification Evidence public reducer ownership and installed-consumer proof. |
 
 ## Accepted structure
 
@@ -34,11 +36,10 @@ root context insufficient.
 ├── CONTEXT-MAP.md
 ├── package.json                          (root Package Identity)
 ├── docs/adr/
-├── tooling/repository-quality/           (repository quality and qualification policy)
+├── tooling/repository-quality/           (lifecycle-neutral repository quality)
 │   ├── contract-tests/
-│   ├── fallow-policy.ts
-│   ├── repository-qualification-contract.json (current declaration)
-│   └── verify-repository-qualification.ts   (current verifier)
+│   ├── repository-verification.ts
+│   └── verify-repository.ts
 ├── src/                                  (Source Tree)
 │   ├── interface.ts
 │   ├── admission-bootstrap/

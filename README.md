@@ -4,10 +4,11 @@ Contracts and maintenance tooling for Agent Plugin repositories, with a
 dependency-free Admission Bootstrap.
 
 The repository currently contains its accepted domain and Repository Topology,
-the Source Tree Interface skeleton, and a mixed GREEN and intentional RED
-Contract Test scaffold. Admission Bootstrap is the sole current Package
-Implementation. Every other Module Implementation and all maintenance command
-behaviour remain absent.
+the Source Tree Interface skeleton, and the complete current-stage Contract
+Test scaffold. Admission Bootstrap, Qualification Evidence, and the Maintenance
+Command Contract are the current Deep Module Implementations. The Maintenance
+Command Facade also implements deterministic parsing, validation, help, and
+usage-refusal behaviour. Other apply and inspect execution remains absent.
 
 ## Start here
 
@@ -30,9 +31,8 @@ The accepted language-to-topology rule and complete placement rationale live in
 [`docs/adr/0001-language-to-topology.md`](docs/adr/0001-language-to-topology.md).
 The Owner Manifest and dependency Locality decision lives in
 [`docs/adr/0002-owner-manifests-and-dependency-locality.md`](docs/adr/0002-owner-manifests-and-dependency-locality.md).
-Repository Quality Tooling and Repository Qualification ownership
-lives in
-[`docs/adr/0003-repository-quality-and-verification-transition.md`](docs/adr/0003-repository-quality-and-verification-transition.md).
+Simple Repository Quality Tooling and Repository Verification ownership live in
+[`docs/adr/0005-simple-repository-quality-ownership.md`](docs/adr/0005-simple-repository-quality-ownership.md).
 
 ## Verify the current repository
 
@@ -40,21 +40,23 @@ lives in
 bun run check
 ```
 
-The check validates the current Interfaces, GREEN Admission proof, remaining
-intentional RED Contract Test files and counts, and the Admission Proof Layer
-governed by Repository Quality Tooling. The Repository Qualification contract
-owns current repository-byte truth; Clean Fixture remains an independent
-evidence source. The check refuses premature future Contract Tests, hosted
-workflows, or Implementation paths.
+The check runs Biome, TypeScript, focused repository-quality Contract Tests,
+native changed-code Fallow, and lifecycle-neutral Repository Verification.
+Product and public-process behaviour remains with ordinary Bun Contract Tests;
+Clean Fixture remains an independent evidence source.
 
-The product RED selector is:
+The product current-stage selector is:
 
 ```sh
-bun run test:intentional-red
+bun run test:current-stage
 ```
 
-It exercises the current product Contract Tests; Repository Qualification
-verifies their aggregate repository receipt.
+It exercises the current product Contract Tests directly. It is a complete
+green proof for the accepted current-stage behaviour. The current-stage
+selector at `tooling/current-stage-test-runner.ts` owns its product test-file
+inventory, pinned per-file and aggregate counts, JUnit parsing, and process
+outcome integrity. Repository Verification does not parse JUnit or mirror
+those product counts.
 
 ## Run one owner's Contract Tests
 

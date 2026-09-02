@@ -5,6 +5,9 @@
   "exports": {
     ".": "./interface.ts"
   },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
   "scripts": {
     "test": "bun test contract-tests/effect-class-and-retry-safety.test.ts contract-tests/human-and-agent-result-vocabulary.test.ts contract-tests/branch-station-catalog.test.ts"
   }

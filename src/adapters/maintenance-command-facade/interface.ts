@@ -1,31 +1,51 @@
 import type {
   CommandPreview,
+  FailureClass,
   MaintenanceCommand,
   MaintenanceCommands,
-  MaintenanceError,
+  MaintenanceErrorEnvelopeData,
+  MaintenanceErrorEnvelopeProjection,
   MaintenanceOutcome,
+  MaintenanceSuccessEnvelopeData,
   ResultCode,
   StationId,
 } from "../../modules/maintenance-command-contract/interface"
 
-export type DiagnosticRecord = Readonly<{
-  schema_version: 1
+export type DiagnosticMessage =
+  | `Maintenance command reached result code "${ResultCode}".`
+  | `Maintenance command failed with result code "${ResultCode}".`
+  | "Inspect the configured event transport; do not repeat the command solely to replay its event."
+  | `Diagnostic buffer dropped ${number} oldest record.`
+  | `Diagnostic buffer dropped ${number} oldest records.`
+
+export type DiagnosticRecordFields = {
+  schema_version: 2
   record_type: "diagnostic"
   timestamp: string
   sequence: number
-  level: "debug" | "info" | "warning" | "error" | "fatal"
   category: readonly ["agent-plugin-kit", "maintenance"]
   event: string
   run_id: string
   command?: MaintenanceCommand["command"]
   station_id?: StationId
-  failure_class?: MaintenanceError["failureClass"] | "event_delivery"
+  failure_class?: FailureClass
   result_code?: ResultCode
   transaction_state?: CommandPreview["transactionState"]
   retry_safety?: CommandPreview["retrySafety"]
-  next_action?: MaintenanceError["nextAction"]
-  message: string
-}>
+  dropped_record_count?: number
+  message: DiagnosticMessage
+}
+
+export type DiagnosticRecord = Readonly<DiagnosticRecordFields & (
+  | {
+      level: "debug" | "info" | "warning"
+      next_action?: CommandPreview["nextAction"]
+    }
+  | {
+      level: "error" | "fatal"
+      next_action: CommandPreview["nextAction"]
+    }
+)>
 
 export type EventRecord = Readonly<{
   schema_version: 1
@@ -37,7 +57,7 @@ export type EventRecord = Readonly<{
   station_id: StationId
   outcome: "previewed" | "completed" | "refused" | "failed"
   result_code: ResultCode
-  failure_class?: MaintenanceError["failureClass"] | "event_delivery"
+  failure_class?: FailureClass
   transaction_state: CommandPreview["transactionState"]
   retry_safety: CommandPreview["retrySafety"]
   next_action_id: string
@@ -69,15 +89,49 @@ export type ProcessObservation = {
   exitCode: number
 }
 
+/** The Facade owns only the closed public process envelope around Maintenance data. */
+export type FacadeSuccessEnvelope = {
+  schema_version: 1
+  status: "ok"
+  run_id: string
+  data: MaintenanceSuccessEnvelopeData
+}
+
+/** The Facade owns only the closed public process envelope around Maintenance failures. */
+export type FacadeErrorEnvelope = {
+  record_type: "error_envelope"
+  schema_version: 1
+  status: "error"
+  message: string
+  run_id: string
+  data: MaintenanceErrorEnvelopeData
+  error: MaintenanceErrorEnvelopeProjection
+}
+
 export interface MaintenanceCommandFacade {
   invoke(invocation: FacadeInvocation): Promise<ProcessObservation>
   dispatch(command: MaintenanceCommand): Promise<MaintenanceOutcome<unknown>>
 }
 
+export type FacadeCorrelationSources = {
+  now: () => string
+  eventId: () => string
+}
+
 export type MaintenanceCommandFacadeAssembly = {
   commands: MaintenanceCommands
-  diagnostics?: DiagnosticAdapter
-  events?: EventAdapter
+  /**
+   * Optional Maintenance-owned Wire Command binding. The Facade assembles
+   * argv and file JSON as unknown and never creates a capability-bearing
+   * Maintenance Command itself.
+   */
+  wireBinding?: (value: unknown) => Promise<
+    | { status: "bound"; command: MaintenanceCommand }
+    | { status: "refused"; code: string }
+  >
+  diagnosticFactory?: () => Promise<DiagnosticAdapter | undefined>
+  eventFactory?: () => Promise<EventAdapter | undefined>
+  correlation?: FacadeCorrelationSources
 }
 
 export type DiagnosticMode = "quiet" | "default" | "verbose" | "debug"
@@ -88,10 +142,20 @@ export interface DiagnosticPipeline {
   dispose(): void
 }
 
+export type DiagnosticEgressStep =
+  | "build-allowlist"
+  | "canonicalize"
+  | "validate"
+  | "freeze"
+  | "cross-seam"
+
 export type DiagnosticPipelineAssembly = {
   mode: DiagnosticMode
   maximumBufferedRecords: 250
   diagnostics: DiagnosticAdapter
+  secretValues?: readonly string[]
+  nextSequence: () => number
+  egressTrace?: (step: DiagnosticEgressStep) => void
 }
 
 export interface EventDeliveryClock {
@@ -127,7 +191,4 @@ export type EventDeliveryFactory = (
   assembly: EventDeliveryAssembly,
 ) => EventDelivery
 
-export const createMaintenanceCommandFacade: MaintenanceCommandFacadeFactory | undefined = undefined
-export const createDiagnosticPipeline: DiagnosticPipelineFactory | undefined = undefined
-export const createEventDelivery: EventDeliveryFactory | undefined = undefined
 export const maintenanceCommandFacade: MaintenanceCommandFacade | undefined = undefined

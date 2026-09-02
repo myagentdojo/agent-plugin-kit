@@ -93,19 +93,18 @@ local rather than scattering them through Modules and Adapters.
 _Avoid_: Docs bucket, wiki, notes
 
 **Repository Quality Tooling**:
-The repository-local Module that owns deterministic changed-code quality,
-comparison-base selection, repository transition policy, tool-result
-interpretation, and repair guidance across the Kit Repository. It stays
-outside the Source Tree because it governs repository maintenance rather than
-caller-visible Package Identity.
-_Avoid_: Lint script, Fallow wrapper, Source Tree Module
+The repository-local owner that configures ordinary static and changed-code
+quality tools and implements only unavoidable cross-owner Repository
+Verification. It stays outside the Source Tree because it governs repository
+maintenance rather than caller-visible Package Identity.
+_Avoid_: Ticket manager, transition engine, Fallow wrapper, Source Tree Module
 
-**Repository Qualification**:
-The Repository Quality Tooling-owned declaration of the exact paths, source
-closure, proof groups, and expected RED or GREEN states permitted at one
-reviewed repository transition. Clean Fixture may supply independent evidence
-to it but does not own repository policy.
-_Avoid_: Test count snapshot, Clean Fixture contract, implementation ticket
+**Repository Verification**:
+The lifecycle-neutral check of export containment, Owner Manifest agreement,
+Admission dependency freedom, and source-path containment. It derives current
+facts from manifests and the filesystem and owns no parallel contract, test
+count, ticket, or implementation state.
+_Avoid_: Repository Qualification, transition receipt, path inventory, task gate
 
 **Accepted Decision**:
 A reviewed, durable choice that constrains more than one change and records

@@ -35,6 +35,13 @@ requires a respecified Repository Qualification Contract under
 `docs/adr/0003-repository-quality-and-verification-transition.md` before any
 manifest, schema, or test change is admitted.
 
+> **Current repository-quality amendment:** ADR 0005 supersedes ADR 0003's
+> lifecycle and count-based transition mechanics. References below to a
+> Repository Qualification respecification are historical gates from this
+> decision's acceptance. Current work uses ordinary owner Contract Tests and
+> lifecycle-neutral Repository Verification; adding valid source or tests does
+> not require a mirrored transition contract.
+
 ## Decision
 
 Nathan accepted this decision on 28 August 2026. Fresh Sol High and Fable 5
@@ -59,12 +66,10 @@ value, or public Implementation path.
   `exactOptionalPropertyTypes` and `noImplicitReturns` before public contract
   Implementation begins. Any unrelated diagnostic stops that bounded
   transition rather than authorizing broad repair. The first read-only
-  TypeScript 7.0.2 probe found exactly two transition diagnostics and admits
-  only those two repairs: the intentional RED observability fixture assembly
-  in `src/adapters/maintenance-command-facade/contract-tests/observability.test.ts`
-  and the ADR 0003 Repository Quality Tooling call in
-  `tooling/repository-quality/fallow-policy.ts`. Any additional diagnostic
-  stops the transition.
+  TypeScript 7.0.2 probe found exactly two transition diagnostics. Their
+  current owners are the affected observability Contract Test and Repository
+  Quality Tooling under ADR 0005. Any additional diagnostic stops the
+  transition.
 - Enabling `exactOptionalPropertyTypes` changes the meaning of every existing
   optional key, so that transition is a contract change and not a compiler
   setting. The Optional keys and JSON round trip rule below states the
@@ -122,8 +127,9 @@ value, or public Implementation path.
   the compiler and not by review.
 - The equivalence assertion is evaluated with `exactOptionalPropertyTypes`
   enabled, so optional-key meaning is part of what it proves.
-- Zod 4 is the required major version. The exact version string is selected at
-  Implementation admission and pinned identically in every declaring manifest.
+- Zod `4.4.3` is pinned identically in the root and every declaring Owner
+  Manifest. Lifecycle-neutral Repository Verification enforces that agreement
+  without owning a mirrored contract transition.
 
 ### Optional keys and JSON round trip
 
@@ -132,11 +138,10 @@ value, or public Implementation path.
   the value `undefined`. A nullable key is always present and carries an
   explicit `null`. The existing Interfaces already use both spellings:
   `EvidenceLineage.release` is omissible; `EvidenceCell.observable` is
-  nullable. The current `NextAction.commandId?: MaintenanceCommand["command"]
-  | null` is a third form and is corrected at Implementation admission to the
-  always-present nullable spelling, matching Result Vocabulary projection.
-  Pinned literals that currently omit `commandId` are respecified in the same
-  Repository Qualification Contract checkpoint.
+  nullable. `NextAction.commandId` now uses the always-present nullable
+  spelling, `MaintenanceCommand["command"] | null`, matching Result Vocabulary
+  projection. The earlier optional-key correction and mirrored checkpoint are
+  acceptance history, not current work.
 - No Public Serialized Value carries `undefined` as a value at any depth. That
   rule is what makes `exactOptionalPropertyTypes` safe to enable without
   changing wire meaning.
@@ -169,13 +174,15 @@ value, or public Implementation path.
   through an accepted package subpath.
 - `src/interface.ts` stays type-only. It exports no schema and no runtime
   value, so the root export gains no runtime surface and no Zod import.
-- Eight accepted package subpaths continue to resolve directly to declaration-
-  only `interface.ts` files. The existing `./admission-bootstrap` subpath is
-  the only exception: its ordered `types` condition resolves to the
-  declaration-only Interface, while `import` and final `default` resolve to the
-  same private Admission Implementation. The Interface declares
-  `admissionBootstrap` without importing or re-exporting Implementation, and
-  the private Implementation supplies that matching runtime value.
+- Seven accepted package subpaths continue to resolve directly to
+  `interface.ts` files. `./admission-bootstrap` and
+  `./qualification-evidence` are the two conditional-runtime exceptions: each
+  ordered `types` condition resolves to its Interface, while `import` and final
+  `default` resolve to the same owner-local private Implementation. Admission's
+  Interface declares `admissionBootstrap`, and its Implementation supplies that
+  runtime value. Qualification Evidence's Interface declares
+  `qualificationEvidence` and owns the `VerificationProfile` sentinel; its
+  Implementation supplies the reducer and preserves the sentinel.
   Owner-Local Validators add no exported name, compatibility surface, or
   subpath type-export catalog entry. Their sibling files enter the installed
   inventory only through the reviewed ADR 0003 respecification.
@@ -187,6 +194,8 @@ value, or public Implementation path.
   runtime output remains empty; Admission gains exactly `admissionBootstrap`;
   Qualification Evidence preserves its existing `VerificationProfile`
   sentinel; and every other named subpath preserves its empty runtime output.
+  ADR 0006 amends this runtime-surface rule: Qualification Evidence also
+  exposes its one production reducer through the same public subpath.
 
 ### Nested command validation composition
 
@@ -251,23 +260,39 @@ Two distinct paths exist and this decision keeps them distinct.
   Unknown keys are refused. There is no coercion, no default, no transform,
   and no stripping of any kind. A key the schema does not declare produces a
   structured refusal rather than a quietly narrower value.
-- Trusted serialized egress: the owner builds the declared allowlist, redacts
-  by removing every value outside it, validates the redacted projection,
-  freezes it, and then crosses the Seam. That pinned order,
-  `build-allowlist`, `redact`, `validate`, `freeze`, `cross-seam`, is
+- Trusted serialized egress: the owner builds the declared allowlist,
+  canonicalizes the timestamp, validates the closed projection, freezes it,
+  and then crosses the Diagnostic Adapter Seam. That pinned order,
+  `build-allowlist`, `canonicalize`, `validate`, `freeze`, `cross-seam`, is
   preserved exactly as
   `src/adapters/maintenance-command-facade/contract-tests/observability.test.ts`
-  pins it. Validation runs on the redacted projection, never before it.
+  pins it. The LogTape Adapter then applies owner-local native field redaction
+  immediately before its JSONL sink.
 - Allowlist removal is an owner-performed, declared step over a value the
   owner produced. It is not schema stripping and it is not silent: the
   allowlist is declared per named value and its effect is observable per named
   value. The earlier "no silent stripping" rule applies to validation only.
-- After redaction, any key outside the declared envelope is a fail-closed
+- After projection, any key outside the declared envelope is a fail-closed
   Implementation contract failure. Strict egress validation is what proves the
   allowlist was complete.
-- Free-text is the residual. `DiagnosticRecord.message` cannot be proved
-  redacted by schema alone, so its redaction stays an owner obligation proved
-  by a hostile-value Contract Test rather than a schema claim.
+- `DiagnosticRecord.message` is closed facade-generated vocabulary, not
+  arbitrary prose. Command failures derive it from `result_code`, event
+  delivery uses one fixed repair message, and buffer truncation derives it from
+  the declared `dropped_record_count`. A non-canonical message or mismatched
+  Next Action fails closed. Every `error` or `fatal` Diagnostic Record carries
+  its exact canonical Next Action, including the presence or absence of retry
+  delay and idempotency metadata. The event-delivery action derives its ID,
+  action, and command binding from Maintenance-owned
+  `failureNextActionProjection`; the facade supplies only its diagnostic
+  summary. Exact configured secret values are refused before the Adapter Seam;
+  LogTape field redaction remains defense in depth for structured sensitive
+  fields at the environmental sink.
+- `@logtape/redaction` is an exact private production dependency of the
+  Maintenance Command Facade Adapter. It creates no shared schema owner, root
+  dependency, or Admission Bootstrap dependency.
+- Diagnostic schema version `2` records the accepted closed-message,
+  structured drop-count, and required error/fatal Next Action shape. Event
+  schema version remains `1`; the two version owners do not advance together.
 
 ### Machine envelope and version carriers
 
@@ -290,11 +315,11 @@ Two distinct paths exist and this decision keeps them distinct.
   by `error.schemaVersion`. This decision adds no version carrier.
 - The `agent` payload carried as `data.result` stays a command-scoped open
   record. The envelope schema owns its presence, not its interior. At egress
-  it must be JSON-representable, already redacted by the step above, and
+  it must be JSON-representable, safe under its command-owned contract, and
   deterministic for one command and one input, and it must carry its own
-  explicit version key. Whether each command's `agent` payload earns an
-  owner-local schema is a per-command decision deferred to that command's
-  Implementation.
+  explicit version key. Diagnostic sink redaction does not apply to stdout.
+  Whether each command's `agent` payload earns an owner-local schema is a
+  per-command decision deferred to that command's Implementation.
 - One defect is recorded rather than resolved here: the observed `agent`
   payloads disagree on version spelling. The help discovery payload uses
   `schema_version` while the `payload:materialize` payload uses
@@ -385,27 +410,15 @@ channels and are not merged.
   declares and publishes cannot be owned by the Adapter that renders it. That
   makes Maintenance Command Contract the deepest single owner, and it dissolves
   the earlier reading of that payload as counter-evidence.
-- One declaration site disagrees with this ownership today, and the required
-  Interface amendment is named rather than assumed.
-  `src/adapters/maintenance-command-facade/interface.ts` declares
-  `type ObservableFailureClass = MaintenanceError["failureClass"] | "event_delivery"`,
-  which adds the seventh value at the Adapter. At Implementation admission,
-  `src/modules/maintenance-command-contract/interface.ts` declares the sealed
-  seven-value Failure Class vocabulary together with the six-value subset that
-  `MaintenanceError` carries; `ObservableFailureClass` becomes an alias for the
-  Maintenance-owned seven-value vocabulary and adds nothing of its own; and the
-  appended literal row in `failureNextActionProjection` is typed by that
-  vocabulary rather than by a bare string literal.
-- That amendment is gated, not authorized here. It changes a Module Interface,
-  so it routes through the respecified Repository Qualification Contract named
-  below. Whether the seven-value vocabulary is exported by name on the accepted
-  `./maintenance-command-contract` subpath, which would add that name to the
-  accepted subpath type-export catalog in
-  `clean-fixture/personal-verification-profile/contract-tests/fixtures/plugin-consumer.ts`,
-  or is reached through an indexed access on an already-exported type, is a
-  deferred naming choice made in the accepted schema pass.
-- Root `CONTEXT.md` and `CONTEXT-MAP.md` record this single owner in the same
-  change as this proposal.
+- At acceptance, an Adapter-local seventh token was recorded as a declaration
+  mismatch. The accepted source now exports `FailureClass` and
+  `MaintenanceErrorFailureClass` from Maintenance Command Contract, and the
+  Facade Interface imports `FailureClass`; no Adapter-local union remains.
+- The amendment and export-shape alternatives above are acceptance history, not
+  pending work. Current Interface source is authoritative. This ADR neither
+  authorizes a further Interface change nor requires a mirrored catalog or test
+  count transition.
+- Root `CONTEXT.md` and `CONTEXT-MAP.md` record the same single-owner meaning.
 
 ### Field-scoped vocabulary reading
 
@@ -465,8 +478,9 @@ question, because the resolution facts are already knowable.
   `bunfig.toml` pins `[install] auto = "disable"`, so no auto-install rescues
   a production dependency the root manifest does not declare.
 - Version agreement is exact string agreement across every declaring manifest.
-  No range, no resolution alias, and no Bun catalog is accepted; catalogs
-  remain absent under the intentional RED contract.
+  No range, no resolution alias, and no Bun catalog is accepted. Catalogs are
+  not part of the current-stage contract; later Implementation may add one only
+  through an explicit reviewed decision.
 - This deliberately amends ADR 0002. That decision reserved third-party
   production dependencies to the Source Tree owner that needs them and used
   `@logtape/logtape` as the precedent for facade-only ownership. Root now also
@@ -480,9 +494,9 @@ question, because the resolution facts are already knowable.
   production-only install and execute a real parse through each owner.
 - Bundling is an explicit artifact choice. It is not an implicit guarantee,
   and it is not decided here.
-- Exact-version agreement has no machine check today. Adding one is part of
-  the respecified Repository Qualification Contract named below, not a promise
-  made by this decision.
+- At acceptance, exact-version agreement had no machine check. The current
+  lifecycle-neutral Repository Verification enforces it as one of its bounded
+  manifest and filesystem responsibilities.
 
 ### Logical Record Correlation
 
@@ -532,8 +546,8 @@ question, because the resolution facts are already knowable.
   and identifier Seams for deterministic record production under proof. The
   existing `EventDeliveryClock` is a delay clock, not a time source. Exact
   Seam names and shapes remain deferred; neither becomes a root export.
-- The Kit retains no correlation state beyond producing each already-redacted
-  record. Existing streams and sinks remain caller-owned, and persisted
+- The Kit retains no correlation state beyond producing each validated record.
+  Existing streams and sinks remain caller-owned, and persisted
   retention is zero days. There is no reconstruction or persistent replay of
   any kind.
 
@@ -594,20 +608,14 @@ This proposal claims none of the following, at any Proof Layer:
   caller-supplied field can create `AdmittedIdentity` or
   `ProtectedCanaryAuthority`.
 
-## Implementation admission prerequisites
+## Historical implementation admission prerequisites
 
-Two prerequisites must be satisfied before any manifest, schema, Interface, or
-test change is made. Neither is optional and neither is a formality.
+When this decision was accepted, two prerequisites applied before its first
+manifest, schema, Interface, or test change. They are retained as acceptance
+history, not as current admission gates. Current work follows ADR 0005 and the
+owning Contract Tests.
 
-1. A reviewed Repository Qualification declaration under
-   `docs/adr/0003-repository-quality-and-verification-transition.md`. The
-   canonical contract at
-   `tooling/repository-quality/repository-qualification-contract.json` owns
-   this repository transition boundary and its independent RED or GREEN
-   receipt. Adding Zod to the facade Owner Manifest, adding schema Contract
-   Tests, or adding an exact-version agreement check each require that
-   contract to be re-scoped in the same reviewed checkpoint, which is what its
-   own first-GREEN transition rule already demands. That checkpoint inventories
+1. The implementation checkpoint inventoried
    every Interface and contract amendment named here: Maintenance-owned
    Failure Class vocabulary; Maintenance-owned Qualification Refusal Code to
    Result Code and Exit Family mapping; the `EvidenceCell` and Reduced Claim
@@ -619,15 +627,13 @@ test change is made. Neither is optional and neither is a formality.
    Canary Authority Source Seam and protected-file reference; nullable
    `NextAction.commandId`; private owner-local validator siblings and their
    installed inventory; the stderr `error` object version carriers; and the two
-   named TypeScript strictness repairs. No unnamed count or source-closure
-   change is admitted.
+   named TypeScript strictness repairs.
 2. A matching respecification of the accepted P3 Full Test Design's
    Qualification Evidence brief. That brief pins the reducer as the place
    where a cell is validated without trusting `assertedStatus`, and pins the
    exact two-file, fourteen-test split. This decision keeps the truth table
-   and moves its enforcement point to the owner's serialized parse, so the
-   brief must be respecified before the first test change rather than
-   silently diverged from.
+   and moves its enforcement point to the owner's serialized parse. The brief
+   was respecified before the first test change.
 
 ## Implementation admission proof gate
 
@@ -662,7 +668,7 @@ perturbation that must turn that group RED.
    approval version; accept an approval version not listed for outer version 1;
    or inspect a nested value before refusing an unknown outer version.
 2. **Evidence-state contracts.** Owner: Qualification Evidence. Selector:
-   `bun run test:intentional-red:qualification-evidence`. Proves every
+   `bun run test:current-stage:qualification-evidence`. Proves every
    accepted Evidence Cell and Reduced Claim variant, per-cell mismatch refusal
    at the serialized parse of `unknown`, and every Qualification Refusal Code
    meaning through `QualificationOutcome`. Perturbations: pair a status with a
@@ -671,11 +677,12 @@ perturbation that must turn that group RED.
    resolving cell resolve from an incomparable Proof Layer.
 3. **Logical Record Correlation contracts.** Owner: Maintenance Command Facade
    Adapter. Selector:
-   `bun run test:intentional-red:maintenance-cli:observability`. Proves one
+   `bun run test:current-stage:maintenance-cli:observability`. Proves one
    shared within-run sequence space, gaps remaining gaps, duplicate
    observations preserving identity and sequence, terminal outcome only from
    the primary envelope, no reconstruction operation or retained state owner,
-   and an independently observable redaction step order. Tests invoke the
+   an independently observable canonical egress order, and native field
+   redaction before the JSONL sink. Tests invoke the
    Facade and inspect the records they capture directly. Perturbations: sort by
    timestamp; infer a missing record; renumber sequence at `reset()`; convert
    a retry into a second Logical Record; treat Event Acceptance as terminal;
@@ -683,8 +690,8 @@ perturbation that must turn that group RED.
    Facade evidence.
 4. **Public-process and Clean Fixture contracts.** Owner: Clean Fixture, with
    the facade for stream and envelope bytes. Selector:
-   `bun run test:intentional-red:clean-fixture` together with
-   `bun run test:intentional-red:maintenance-cli:process`. Proves a
+   `bun run test:current-stage:clean-fixture` together with
+   `bun run test:current-stage:maintenance-cli:process`. Proves a
    production-only install with no hoisting assumption, one real parse through
    each schema owner, private validator sibling installation without a new
    package export, exact stdout, stderr, Exit Code, and redaction bytes. It also
@@ -702,14 +709,14 @@ perturbation that must turn that group RED.
 
 That gate proves serialized-value validation, discriminated public state, and
 Logical Record Correlation. It proves neither reconstruction, durable replay,
-nor delivery. Every path above stays absent until its owning gate under the
-intentional RED rule in `AGENTS.md`.
+nor delivery. The current-stage contract is present and governed by its
+accepted tests; later Implementation remains bounded by the stated Non-Claims.
 
-One existing defect must be repaired inside group 3 rather than carried
-forward: the current redaction Contract Test asserts `redactionContract.order`
-against itself, so the pinned step order is not independently observable. The
-repaired test must compare an order the pipeline actually produced against the
-literal contract order.
+The group 3 Contract Test compares the pipeline's observed step trace with a
+test-owned literal order. Separate direct-Adapter evidence plants a structured
+sensitive field and requires LogTape to replace it before exact JSONL bytes are
+written. Removing canonical message validation or the native sink decorator
+must turn that proof RED.
 
 ## Failure-to-fixture promotion
 
@@ -739,19 +746,20 @@ through this exact route, in order:
 - Raw receipts remain private XDG state. The promoted fixture contains no
   transcript, credential, private path, raw event stream, or mutable
   remote-state snapshot.
-- Any new fixture path and the resulting test-count change are routed through
-  the respecified Repository Qualification Contract under ADR 0003, like every
-  other count change.
+- An owning Contract Test may add a fixture when its accepted test design needs
+  one. ADR 0005's lifecycle-neutral Repository Verification remains limited to
+  its manifest and filesystem responsibilities; it does not own fixture
+  selection, mirrored test counts, or product-contract transitions.
 
 ## Known residual risks
 
 Recorded so that acceptance is informed rather than optimistic:
 
-- `DiagnosticRecord.message` is free text and cannot be proved redacted by
-  schema alone.
+- Native field redaction depends on a bounded owner-local sensitive-field
+  pattern set. A newly declared structured field whose name carries sensitive
+  meaning requires a negative control before admission.
 - Exact Zod version agreement across the root manifest and every declaring
-  Owner Manifest has no machine check until the respecified Verification
-  Transition Contract adds one.
+  Owner Manifest is enforced by lifecycle-neutral Repository Verification.
 - `EvidenceCell.resolves` referential integrity is unreachable by a per-cell
   schema and depends entirely on the multi-cell rules inside `reduce`.
 - Adding Zod changes installed content, while `installed dependency freedom`
@@ -759,37 +767,28 @@ Recorded so that acceptance is informed rather than optimistic:
   not contradict, but the Non-Claim's wording must be reread at acceptance.
 - Parse cost and startup weight at the Admission-adjacent binary are
   unmeasured.
-- The Admission-to-Maintenance binding step is the Kit's capability trust
-  boundary. Until its capability-negative and exactly-once composition tests
-  are admitted, a binder that accepts a parsed `CandidateIdentity` as admitted
-  could evade ordinary schema proof.
-- Failure Class ownership is decided but not yet expressed in source. Until the
-  named Interface amendment is admitted,
-  `src/adapters/maintenance-command-facade/interface.ts` still declares
-  `event_delivery` locally, so the executable source and this decision disagree
-  on the declaration site while agreeing on the owner.
+- The Admission-to-Maintenance binding step remains the Kit's capability trust
+  boundary. Current capability-negative and exactly-once composition tests are
+  its evidence; later work must preserve their refusal boundary.
+- Failure Class ownership is expressed in the accepted source Interface. Later
+  Implementation must preserve that owner boundary and the stated Non-Claims.
 
-## Deferred choices
+## Historical acceptance choices now settled in source
 
-Named and deliberately unresolved:
+The following were explicitly deferred at acceptance. They are now settled by
+their owning current source, rather than being new work instructions:
 
-- the exact Zod 4 version string, pinned identically in every declaring
-  manifest at Implementation admission
-- the exact Qualification Refusal Code tokens
-- the exact Result Code and Exit Family each Qualification Refusal Code maps to
-- the exact Maintenance-owned Failure Class vocabulary type name, and whether
-  it is exported on the accepted `./maintenance-command-contract` subpath or
-  reached through an indexed access
-- the exact `unknown` sub-discriminator key and its two tokens
-- the exact private owner-local validator sibling filename and exported names
-  used only by repository-relative composition
-- the exact Wire Command type names and trusted command-binding call shape
-- the exact Canary Authority Source Seam and protected-file reference type
-  names; the accepted meaning of `--authority <FILE>` is not deferred
-- the exact injected time and identifier Seam names and shapes
-- the reviewed `agent` payload version-key spelling
-- downstream GitHub Issue dependency and status changes
-- schema, test, manifest, dependency, and lockfile Implementation
+- exact Zod `4.4.3` pins in the root and importing Owner Manifests;
+- Qualification Refusal Code, Result Code, and Exit Family vocabulary;
+- Maintenance-owned `FailureClass` and its `MaintenanceErrorFailureClass`
+  subset, imported by the Facade;
+- Wire Command, protected-authority, timestamp, and identifier Interfaces and
+  their strict serialized-value schemas;
+- owner-local validators, trusted binding composition, and the reviewed agent
+  payload version carrier.
+
+GitHub Issue status remains outside this repository. This decision does not
+authorize P4 work, a new schema transition, or a repository-governance mirror.
 
 ## Consequences
 
@@ -806,20 +805,20 @@ Named and deliberately unresolved:
   Contract binds the already-admitted identity and Canary Qualification's
   protected-source authority after validation; neither capability is
   serializable or structurally manufactured.
-- Qualification Evidence gains a refusal channel it does not have today, so
-  `QualificationEvidence.reduce` changes shape at Implementation and the
-  accepted subpath type-export catalog changes with it.
+- Qualification Evidence currently owns a typed refusal outcome through its
+  Interface and serialized-value owner. This decision requires no catalog or
+  test-count mirror transition.
 - ADR 0002 is amended, not merely applied. Root and every importing owner
   declare Zod at one exact version.
-- ADR 0003's Repository Qualification Contract must be respecified before the
-  first manifest, schema, or test change, and the accepted P3 Qualification
-  Evidence brief must be respecified with it.
+- ADR 0005's lifecycle-neutral Repository Verification remains the manifest
+  and filesystem owner. Schema work changes it only when a new cross-owner
+  dependency relationship changes one of its four accepted responsibilities.
 - Qualification Refusal Code to Result Code and Exit Family mapping stays with
   Maintenance Command Contract, so the Maintenance Command Facade Adapter gains
   no result policy and keeps projecting only what an owner already decided.
-- Failure Class has one owner. Maintenance Command Contract owns all seven
-  values; the facade declaration site is amended at Implementation admission
-  rather than left as a second owner.
+- Failure Class has one owner. Maintenance Command Contract currently owns all
+  seven values, and the Facade imports that vocabulary rather than declaring a
+  second owner.
 - Root `CONTEXT.md` and `CONTEXT-MAP.md` record the corrected Failure Class
   ownership, the Maintenance-owned refusal mapping, and the one-validator,
   one-declared-type Public Serialized Value rule in the same change as this

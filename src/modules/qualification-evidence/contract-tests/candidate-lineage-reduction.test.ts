@@ -1,104 +1,433 @@
 import { expect, test } from "bun:test"
 import type {
   EvidenceCell,
-  QualificationEvidence,
+  QualificationOutcome,
   VerificationProfile,
 } from "../interface"
+import type { CandidateIdentity } from "../../release-and-git-engine/interface"
+import { qualificationEvidence } from "../implementation/qualification-evidence"
+import { serializeQualificationRefusal } from "../serialized-values"
+import { canonicalCandidateIdentityDigest } from "../../release-and-git-engine/serialized-values"
 import {
   candidate,
   candidateDigest,
+  failureCell,
   observedCell,
   personalEvidenceCells,
   personalProfile,
+  publicEvidenceCells,
+  publicProfile,
   skipCell,
 } from "./fixtures/evidence-cells"
 
-const qualificationEvidence: QualificationEvidence | undefined = undefined
-
-function reduceAttempt(profile: VerificationProfile, cells: readonly EvidenceCell[]) {
-  if (!qualificationEvidence) return { kind: "contract-absent" } as const
-  const outcome = qualificationEvidence.reduce({ candidate, profile, cells })
-  return outcome.status === "reduced"
-    ? { kind: "result", value: outcome.result } as const
-    : { kind: "refused", refusal: outcome.refusal } as const
+function reduceAttempt(profile: VerificationProfile, cells: readonly EvidenceCell[]): QualificationOutcome {
+  return qualificationEvidence.reduce({ candidate, profile, cells })
 }
 
-test("canonical Candidate Lineage agreement reduces to proved", () => {
-  const actual = reduceAttempt(personalProfile, personalEvidenceCells())
-  expect(actual, "contract-absent: canonical lineage must reduce to proved").toMatchObject({
-    kind: "result",
-    value: { counts: { selected: 8, covered: 6, skipped: 2, proved: 6 } },
-  })
-})
+function expectRefusal(
+  outcome: QualificationOutcome,
+  code: "zero-cell" | "out-of-profile" | "lineage-disagreement" | "invalid-cell-id" | "invalid-resolution" | "unqualified-resolution" | "mixed-unresolved",
+  claim: EvidenceCell["claim"] | null = null,
+): void {
+  expect(outcome.status).toBe("refused")
+  if (outcome.status !== "refused") return
+  const expected = claim === null ? { schemaVersion: 1, code } : { schemaVersion: 1, code, claim }
+  expect(outcome.refusal).toMatchObject(expected)
+}
 
-test("Candidate Identity digest disagreement is refused", () => {
-  const cells = personalEvidenceCells()
-  cells[0] = observedCell({
-    lineage: {
-      ...observedCell().lineage,
-      candidateIdentitySha256: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+function evidenceCellsForCandidate(
+  lineageCandidate: CandidateIdentity,
+  digest: `sha256:${string}`,
+  cellCandidate: CandidateIdentity = lineageCandidate,
+): EvidenceCell[] {
+  return personalEvidenceCells().map((cell) => {
+    const lineage = {
+      ...cell.lineage,
+      candidateIdentitySha256: digest,
+      source: lineageCandidate.source,
+      release: lineageCandidate.release,
+      package: lineageCandidate.package,
+      workflow: lineageCandidate.workflow,
+    }
+    if (cell.assertedStatus === "unknown" && cell.unknownKind === "skip") {
+      return { ...cell, candidate: cellCandidate, lineage, receipt: null }
+    }
+    return {
+      ...cell,
+      candidate: cellCandidate,
+      lineage,
+      receipt: cell.receipt === null
+        ? null
+        : { ...cell.receipt, candidateIdentitySha256: digest },
+    }
+  })
+}
+
+test("canonical Candidate Lineage reduction preserves profile order and evidence metadata", () => {
+  const outcome = reduceAttempt(personalProfile, personalEvidenceCells())
+  expect(outcome.status).toBe("reduced")
+  if (outcome.status !== "reduced") return
+
+  expect(outcome.result.claims.map(({ claim }) => claim)).toEqual(
+    [
+      "kit.identity.admitted",
+      "kit.command.invoked",
+      "kit.package.full-commit-pin",
+      "kit.workflow.full-commit-pin",
+      "plugin-payload.installed",
+      "runtime.supported-platform",
+      "harness.claude.fresh-native",
+      "harness.codex.fresh-native",
+    ],
+  )
+  expect(outcome.result.counts).toEqual({ selected: 8, covered: 6, skipped: 2, proved: 6, notProved: 0, unknown: 0 })
+  expect(outcome.result.claims.map(({ evidenceCellIds }) => evidenceCellIds)).toEqual([
+    ["cell:personal-observed-0"],
+    ["cell:personal-observed-1"],
+    ["cell:personal-observed-2"],
+    ["cell:personal-observed-3"],
+    ["cell:personal-observed-4"],
+    ["cell:personal-observed-5"],
+    ["cell:personal-claude-skip"],
+    ["cell:personal-codex-skip"],
+  ])
+  expect(outcome.result.nonClaims).toEqual([
+    "workflow.called-revision",
+    "harness.claude.fresh-native",
+    "harness.codex.fresh-native",
+  ])
+  expect(outcome.result.receiptDigests).toEqual([
+    "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  ])
+
+  const reorderedCandidate: CandidateIdentity = {
+    workflow: {
+      commit: candidate.workflow.commit,
+      path: candidate.workflow.path,
+      repository: { origin: candidate.workflow.repository.origin },
     },
-  })
-  expect(reduceAttempt(personalProfile, cells), "contract-absent: candidate digest mismatch must refuse").toMatchObject({ kind: "refused" })
-})
-
-test("Candidate Identity member disagreement is refused", () => {
-  const cells = personalEvidenceCells()
-  cells[0] = observedCell({
-    lineage: {
-      ...observedCell().lineage,
-      source: { ...candidate.source, commit: "2222222222222222222222222222222222222222" },
+    package: {
+      commit: candidate.package.commit,
+      repository: { origin: candidate.package.repository.origin },
     },
-  })
-  expect(reduceAttempt(personalProfile, cells), "contract-absent: lineage member mismatch must refuse").toMatchObject({ kind: "refused" })
-})
-
-test("installed payload disagreement for one candidate is refused", () => {
-  const cells = personalEvidenceCells()
-  cells[0] = observedCell({
-    id: "cell:first",
-    lineage: { ...observedCell().lineage, installedPayloadSha256: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" },
-  })
-  const second = observedCell({
-    id: "cell:second",
-    lineage: { ...observedCell().lineage, installedPayloadSha256: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" },
-  })
-  expect(reduceAttempt(personalProfile, [...cells, second]), "contract-absent: installed bytes must agree per candidate").toMatchObject({ kind: "refused" })
-})
-
-test("receipt binding uses the canonical Candidate Identity digest", () => {
-  const cells = personalEvidenceCells()
-  cells[0] = observedCell({
-    receipt: {
-      ...observedCell().receipt!,
-      candidateIdentitySha256: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    release: {
+      commit: candidate.release.commit,
+      reference: candidate.release.reference,
     },
-  })
-  expect(candidateDigest).toMatch(/^sha256:[0-9a-f]{64}$/)
-  expect(reduceAttempt(personalProfile, cells), "contract-absent: receipt candidate binding must refuse drift").toMatchObject({ kind: "refused" })
+    source: {
+      commit: candidate.source.commit,
+      repository: { origin: candidate.source.repository.origin },
+    },
+  }
+  const semanticallyEqual = personalEvidenceCells().map((cell) => ({ ...cell, candidate: reorderedCandidate }))
+  expect(reduceAttempt(personalProfile, semanticallyEqual).status).toBe("reduced")
+
+  for (const profile of [personalProfile, publicProfile]) {
+    const requirements = [...profile.requirements]
+    const firstRequirement = requirements[0]!
+    const driftedProfiles = [
+      { ...profile, requirements: requirements.slice(0, -1) },
+      { ...profile, requirements: [...requirements.slice(0, -1), firstRequirement] },
+      { ...profile, requirements: [...requirements, firstRequirement] },
+      { ...profile, requirements: [...requirements].reverse() },
+      {
+        ...profile,
+        requirements: requirements.map((requirement, index) =>
+          index === 0 ? { ...requirement, requiredProofLayer: "in-process" } : requirement,
+        ),
+      },
+    ] as unknown as VerificationProfile[]
+
+    for (const driftedProfile of driftedProfiles) {
+      expectRefusal(reduceAttempt(driftedProfile, profile.id === "personal" ? personalEvidenceCells() : publicEvidenceCells()), "out-of-profile")
+    }
+  }
 })
 
 test("zero-cell selected claim is refused", () => {
-  expect(reduceAttempt(personalProfile, []), "contract-absent: uncovered claims need one explicit skip").toMatchObject({ kind: "refused" })
+  const cells = personalEvidenceCells().filter((cell) => cell.claim !== "kit.identity.admitted")
+  const outcome = reduceAttempt(personalProfile, cells)
+  expectRefusal(outcome, "zero-cell", "kit.identity.admitted")
 })
 
-test("cell outside the selected profile is refused", () => {
-  const cell = observedCell({ id: "cell:outside", claim: "release.identity.published" })
-  expect(reduceAttempt(personalProfile, [...personalEvidenceCells(), cell]), "contract-absent: out-of-profile evidence must refuse").toMatchObject({ kind: "refused" })
+test("a cell outside the selected profile is refused", () => {
+  const outcome = reduceAttempt(personalProfile, [
+    ...personalEvidenceCells(),
+    observedCell({ id: "cell:outside", claim: "release.identity.published" }),
+  ])
+  expectRefusal(outcome, "out-of-profile", "release.identity.published")
 })
 
-test("explicit resolution preserves earlier identifiers and receipts", () => {
-  const cells = personalEvidenceCells()
-  const skipped = skipCell("kit.identity.admitted", "cell:earlier-skip")
-  const resolving = observedCell({ id: "cell:resolving", resolves: ["cell:earlier-skip"] })
-  const actual = reduceAttempt(personalProfile, [skipped, resolving, ...cells.slice(1)])
-  const claim = actual.kind === "result"
-    ? actual.value.claims.find((item) => item.claim === "kit.identity.admitted")
-    : undefined
-  expect(claim, "contract-absent: explicit resolution must preserve audit identity").toMatchObject({
+test("Candidate Lineage, installed payload, and receipt disagreement are refused while hosted observations may differ", () => {
+  const digestMismatch = personalEvidenceCells()
+  digestMismatch[0] = observedCell({
+    id: "cell:digest-mismatch",
+    lineage: {
+      ...observedCell().lineage,
+      candidateIdentitySha256: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    },
+  })
+
+  const memberMismatch = personalEvidenceCells()
+  memberMismatch[0] = observedCell({
+    id: "cell:member-mismatch",
+    candidate: {
+      ...candidate,
+      source: { ...candidate.source, commit: "2222222222222222222222222222222222222222" },
+    },
+  })
+
+  const payloadMismatch = personalEvidenceCells()
+  payloadMismatch[1] = observedCell({
+    id: "cell:payload-mismatch",
+    claim: "kit.command.invoked",
+    lineage: {
+      ...observedCell().lineage,
+      installedPayloadSha256: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    },
+  })
+
+  const receiptMismatch = personalEvidenceCells()
+  receiptMismatch[0] = observedCell({
+    id: "cell:receipt-mismatch",
+    receipt: {
+      ...observedCell().receipt!,
+      candidateIdentitySha256: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    },
+  })
+
+  for (const cells of [digestMismatch, memberMismatch, payloadMismatch, receiptMismatch]) {
+    expectRefusal(reduceAttempt(personalProfile, cells), "lineage-disagreement")
+  }
+
+  const inconsistentCandidate: CandidateIdentity = {
+    ...candidate,
+    release: { ...candidate.release, commit: "2222222222222222222222222222222222222222" },
+  }
+  const inconsistentDigest =
+    "sha256:20c432f7c9b7182dbc3f900fefe7c1ac6b022ac3db1811fc6fa78c8fda519a58" as const
+  const internallyInconsistent = evidenceCellsForCandidate(inconsistentCandidate, inconsistentDigest)
+  expectRefusal(
+    qualificationEvidence.reduce({
+      candidate: inconsistentCandidate,
+      profile: personalProfile,
+      cells: internallyInconsistent,
+    }),
+    "lineage-disagreement",
+  )
+  expect(candidateDigest).toMatch(/^sha256:[0-9a-f]{64}$/)
+
+  const composedCandidate: CandidateIdentity = {
+    ...candidate,
+    release: { ...candidate.release, reference: "refs/tags/caf\u00e9" },
+  }
+  const decomposedCandidate: CandidateIdentity = {
+    ...candidate,
+    release: { ...candidate.release, reference: "refs/tags/cafe\u0301" },
+  }
+  const normalizedDigestOracle =
+    "sha256:080eeb9cbba64ece1e0b2123e626a5ae98b4320fe265bdd928b431426a90f54f" as const
+  const composedDigest = canonicalCandidateIdentityDigest(composedCandidate)
+  expect(composedDigest).toBe(normalizedDigestOracle)
+  expect(canonicalCandidateIdentityDigest(decomposedCandidate)).toBe(normalizedDigestOracle)
+  expectRefusal(
+    qualificationEvidence.reduce({
+      candidate: composedCandidate,
+      profile: personalProfile,
+      cells: evidenceCellsForCandidate(composedCandidate, composedDigest, decomposedCandidate),
+    }),
+    "lineage-disagreement",
+  )
+
+  const hostedCell = observedCell({
+    id: "cell:public-payload-hosted",
+    claim: "plugin-payload.installed",
+    actualProofLayer: "hosted",
+    lineage: {
+      ...observedCell().lineage,
+      hostedRun: {
+        provider: "github-actions",
+        repository: candidate.source.repository,
+        runId: "123456",
+        attempt: 1,
+        headCommit: candidate.source.commit,
+      },
+    },
+  })
+  const correct = publicEvidenceCells().map((cell) =>
+    cell.claim === "plugin-payload.installed" ? hostedCell : cell,
+  )
+  expect(reduceAttempt(publicProfile, correct).status).toBe("reduced")
+
+  const alternateHostedObservation = correct.map((cell) =>
+    cell.id === hostedCell.id
+      ? {
+          ...hostedCell,
+          lineage: {
+            ...hostedCell.lineage,
+            hostedRun: {
+              ...hostedCell.lineage.hostedRun!,
+              repository: { origin: "https://github.com/myagentdojo/not-the-candidate.git" },
+              headCommit: "2222222222222222222222222222222222222222",
+            },
+          },
+        }
+      : cell,
+  )
+  expect(reduceAttempt(publicProfile, alternateHostedObservation).status).toBe("reduced")
+})
+
+test("malformed and duplicate cell identifiers are refused", () => {
+  const malformed = personalEvidenceCells()
+  malformed[0] = observedCell({ id: "cell:Uppercase" as EvidenceCell["id"] })
+  const malformedOutcome = reduceAttempt(personalProfile, malformed)
+  expectRefusal(malformedOutcome, "invalid-cell-id")
+  if (malformedOutcome.status === "refused") {
+    expect(malformedOutcome.refusal.evidenceCellId).toBeNull()
+    expect(JSON.parse(serializeQualificationRefusal(malformedOutcome.refusal))).toEqual(malformedOutcome.refusal)
+  }
+
+  const duplicate = personalEvidenceCells()
+  duplicate[1] = observedCell({ id: duplicate[0]!.id })
+  expectRefusal(reduceAttempt(personalProfile, duplicate), "invalid-cell-id")
+})
+
+test("unknown, forward, cross-candidate, and cross-claim resolutions are refused", () => {
+  const unknown = personalEvidenceCells()
+  unknown[0] = observedCell({ id: "cell:unknown-resolver", resolves: ["cell:missing"] })
+
+  const forward = personalEvidenceCells()
+  forward[0] = observedCell({ id: "cell:forward-resolver", resolves: ["cell:later"] })
+  forward.push(observedCell({ id: "cell:later" }))
+
+  const crossCandidate = personalEvidenceCells()
+  crossCandidate[0] = observedCell({ id: "cell:cross-candidate-resolver", resolves: ["cell:other-candidate"] })
+  crossCandidate.push(observedCell({
+    id: "cell:other-candidate",
+    candidate: {
+      ...candidate,
+      source: { ...candidate.source, commit: "2222222222222222222222222222222222222222" },
+    },
+  }))
+
+  const crossClaim = personalEvidenceCells()
+  crossClaim[0] = observedCell({ id: "cell:cross-claim-resolver", resolves: ["cell:personal-observed-1"] })
+
+  for (const cells of [unknown, forward, crossCandidate, crossClaim]) {
+    expectRefusal(reduceAttempt(personalProfile, cells), "invalid-resolution")
+  }
+})
+
+test("an individually unproved, lower-layer, incomplete-lineage, or incomparable resolver is refused", () => {
+  const individuallyUnproved = personalEvidenceCells().filter((cell) => cell.claim !== "harness.claude.fresh-native")
+  individuallyUnproved.unshift(skipCell("harness.claude.fresh-native", "cell:unproved-skip"))
+  individuallyUnproved.push({
+    ...failureCell("harness.claude.fresh-native", "cell:unproved-resolver"),
+    actualProofLayer: "fresh-native",
+    resolves: ["cell:unproved-skip"],
+  })
+
+  const lowerLayer = personalEvidenceCells().filter((cell) => cell.claim !== "harness.claude.fresh-native")
+  lowerLayer.unshift(skipCell("harness.claude.fresh-native", "cell:lower-layer-skip"))
+  lowerLayer.push(observedCell({
+    id: "cell:lower-layer-resolver",
+    claim: "harness.claude.fresh-native",
+    actualProofLayer: "public-process",
+    resolves: ["cell:lower-layer-skip"],
+  }))
+
+  const incompleteLineage = personalEvidenceCells().filter((cell) => cell.claim !== "harness.claude.fresh-native")
+  incompleteLineage.unshift(skipCell("harness.claude.fresh-native", "cell:incomplete-lineage-skip"))
+  const completeResolver = observedCell({
+    id: "cell:incomplete-lineage-resolver",
+    claim: "harness.claude.fresh-native",
+    resolves: ["cell:incomplete-lineage-skip"],
+  })
+  const { installedPayloadSha256: _installedPayloadSha256, ...lineageWithoutPayload } = completeResolver.lineage
+  incompleteLineage.push({ ...completeResolver, lineage: lineageWithoutPayload })
+
+  const incomparable = personalEvidenceCells().filter((cell) => cell.claim !== "harness.claude.fresh-native")
+  incomparable.push(skipCell("harness.claude.fresh-native", "cell:incomparable-skip"))
+  incomparable.push(observedCell({
+    id: "cell:incomparable-resolver",
+    claim: "harness.claude.fresh-native",
+    actualProofLayer: "hosted",
+    resolves: ["cell:incomparable-skip"],
+  }))
+
+  for (const cells of [individuallyUnproved, lowerLayer, incompleteLineage, incomparable]) {
+    expectRefusal(reduceAttempt(personalProfile, cells), "unqualified-resolution")
+  }
+})
+
+test("an unresolved skip plus observation is refused, while explicit resolution preserves both", () => {
+  const mixed = personalEvidenceCells().filter((cell) => cell.claim !== "harness.claude.fresh-native")
+  mixed.unshift(skipCell("harness.claude.fresh-native", "cell:unresolved-skip"))
+  mixed.push(observedCell({ id: "cell:unresolved-observation", claim: "harness.claude.fresh-native", actualProofLayer: "fresh-native" }))
+  expectRefusal(reduceAttempt(personalProfile, mixed), "mixed-unresolved", "harness.claude.fresh-native")
+
+  const resolved = personalEvidenceCells().filter((cell) => cell.claim !== "harness.claude.fresh-native")
+  resolved.unshift(skipCell("harness.claude.fresh-native", "cell:earlier-skip"))
+  resolved.push(observedCell({
+    id: "cell:resolving",
+    claim: "harness.claude.fresh-native",
+    actualProofLayer: "fresh-native",
+    resolves: ["cell:earlier-skip"],
+  }))
+  const outcome = reduceAttempt(personalProfile, resolved)
+  expect(outcome.status).toBe("reduced")
+  if (outcome.status !== "reduced") return
+  expect(outcome.result.claims.find(({ claim }) => claim === "harness.claude.fresh-native")).toMatchObject({
+    claim: "harness.claude.fresh-native",
     status: "proved",
     evidenceCellIds: ["cell:earlier-skip", "cell:resolving"],
+    nonClaims: ["harness.claude.fresh-native", "workflow.called-revision"],
+    receiptDigests: ["sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"],
   })
-  const receiptDigests = actual.kind === "result" ? actual.value.receiptDigests : undefined
-  expect(receiptDigests).toContain("sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+
+  const invalidPersonalRationale = personalEvidenceCells().map((cell) =>
+    cell.claim === "harness.claude.fresh-native"
+      ? skipCell(cell.claim, "cell:personal-invalid-rationale", "hosted-proof-not-run")
+      : cell,
+  )
+  const invalidSkipWithResolution = personalEvidenceCells()
+    .filter((cell) => cell.claim !== "harness.claude.fresh-native")
+  invalidSkipWithResolution.unshift(skipCell("harness.claude.fresh-native", "cell:personal-earlier-valid-skip"))
+  invalidSkipWithResolution.push({
+    ...skipCell("harness.claude.fresh-native", "cell:personal-skip-with-resolution"),
+    resolves: ["cell:personal-earlier-valid-skip"] as const,
+  } as unknown as EvidenceCell)
+  const invalidPersonalClaim = personalEvidenceCells().map((cell) =>
+    cell.claim === "runtime.supported-platform"
+      ? skipCell(cell.claim, "cell:personal-invalid-claim")
+      : cell,
+  )
+  const invalidPublicMechanics = publicEvidenceCells().map((cell) =>
+    cell.claim === "kit.identity.admitted"
+      ? skipCell(cell.claim, "cell:public-invalid-clean-fixture", "hosted-proof-not-run")
+      : cell,
+  )
+  const invalidPublicHostedRationale = publicEvidenceCells().map((cell) =>
+    cell.claim === "plugin-payload.installed"
+      ? skipCell(cell.claim, "cell:public-invalid-hosted-rationale", "fresh-native-proof-not-run")
+      : cell,
+  )
+  const invalidPublicFreshNativeRationale = publicEvidenceCells().map((cell) =>
+    cell.claim === "harness.claude.fresh-native"
+      ? skipCell(cell.claim, "cell:public-invalid-fresh-native-rationale", "hosted-proof-not-run")
+      : cell,
+  )
+  const invalidPublicAuthorityRationale = publicEvidenceCells().map((cell) =>
+    cell.claim === "runtime.supported-platform"
+      ? skipCell(cell.claim, "cell:public-invalid-authority-rationale", "protected-authority-unavailable")
+      : cell,
+  )
+
+  expectRefusal(reduceAttempt(personalProfile, invalidPersonalRationale), "out-of-profile")
+  expectRefusal(reduceAttempt(personalProfile, invalidSkipWithResolution), "invalid-resolution")
+  expectRefusal(reduceAttempt(personalProfile, invalidPersonalClaim), "out-of-profile")
+  expectRefusal(reduceAttempt(publicProfile, invalidPublicMechanics), "out-of-profile")
+  expectRefusal(reduceAttempt(publicProfile, invalidPublicHostedRationale), "out-of-profile")
+  expectRefusal(reduceAttempt(publicProfile, invalidPublicFreshNativeRationale), "out-of-profile")
+  expectRefusal(reduceAttempt(publicProfile, invalidPublicAuthorityRationale), "out-of-profile")
 })

@@ -18,9 +18,15 @@ export const fixedEventFailure = {
   failureClass: "event_delivery",
   nextActionId: "events.inspect-configuration",
 } as const
+export const outcomeContextContract = {
+  event: "maintenance.outcome-context",
+  level: "info",
+  usageRefusalMessage: 'Maintenance command reached result code "usage-refused".',
+  previewedMessage: 'Maintenance command reached result code "previewed".',
+  completedMessage: 'Maintenance command reached result code "completed".',
+} as const
 
 export const bufferedSequence = [1, 2, 3, 4] as const
-export const boundedBuffer = { maximum: 250, drop: "oldest", truncationRecords: 1 } as const
 export const lifecycleContract = {
   configureCalls: 1,
   disposeCalls: 1,
@@ -28,23 +34,4 @@ export const lifecycleContract = {
   doubleDispose: "no-op",
   throwingClose: { primaryResultPreserved: true, stdoutWrites: 0, redacted: true },
   successfulTeardown: { bufferedRecordsDiscarded: true },
-} as const
-export const redactionContract = {
-  order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"],
-  diagnosticFrozen: true,
-  eventFrozen: true,
-  leakedKeys: [],
-  leakedValues: [],
-} as const
-export const correlationContract = {
-  runIds: ["contract-help-literal", "contract-help-literal"],
-  sequences: [1, 2],
-  eventId: "contract-help-literal.2",
-} as const
-export const deliveryContract = {
-  eventId: "contract-help-literal.2",
-  attemptTimeoutsMs: [250, 250],
-  fakeClockAdvancesMs: [250, 250],
-  maximumAttempts: 2,
-  scenarios: ["success", "timeout", "synchronous-failure", "both-attempts-failed"],
 } as const

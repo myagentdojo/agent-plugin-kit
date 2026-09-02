@@ -1,5 +1,4 @@
 import {
-  VerificationProfile,
   type EvidenceCell,
 } from "agent-plugin-kit/qualification-evidence"
 import { admittedCandidate } from "./admission-invariant-cases"
@@ -66,9 +65,6 @@ function skipped(
     resolves: [],
   }
 }
-
-export const personalProfile = VerificationProfile.personal
-export const publicProfile = VerificationProfile.public
 
 export function personalProfileCells(): EvidenceCell[] {
   return [

@@ -1,13 +1,24 @@
 import { expect, test } from "bun:test"
+import { configureSync, getLogger, resetSync, type Sink } from "@logtape/logtape"
 import { literalHelpProcess, literalUsageProcess } from "../../../modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results"
 import {
   createDiagnosticPipeline,
+  createLogTapeDiagnosticAdapter,
+} from "../implementation/logtape-diagnostic-adapter"
+import {
   createEventDelivery,
-  createMaintenanceCommandFacade,
-  type DiagnosticMode,
-  type DiagnosticRecord,
-  type EventRecord,
+  createMaintenanceEventAdapter,
+} from "../implementation/maintenance-event-adapter"
+import { createMaintenanceCommandFacade } from "../implementation/maintenance-command-facade"
+import type {
+  DiagnosticMode,
+  DiagnosticRecord,
+  DiagnosticEgressStep,
+  EventAdapter,
+  EventRecord,
+  FacadeCorrelationSources,
 } from "../interface"
+import { invokePublicProcess } from "./adapters/public-process-adapter"
 import { createDiagnosticRecordingAdapter } from "./adapters/diagnostic-recording-adapter"
 import {
   createEventRecordingAdapter,
@@ -17,13 +28,12 @@ import {
 import { createMaintenanceCommandsRecordingAdapter } from "./adapters/maintenance-commands-recording-adapter"
 import {
   bufferedSequence,
-  correlationContract,
-  deliveryContract,
   diagnosticModeContract,
   diagnosticModes,
   fixedEventFailure,
+  hostileColorEnvironment,
   lifecycleContract,
-  redactionContract,
+  outcomeContextContract,
 } from "./fixtures/literal-observability-cases"
 
 const absent = (actual: unknown, expected: unknown, claim: string) =>
@@ -33,229 +43,819 @@ const diagnosticRecord = (
   sequence: number,
   level: DiagnosticRecord["level"],
   event = `fixture.${level}`,
-): DiagnosticRecord => Object.freeze({
-  schema_version: 1,
+): DiagnosticRecord => {
+  const fields = {
+    schema_version: 2 as const,
+    record_type: "diagnostic" as const,
+    timestamp: "2026-08-27T00:00:00.000Z",
+    sequence,
+    category: ["agent-plugin-kit", "maintenance"] as const,
+    event,
+    run_id: "contract-help-literal",
+    station_id: "maintenance.usage-refused" as const,
+    failure_class: "usage" as const,
+    result_code: "usage-refused" as const,
+    transaction_state: "unchanged" as const,
+    retry_safety: "safe" as const,
+    message: 'Maintenance command failed with result code "usage-refused".' as const,
+  }
+  if (level !== "error" && level !== "fatal") return Object.freeze({ ...fields, level })
+  return Object.freeze({
+    ...fields,
+    level,
+    next_action: {
+      id: "maintenance.show-help",
+      action: "change_input",
+      summary: "Choose a command from machine discovery.",
+      commandId: "help",
+    } as const,
+  })
+}
+
+const fixedCorrelation: FacadeCorrelationSources = {
+  now: () => "2026-08-27T00:00:00.000Z",
+  eventId: () => "opaque-event-id",
+}
+
+// @ts-expect-error error and fatal diagnostics require one canonical repair action
+const missingCompileTimeRepair: DiagnosticRecord = {
+  schema_version: 2,
   record_type: "diagnostic",
   timestamp: "2026-08-27T00:00:00.000Z",
-  sequence,
-  level,
-  category: ["agent-plugin-kit", "maintenance"] as const,
-  event,
+  sequence: 1,
+  level: "error",
+  category: ["agent-plugin-kit", "maintenance"],
+  event: "fixture.missing-compile-time-repair",
   run_id: "contract-help-literal",
-  command: "help",
-  station_id: "help.previewed",
-  result_code: "previewed",
-  transaction_state: "unchanged",
-  retry_safety: "safe",
-  message: "redacted fixture diagnostic",
-})
+  message: 'Maintenance command failed with result code "usage-refused".',
+}
+void missingCompileTimeRepair
 
-const eventRecord: EventRecord = Object.freeze({
-  schema_version: 1,
-  event_id: "contract-help-literal.2",
-  occurred_at: "2026-08-27T00:00:00.000Z",
-  sequence: 2,
-  run_id: "contract-help-literal",
-  command: "help",
-  station_id: "help.previewed",
-  outcome: "previewed",
-  result_code: "previewed",
-  transaction_state: "unchanged",
-  retry_safety: "safe",
-  next_action_id: "help.choose-command",
-})
+const withoutNextAction = ({ next_action, ...record }: DiagnosticRecord): unknown => {
+  void next_action
+  return record
+}
 
-function diagnosticHarness(mode: DiagnosticMode) {
-  if (createDiagnosticPipeline === undefined) {
-    expect(createDiagnosticPipeline, "contract-absent: the diagnostic pipeline must cross its callable facade-owned Interface").toBeFunction()
-    return undefined
-  }
+function diagnosticHarness(
+  mode: DiagnosticMode,
+  options: {
+    nextSequence?: () => number
+    egressTrace?: (step: DiagnosticEgressStep) => void
+    secretValues?: readonly string[]
+  } = {},
+) {
   const recording = createDiagnosticRecordingAdapter()
+  let localSequence = 0
+  const nextSequence = options.nextSequence ?? (() => {
+    localSequence += 1
+    return localSequence
+  })
   return {
     ...recording,
-    pipeline: createDiagnosticPipeline({ mode, maximumBufferedRecords: 250, diagnostics: recording.adapter }),
+    pipeline: createDiagnosticPipeline({
+      mode,
+      maximumBufferedRecords: 250,
+      diagnostics: recording.adapter,
+      nextSequence,
+      ...(options.egressTrace === undefined ? {} : { egressTrace: options.egressTrace }),
+      ...(options.secretValues === undefined ? {} : { secretValues: options.secretValues }),
+    }),
   }
 }
 
-async function facadeHarness(options: { eventAcceptance?: "accepted" | "refused"; throwOnDispose?: boolean; argv?: readonly string[] } = {}) {
-  if (createMaintenanceCommandFacade === undefined) {
-    expect(createMaintenanceCommandFacade, "contract-absent: observability must cross the callable facade Interface").toBeFunction()
-    return undefined
-  }
+async function facadeHarness(options: {
+  eventAcceptance?: "accepted" | "refused"
+  eventAdapter?: EventAdapter
+  eventFactory?: () => Promise<EventAdapter | undefined>
+  withoutEventFactory?: boolean
+  throwOnDispose?: boolean
+  argv?: readonly string[]
+  environment?: Readonly<Record<string, string | undefined>>
+} = {}) {
   const commands = createMaintenanceCommandsRecordingAdapter()
-  const diagnostics = createDiagnosticRecordingAdapter({ throwOnDispose: options.throwOnDispose })
+  const diagnostics = createDiagnosticRecordingAdapter(
+    options.throwOnDispose === undefined ? {} : { throwOnDispose: options.throwOnDispose },
+  )
   const events = createEventRecordingAdapter({ status: options.eventAcceptance ?? "accepted" })
+  let diagnosticFactoryLoads = 0
   const facade = createMaintenanceCommandFacade({
     commands: commands.commands,
-    diagnostics: diagnostics.adapter,
-    events: events.adapter,
+    diagnosticFactory: async () => {
+      diagnosticFactoryLoads += 1
+      return diagnostics.adapter
+    },
+    ...(options.withoutEventFactory
+      ? {}
+      : {
+          eventFactory: options.eventFactory ?? (async () => options.eventAdapter ?? events.adapter),
+        }),
+    correlation: fixedCorrelation,
   })
   const observation = await facade.invoke({
-    argv: options.argv ?? ["--events", "auto", "--run-id", "contract-help-literal", "help"],
-    environment: {
+    argv: options.argv ?? ["--run-id", "contract-help-literal", "help"],
+    environment: options.environment ?? {
       AGENT_PLUGIN_KIT_EVENT_ENDPOINT: "http://127.0.0.1:9/events",
       AGENT_PLUGIN_KIT_EVENT_AUTH: "fixture-secret-must-not-cross",
     },
     stdin: "",
   })
-  return { commands, diagnostics, events, observation }
+  return { commands, diagnostics, events, diagnosticFactoryLoads, observation }
+}
+
+const productionEventHarness = () => {
+  const production = createMaintenanceEventAdapter({ endpoint: fixedEventFailure.endpoint })
+  if (production === undefined) throw new Error("fixture endpoint must be accepted by the production Event Adapter")
+  const records: EventRecord[] = []
+  const adapter: EventAdapter = {
+    accept(record) {
+      records.push(record)
+      return production.accept(record)
+    },
+  }
+  return { adapter, records }
+}
+
+const productionDiagnosticLifecycle = () => {
+  const hostWrites: string[] = []
+  const hostSink: Sink = (record) => hostWrites.push(String(record.message[0] ?? ""))
+  resetSync()
+  configureSync({
+    sinks: { host: hostSink },
+    loggers: [{ category: ["fixture", "host"], lowestLevel: "debug", sinks: ["host"] }],
+  })
+  const hostLogger = getLogger(["fixture", "host"])
+  hostLogger.info("host-before-adapter")
+
+  const firstWrites: string[] = []
+  const first = createLogTapeDiagnosticAdapter({ write: (line) => firstWrites.push(line) })
+  first.record(diagnosticRecord(1, "error", "fixture.production-first"))
+  first.record(diagnosticRecord(2, "error", "fixture.production-second"))
+  first.flush()
+  first.dispose()
+  first.dispose()
+
+  const secondWrites: string[] = []
+  const second = createLogTapeDiagnosticAdapter({ write: (line) => secondWrites.push(line) })
+  second.record(diagnosticRecord(3, "error", "fixture.production-after-dispose"))
+  second.dispose()
+  hostLogger.info("host-after-adapter")
+  resetSync()
+  return { firstWrites, secondWrites, hostWrites }
+}
+
+const productionLogTapeSummaryFor = (lifecycle: ReturnType<typeof productionDiagnosticLifecycle>) => ({
+  firstEvents: lifecycle.firstWrites.map((line) => (JSON.parse(line) as DiagnosticRecord).event),
+  secondEvents: lifecycle.secondWrites.map((line) => (JSON.parse(line) as DiagnosticRecord).event),
+  hostMessages: lifecycle.hostWrites,
+})
+
+const directFacadeCorrelationFor = async () => {
+  const facade = await facadeHarness({ eventAcceptance: "refused" })
+  const event = facade.events.records[0]
+  const diagnostics = facade.diagnostics.records
+  return {
+    runIds: [event?.run_id, diagnostics.at(-1)?.run_id],
+    sequences: [event?.sequence, diagnostics.at(-1)?.sequence],
+    uniqueSequences: new Set([
+      event?.sequence,
+      ...diagnostics.map(({ sequence }) => sequence),
+    ]).size === diagnostics.length + 1,
+  }
+}
+
+const overflowSummaryFor = (records: readonly DiagnosticRecord[]) => {
+  const sequences = records.map(({ sequence }) => sequence)
+  const truncationIndex = records.findIndex(({ event }) => event === "diagnostic.buffer-truncated")
+  return {
+    firstEvent: records[0]?.event,
+    sequences,
+    truncationSequence: truncationIndex < 0 ? undefined : records[truncationIndex]?.sequence,
+    firstRetained: records[0]?.sequence,
+    lastRetained: records.at(-2)?.sequence,
+    triggerEvent: records.at(-1)?.event,
+    triggerSequence: records.at(-1)?.sequence,
+    recordCount: records.length,
+    truncationRecords: records.filter(({ event }) => event === "diagnostic.buffer-truncated").length,
+    uniqueSequences: new Set(sequences).size === sequences.length,
+  }
+}
+
+const outcomeContextRecord = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+  schema_version: 2,
+  record_type: "diagnostic",
+  timestamp: "2026-08-27T00:00:00.000Z",
+  sequence: 1,
+  level: outcomeContextContract.level,
+  category: ["agent-plugin-kit", "maintenance"],
+  event: outcomeContextContract.event,
+  run_id: "contract-help-literal",
+  station_id: "maintenance.usage-refused",
+  result_code: "usage-refused",
+  transaction_state: "unchanged",
+  retry_safety: "safe",
+  message: outcomeContextContract.usageRefusalMessage,
+  ...overrides,
+})
+
+const canonicalMaintenanceShowHelp = {
+  id: "maintenance.show-help",
+  action: "change_input",
+  summary: "Choose a command from machine discovery.",
+  commandId: "help",
+} as const
+
+const withoutField = (record: Record<string, unknown>, field: string): Record<string, unknown> => {
+  const copy = { ...record }
+  delete copy[field]
+  return copy
 }
 
 test("machine stdout contains only the primary success envelope", async () => {
-  absent((await facadeHarness())?.observation, literalHelpProcess, "success output must remain machine-only")
+  absent(
+    await invokePublicProcess(["--run-id", "contract-help-literal", "help"], hostileColorEnvironment),
+    literalHelpProcess,
+    "success output must remain machine-only and color-independent",
+  )
 })
 test("quiet mode discards debug info and warning before buffering", () => {
   const harness = diagnosticHarness("quiet")
-  for (const [sequence, level] of ["debug", "info", "warning", "error", "fatal"].entries()) harness?.pipeline.record(diagnosticRecord(sequence + 1, level as DiagnosticRecord["level"]))
-  absent(harness?.records.map(({ level }) => level), diagnosticModeContract.quiet.writtenLevels, "quiet diagnostics must discard lower levels")
+  for (const [sequence, level] of ["debug", "info", "warning", "error", "fatal"].entries()) harness.pipeline.record(diagnosticRecord(sequence + 1, level as DiagnosticRecord["level"]))
+  absent(harness.records.map(({ level }) => level), diagnosticModeContract.quiet.writtenLevels, "quiet diagnostics must discard lower levels")
 })
 test("verbose mode writes info through fatal immediately without buffering", () => {
   const harness = diagnosticHarness("verbose")
-  for (const [sequence, level] of ["debug", "info", "warning", "error", "fatal"].entries()) harness?.pipeline.record(diagnosticRecord(sequence + 1, level as DiagnosticRecord["level"]))
-  absent(harness?.records.map(({ level }) => level), diagnosticModeContract.verbose.writtenLevels, "verbose diagnostics must bypass the buffer")
+  for (const [sequence, level] of ["debug", "info", "warning", "error", "fatal"].entries()) harness.pipeline.record(diagnosticRecord(sequence + 1, level as DiagnosticRecord["level"]))
+  absent(harness.records.map(({ level }) => level), diagnosticModeContract.verbose.writtenLevels, "verbose diagnostics must bypass the buffer")
 })
 test("debug mode retains debug records in order", () => {
   expect(diagnosticModes).toEqual(["quiet", "verbose", "debug"])
   const harness = diagnosticHarness("debug")
-  for (const [sequence, level] of ["debug", "info", "warning", "error", "fatal"].entries()) harness?.pipeline.record(diagnosticRecord(sequence + 1, level as DiagnosticRecord["level"]))
-  absent(harness?.records.map(({ level }) => level), diagnosticModeContract.debug.writtenLevels, "debug diagnostics must preserve record order without buffering")
+  for (const [sequence, level] of ["debug", "info", "warning", "error", "fatal"].entries()) harness.pipeline.record(diagnosticRecord(sequence + 1, level as DiagnosticRecord["level"]))
+  absent(harness.records.map(({ level }) => level), diagnosticModeContract.debug.writtenLevels, "debug diagnostics must preserve record order without buffering")
 })
 test("fingers-crossed buffer is bounded at 250 records", () => {
   expect(bufferedSequence).toEqual([1, 2, 3, 4])
   const harness = diagnosticHarness("default")
-  for (const sequence of bufferedSequence) harness?.pipeline.record(diagnosticRecord(sequence, "info"))
-  harness?.pipeline.record(diagnosticRecord(5, "error"))
-  absent(harness?.records.map(({ sequence }) => sequence), [1, 2, 3, 4, 5], "default diagnostics must flush oldest-to-newest within the bound")
+  for (const sequence of bufferedSequence) harness.pipeline.record(diagnosticRecord(sequence, "info"))
+  harness.pipeline.record(diagnosticRecord(5, "error"))
+  absent(harness.records.map(({ sequence }) => sequence), [1, 2, 3, 4, 5], "default diagnostics must flush oldest-to-newest within the bound")
 })
 test("buffer overflow drops oldest and emits one truncation record", () => {
-  const harness = diagnosticHarness("default")
-  for (let sequence = 1; sequence <= 251; sequence += 1) harness?.pipeline.record(diagnosticRecord(sequence, "info"))
-  harness?.pipeline.record(diagnosticRecord(252, "error"))
+  let nextSequence = 0
+  const allocate = () => {
+    nextSequence += 1
+    return nextSequence
+  }
+  const harness = diagnosticHarness("default", { nextSequence: allocate })
+  for (let record = 1; record <= 252; record += 1) harness.pipeline.record(diagnosticRecord(allocate(), "info"))
+  harness.pipeline.record(diagnosticRecord(allocate(), "error"))
   absent(
-    harness && {
-      firstRetained: harness.records.find(({ event }) => event !== "diagnostic.buffer-truncated")?.sequence,
-      recordCount: harness.records.length,
-      truncationRecords: harness.records.filter(({ event }) => event === "diagnostic.buffer-truncated").length,
+    overflowSummaryFor(harness.records),
+    {
+      firstEvent: "fixture.info",
+      sequences: [...Array.from({ length: 249 }, (_, index) => index + 3), 252, 253, 254],
+      firstRetained: 3,
+      truncationSequence: 252,
+      lastRetained: 253,
+      triggerEvent: "fixture.error",
+      triggerSequence: 254,
+      recordCount: 252,
+      truncationRecords: 1,
+      uniqueSequences: true,
     },
-    { firstRetained: 2, recordCount: 252, truncationRecords: 1 },
-    "diagnostic truncation must be observable",
+    "diagnostic truncation must preserve unique assigned identities while flushing in allocated order",
+  )
+
+  const failingAllocatorHarness = diagnosticHarness("default", {
+    nextSequence: () => {
+      throw new Error("fixture sequence allocation failure")
+    },
+  })
+  for (let sequence = 1; sequence <= 252; sequence += 1) {
+    failingAllocatorHarness.pipeline.record(diagnosticRecord(sequence, "info"))
+  }
+  failingAllocatorHarness.pipeline.record(diagnosticRecord(253, "error"))
+  absent(
+    overflowSummaryFor(failingAllocatorHarness.records),
+    {
+      firstEvent: "fixture.info",
+      sequences: Array.from({ length: 251 }, (_, index) => index + 3),
+      firstRetained: 3,
+      truncationSequence: undefined,
+      lastRetained: 252,
+      triggerEvent: "fixture.error",
+      triggerSequence: 253,
+      recordCount: 251,
+      truncationRecords: 0,
+      uniqueSequences: true,
+    },
+    "failed truncation allocation must omit the synthetic record instead of inventing an identity",
   )
 })
 test("buffered context precedes trigger and primary error envelope is last", async () => {
-  const harness = await facadeHarness({ argv: ["--run-id", "contract-help-literal", "unknown"] })
-  absent(
-    harness && {
-      diagnosticSequences: harness.diagnostics.records.map(({ sequence }) => sequence),
-      finalStderrRecord: harness.observation.stderr.split("\n").filter(Boolean).at(-1),
-    },
-    { diagnosticSequences: [1], finalStderrRecord: literalUsageProcess.stderr.trim() },
-    "stderr placement must keep the primary refusal last",
-  )
+  const cases = [
+    { label: "default", flag: undefined, written: [
+      { event: outcomeContextContract.event, level: outcomeContextContract.level, sequence: 1 },
+      { event: "maintenance.usage-refused", level: "error", sequence: 2 },
+    ] },
+    { label: "quiet", flag: "--quiet", written: [
+      { event: "maintenance.usage-refused", level: "error", sequence: 2 },
+    ] },
+    { label: "verbose", flag: "--verbose", written: [
+      { event: outcomeContextContract.event, level: outcomeContextContract.level, sequence: 1 },
+      { event: "maintenance.usage-refused", level: "error", sequence: 2 },
+    ] },
+    { label: "debug", flag: "--debug", written: [
+      { event: outcomeContextContract.event, level: outcomeContextContract.level, sequence: 1 },
+      { event: "maintenance.usage-refused", level: "error", sequence: 2 },
+    ] },
+  ] as const
+  for (const { label, flag, written } of cases) {
+    const argv = flag === undefined
+      ? ["--run-id", "contract-help-literal", "unknown"]
+      : [flag, "--run-id", "contract-help-literal", "unknown"]
+    const harness = await facadeHarness({ argv })
+    absent(
+      {
+        diagnosticRecords: harness.diagnostics.records.map(({ event, level, sequence }) => ({ event, level, sequence })),
+        finalStderrRecord: harness.observation.stderr.split("\n").filter(Boolean).at(-1),
+      },
+      { diagnosticRecords: written, finalStderrRecord: literalUsageProcess.stderr.trim() },
+      `${label} mode must preserve context, trigger, and primary refusal order`,
+    )
+    const context = harness.diagnostics.records.find(({ event }) => event === outcomeContextContract.event)
+    if (flag === "--quiet") {
+      expect(context, `${label} mode must suppress the contextual record`).toBeUndefined()
+    } else {
+      expect(context, `${label} mode must write the contextual record`).toEqual({
+        schema_version: 2,
+        record_type: "diagnostic",
+        timestamp: expect.any(String),
+        sequence: 1,
+        level: outcomeContextContract.level,
+        category: ["agent-plugin-kit", "maintenance"],
+        event: outcomeContextContract.event,
+        run_id: "contract-help-literal",
+        station_id: "maintenance.usage-refused",
+        result_code: "usage-refused",
+        transaction_state: "unchanged",
+        retry_safety: "safe",
+        message: outcomeContextContract.usageRefusalMessage,
+      })
+    }
+  }
 })
-test("reset configure and dispose are idempotent and throwing close preserves primary result", async () => {
+test("pipeline reset and adapter dispose preserve host logging and primary result", async () => {
   const harness = diagnosticHarness("default")
-  harness?.pipeline.record(diagnosticRecord(1, "info", "fixture.before-reset"))
-  harness?.pipeline.reset()
-  harness?.pipeline.reset()
-  harness?.pipeline.record(diagnosticRecord(2, "info", "fixture.after-reset"))
-  harness?.pipeline.record(diagnosticRecord(3, "error", "fixture.trigger"))
-  harness?.pipeline.dispose()
-  harness?.pipeline.dispose()
+  harness.pipeline.record(diagnosticRecord(1, "info", "fixture.before-reset"))
+  harness.pipeline.reset()
+  harness.pipeline.reset()
+  harness.pipeline.record(diagnosticRecord(2, "info", "fixture.after-reset"))
+  harness.pipeline.record(diagnosticRecord(3, "error", "fixture.trigger"))
+  harness.pipeline.dispose()
+  harness.pipeline.dispose()
   const successful = diagnosticHarness("default")
-  successful?.pipeline.record(diagnosticRecord(1, "info", "fixture.discard-on-success"))
-  successful?.pipeline.dispose()
-  const throwingFacade = await facadeHarness({ throwOnDispose: true })
+  successful.pipeline.record(diagnosticRecord(1, "info", "fixture.discard-on-success"))
+  successful.pipeline.dispose()
+  const throwingFacade = await facadeHarness({
+    throwOnDispose: true,
+    argv: ["--run-id", "contract-help-literal", "unknown"],
+  })
+  const directFacadeCorrelation = await directFacadeCorrelationFor()
+  const productionLogTape = productionLogTapeSummaryFor(productionDiagnosticLifecycle())
   absent(
     {
-      resetSequences: harness?.records.map(({ sequence }) => sequence),
-      pipelineLifecycle: harness?.lifecycle,
-      successfulRecords: successful?.records,
-      successfulLifecycle: successful?.lifecycle,
-      facadeLifecycle: throwingFacade?.diagnostics.lifecycle,
-      primary: throwingFacade?.observation,
+      resetSequences: harness.records.map(({ sequence }) => sequence),
+      pipelineLifecycle: harness.lifecycle,
+      successfulRecords: successful.records,
+      successfulLifecycle: successful.lifecycle,
+      facadeLifecycle: throwingFacade.diagnostics.lifecycle,
+      directFacadeCorrelation,
+      productionLogTape,
+      primary: throwingFacade.observation,
     },
     {
       resetSequences: [2, 3],
       pipelineLifecycle: ["flush", "dispose"],
       successfulRecords: [],
       successfulLifecycle: ["dispose"],
-      facadeLifecycle: ["dispose"],
-      primary: literalHelpProcess,
+      facadeLifecycle: ["flush", "dispose"],
+      directFacadeCorrelation: {
+        runIds: ["contract-help-literal", "contract-help-literal"],
+        sequences: [1, 3],
+        uniqueSequences: true,
+      },
+      productionLogTape: {
+        firstEvents: ["fixture.production-first", "fixture.production-second"],
+        secondEvents: ["fixture.production-after-dispose"],
+        hostMessages: ["host-before-adapter", "host-after-adapter"],
+      },
+      primary: literalUsageProcess,
     },
-    "diagnostic lifecycle must reset between cases and contain close failure without replacing the primary result",
+    "diagnostic lifecycle must preserve host logging and contain close failure without replacing the primary result",
   )
   expect(lifecycleContract.doubleDispose).toBe("no-op")
 })
 test("event acceptance is synchronous and best effort", async () => {
   const harness = await facadeHarness({ eventAcceptance: "accepted" })
-  absent(harness && { eventCount: harness.events.records.length, primary: harness.observation }, { eventCount: 1, primary: literalHelpProcess }, "event delivery must never delay the primary result")
+  const ipv6LoopbackAccepted = createMaintenanceEventAdapter({ endpoint: "http://[::1]/events" }) !== undefined
+  const invalidEndpoint = "not-an-event-endpoint"
+  let offFactoryLoads = 0
+  const off = await facadeHarness({
+    argv: ["--events", "off", "--run-id", "contract-help-literal", "help"],
+    environment: { AGENT_PLUGIN_KIT_EVENT_ENDPOINT: invalidEndpoint },
+    eventFactory: async () => {
+      offFactoryLoads += 1
+      return createMaintenanceEventAdapter({ endpoint: invalidEndpoint })
+    },
+  })
+  const absentEndpoint = await facadeHarness({
+    withoutEventFactory: true,
+    environment: {},
+  })
+  let invalidFactoryLoads = 0
+  const invalid = await facadeHarness({
+    environment: { AGENT_PLUGIN_KIT_EVENT_ENDPOINT: invalidEndpoint },
+    eventFactory: async () => {
+      invalidFactoryLoads += 1
+      return createMaintenanceEventAdapter({ endpoint: invalidEndpoint })
+    },
+  })
+  const invalidPrimary = {
+    ...literalUsageProcess,
+    stderr: literalUsageProcess.stderr.replace("Unknown maintenance command.", "Invalid event endpoint."),
+  }
+  absent(
+    {
+      accepted: {
+        eventCount: harness.events.records.length,
+        diagnosticFactoryLoads: harness.diagnosticFactoryLoads,
+        diagnostics: harness.diagnostics.records,
+        ipv6LoopbackAccepted,
+        primary: harness.observation,
+      },
+      off: {
+        eventFactoryLoads: offFactoryLoads,
+        diagnosticFactoryLoads: off.diagnosticFactoryLoads,
+        commandCalls: off.commands.calls.length,
+        diagnostics: off.diagnostics.records,
+        primary: off.observation,
+      },
+      absentEndpoint: {
+        diagnosticFactoryLoads: absentEndpoint.diagnosticFactoryLoads,
+        commandCalls: absentEndpoint.commands.calls.length,
+        diagnostics: absentEndpoint.diagnostics.records,
+        primary: absentEndpoint.observation,
+      },
+      invalid: {
+        eventFactoryLoads: invalidFactoryLoads,
+        diagnosticFactoryLoads: invalid.diagnosticFactoryLoads,
+        commandCalls: invalid.commands.calls,
+        diagnostics: invalid.diagnostics.records.map(({ event }) => event),
+        primary: invalid.observation,
+      },
+    },
+    {
+      accepted: {
+        eventCount: 1,
+        diagnosticFactoryLoads: 0,
+        diagnostics: [],
+        ipv6LoopbackAccepted: true,
+        primary: literalHelpProcess,
+      },
+      off: {
+        eventFactoryLoads: 0,
+        diagnosticFactoryLoads: 0,
+        commandCalls: 1,
+        diagnostics: [],
+        primary: literalHelpProcess,
+      },
+      absentEndpoint: {
+        diagnosticFactoryLoads: 0,
+        commandCalls: 1,
+        diagnostics: [],
+        primary: literalHelpProcess,
+      },
+      invalid: {
+        eventFactoryLoads: 1,
+        diagnosticFactoryLoads: 1,
+        commandCalls: [],
+        diagnostics: [outcomeContextContract.event, "maintenance.usage-refused"],
+        primary: invalidPrimary,
+      },
+    },
+    "event acceptance must be synchronous, default to configured auto, and honor off before endpoint work",
+  )
 })
 test("event refusal retains run sequence event ID result and station correlation", async () => {
-  const harness = await facadeHarness({ eventAcceptance: "refused" })
-  const recordedEvent = harness?.events.records[0]
-  absent(
-    harness && {
-      failure: (() => {
-        const record = harness.diagnostics.records.find(({ event }) => event === fixedEventFailure.event)
-        return record && { event: record.event, stationId: record.station_id, resultCode: record.result_code, failureClass: record.failure_class, nextActionId: record.next_action?.id }
-      })(),
-      correlation: { runIds: [recordedEvent?.run_id, harness.diagnostics.records.at(-1)?.run_id], sequences: [recordedEvent?.sequence, harness.diagnostics.records.at(-1)?.sequence], eventId: recordedEvent?.event_id },
-      primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
-    },
-    { failure: { event: fixedEventFailure.event, stationId: fixedEventFailure.stationId, resultCode: fixedEventFailure.resultCode, failureClass: fixedEventFailure.failureClass, nextActionId: fixedEventFailure.nextActionId }, correlation: correlationContract, primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode } },
-    "event refusal must retain original result and monotonic correlation",
-  )
+  const cases = [
+    { label: "default", flag: undefined, contextVisible: true, diagnosticSequences: [2, 3] },
+    { label: "quiet", flag: "--quiet", contextVisible: false, diagnosticSequences: [3] },
+    { label: "verbose", flag: "--verbose", contextVisible: true, diagnosticSequences: [2, 3] },
+    { label: "debug", flag: "--debug", contextVisible: true, diagnosticSequences: [2, 3] },
+  ] as const
+  for (const { label, flag, contextVisible, diagnosticSequences } of cases) {
+    const production = productionEventHarness()
+    const argv = flag === undefined
+      ? ["--run-id", "contract-help-literal", "help"]
+      : [flag, "--run-id", "contract-help-literal", "help"]
+    const harness = await facadeHarness({ eventAdapter: production.adapter, argv })
+    const recordedEvent = production.records[0]
+    const context = harness.diagnostics.records.find(({ event }) => event === outcomeContextContract.event)
+    const failure = harness.diagnostics.records.find(({ event }) => event === fixedEventFailure.event)
+    absent(
+      {
+        event: recordedEvent,
+        diagnostics: harness.diagnostics.records,
+        diagnosticSequences: harness.diagnostics.records.map(({ sequence }) => sequence),
+        primary: { stdout: harness.observation.stdout, stderr: harness.observation.stderr, exitCode: harness.observation.exitCode },
+      },
+      {
+        event: {
+          schema_version: 1,
+          event_id: "opaque-event-id",
+          occurred_at: "2026-08-27T00:00:00.000Z",
+          sequence: 1,
+          run_id: "contract-help-literal",
+          command: "help",
+          station_id: fixedEventFailure.stationId,
+          outcome: "previewed",
+          result_code: fixedEventFailure.resultCode,
+          transaction_state: "unchanged",
+          retry_safety: "safe",
+          next_action_id: "help.choose-command",
+        },
+        diagnostics: contextVisible
+          ? [
+              {
+                schema_version: 2,
+                record_type: "diagnostic",
+                timestamp: "2026-08-27T00:00:00.000Z",
+                sequence: 2,
+                level: outcomeContextContract.level,
+                category: ["agent-plugin-kit", "maintenance"],
+                event: outcomeContextContract.event,
+                run_id: "contract-help-literal",
+                command: "help",
+                station_id: fixedEventFailure.stationId,
+                result_code: fixedEventFailure.resultCode,
+                transaction_state: "unchanged",
+                retry_safety: "safe",
+                message: outcomeContextContract.previewedMessage,
+              },
+              {
+                schema_version: 2,
+                record_type: "diagnostic",
+                timestamp: "2026-08-27T00:00:00.000Z",
+                sequence: 3,
+                level: "error",
+                category: ["agent-plugin-kit", "maintenance"],
+                event: fixedEventFailure.event,
+                run_id: "contract-help-literal",
+                command: "help",
+                station_id: fixedEventFailure.stationId,
+                failure_class: fixedEventFailure.failureClass,
+                result_code: fixedEventFailure.resultCode,
+                transaction_state: "unchanged",
+                retry_safety: "safe",
+                next_action: {
+                  id: fixedEventFailure.nextActionId,
+                  action: "repair_state",
+                  summary: "Inspect the configured event transport; do not repeat the command solely to replay its event.",
+                  commandId: null,
+                },
+                message: "Inspect the configured event transport; do not repeat the command solely to replay its event.",
+              },
+            ]
+          : [
+              {
+                schema_version: 2,
+                record_type: "diagnostic",
+                timestamp: "2026-08-27T00:00:00.000Z",
+                sequence: 3,
+                level: "error",
+                category: ["agent-plugin-kit", "maintenance"],
+                event: fixedEventFailure.event,
+                run_id: "contract-help-literal",
+                command: "help",
+                station_id: fixedEventFailure.stationId,
+                failure_class: fixedEventFailure.failureClass,
+                result_code: fixedEventFailure.resultCode,
+                transaction_state: "unchanged",
+                retry_safety: "safe",
+                next_action: {
+                  id: fixedEventFailure.nextActionId,
+                  action: "repair_state",
+                  summary: "Inspect the configured event transport; do not repeat the command solely to replay its event.",
+                  commandId: null,
+                },
+                message: "Inspect the configured event transport; do not repeat the command solely to replay its event.",
+              },
+            ],
+        diagnosticSequences,
+        primary: { stdout: literalHelpProcess.stdout, stderr: "", exitCode: literalHelpProcess.exitCode },
+      },
+      `${label} event refusal must retain full record shapes and deliberate sequence gaps`,
+    )
+    expect(contextVisible, `${label} mode context visibility is a test-owned expectation`).toBe(context !== undefined)
+    expect(failure, `${label} mode must write event-delivery failure`).toBeDefined()
+  }
 })
 test("fake-clock delivery owns two bounded attempts and all settlement cases", async () => {
   expect(fixedEventFailure.endpoint).toBe("http://127.0.0.1:9/events")
-  if (createEventDelivery === undefined) {
-    expect(createEventDelivery, "contract-absent: event settlement must cross the callable delivery Interface").toBeFunction()
-    return
-  }
+  const facade = await facadeHarness()
+  const capturedEvent = facade.events.records[0]
+  if (capturedEvent === undefined) throw new Error("Facade must capture the accepted Event Record")
   const scenarios = []
   const cases = [
-    { label: "success", outcomes: ["success"] },
-    { label: "timeout", outcomes: ["timeout", "success"] },
-    { label: "synchronous-failure", outcomes: ["failure", "success"] },
-    { label: "both-attempts-failed", outcomes: ["failure", "failure"] },
+    { label: "success", outcomes: ["success"], clockOutcome: "success" },
+    { label: "timeout", outcomes: ["timeout", "success"], clockOutcome: "success" },
+    { label: "synchronous-failure", outcomes: ["failure", "success"], clockOutcome: "success" },
+    { label: "both-attempts-failed", outcomes: ["failure", "failure"], clockOutcome: "success" },
+    { label: "clock-failure", outcomes: ["timeout", "timeout"], clockOutcome: "failure" },
   ] as const
-  for (const { label, outcomes } of cases) {
-    const clock = createFakeClockRecordingAdapter()
+  for (const { label, outcomes, clockOutcome } of cases) {
+    const clock = createFakeClockRecordingAdapter(clockOutcome)
     const transport = createTransportRecordingAdapter(outcomes)
-    const result = await createEventDelivery({ clock: clock.clock, transport: transport.transport, attemptTimeoutMs: 250, maximumAttempts: 2 }).deliver(eventRecord)
-    scenarios.push({ label, result, attempts: transport.records.length, sleeps: clock.sleeps })
+    const result = await createEventDelivery({ clock: clock.clock, transport: transport.transport, attemptTimeoutMs: 250, maximumAttempts: 2 }).deliver(capturedEvent)
+    scenarios.push({
+      label,
+      result,
+      attempts: transport.records.length,
+      eventIds: transport.records.map(({ event_id }) => event_id),
+      sequences: transport.records.map(({ sequence }) => sequence),
+      sameRecord: transport.records.every((record) => record === capturedEvent),
+      sleeps: clock.sleeps,
+    })
   }
   absent(
-    { eventId: eventRecord.event_id, scenarios },
+    { eventId: capturedEvent.event_id, scenarios },
     {
-      eventId: deliveryContract.eventId,
+      eventId: "opaque-event-id",
       scenarios: [
-        { label: "success", result: { status: "delivered", attempts: 1 }, attempts: 1, sleeps: [250] },
-        { label: "timeout", result: { status: "delivered", attempts: 2 }, attempts: 2, sleeps: [250, 250] },
-        { label: "synchronous-failure", result: { status: "delivered", attempts: 2 }, attempts: 2, sleeps: [250, 250] },
-        { label: "both-attempts-failed", result: { status: "failed", attempts: 2 }, attempts: 2, sleeps: [250, 250] },
+        { label: "success", result: { status: "delivered", attempts: 1 }, attempts: 1, eventIds: ["opaque-event-id"], sequences: [1], sameRecord: true, sleeps: [250] },
+        { label: "timeout", result: { status: "delivered", attempts: 2 }, attempts: 2, eventIds: ["opaque-event-id", "opaque-event-id"], sequences: [1, 1], sameRecord: true, sleeps: [250, 250] },
+        { label: "synchronous-failure", result: { status: "delivered", attempts: 2 }, attempts: 2, eventIds: ["opaque-event-id", "opaque-event-id"], sequences: [1, 1], sameRecord: true, sleeps: [250, 250] },
+        { label: "both-attempts-failed", result: { status: "failed", attempts: 2 }, attempts: 2, eventIds: ["opaque-event-id", "opaque-event-id"], sequences: [1, 1], sameRecord: true, sleeps: [250, 250] },
+        { label: "clock-failure", result: { status: "failed", attempts: 2 }, attempts: 2, eventIds: ["opaque-event-id", "opaque-event-id"], sequences: [1, 1], sameRecord: true, sleeps: [250, 250] },
       ],
     },
     "event delivery must use a stable event ID and at most two 250ms fake-clock attempts",
   )
 })
-test("redaction validates and freezes both seams before crossing", async () => {
-  const diagnostic = diagnosticHarness("debug")
-  diagnostic?.pipeline.record({
-    ...diagnosticRecord(1, "error", "fixture.hostile-redaction"),
-    message: "token=fixture-diagnostic-secret",
-    secret_token: "fixture-diagnostic-secret",
-  } as DiagnosticRecord)
-  const harness = await facadeHarness({ eventAcceptance: "refused" })
-  const serialized = JSON.stringify({ injectedDiagnostics: diagnostic?.records, diagnostics: harness?.diagnostics.records, events: harness?.events.records })
-  absent(
-    harness && {
-      recordsFrozen: [...(diagnostic?.records ?? []), ...harness.diagnostics.records, ...harness.events.records].every(Object.isFrozen),
-      leakedSecret: serialized.includes("fixture-secret-must-not-cross") || serialized.includes("fixture-diagnostic-secret") || serialized.includes("secret_token"),
-      primary: { stdout: harness.observation.stdout, exitCode: harness.observation.exitCode },
-      order: redactionContract.order,
+test("closed diagnostics fail closed and native field redaction protects the sink", async () => {
+  const egressTrace: DiagnosticEgressStep[] = []
+  const configuredSecret = "fixture-secret-must-not-cross"
+  const structuredSecret = "fixture-structured-secret"
+  const diagnostic = diagnosticHarness("debug", {
+    egressTrace: (step) => egressTrace.push(step),
+  })
+  const canonical = diagnosticRecord(1, "error", "fixture.canonical")
+  diagnostic.pipeline.record(canonical)
+  const noncanonical = diagnosticHarness("debug")
+  noncanonical.pipeline.record({
+    ...diagnosticRecord(2, "error", "fixture.noncanonical"),
+    message: `Bearer ${structuredSecret}`,
+  } as unknown as DiagnosticRecord)
+  const configured = diagnosticHarness("debug", { secretValues: [configuredSecret] })
+  configured.pipeline.record({
+    ...diagnosticRecord(3, "error", "fixture.configured-secret"),
+    run_id: configuredSecret,
+  })
+  const missingRepair = diagnosticHarness("debug")
+  missingRepair.pipeline.record(withoutNextAction(
+    diagnosticRecord(4, "error", "fixture.missing-repair"),
+  ) as DiagnosticRecord)
+  const forgedEventRepair = diagnosticHarness("debug")
+  const eventRepair = {
+    ...diagnosticRecord(5, "error", "event.delivery-failed"),
+    command: "help" as const,
+    station_id: "help.previewed" as const,
+    failure_class: "event_delivery" as const,
+    result_code: "previewed" as const,
+    transaction_state: "completed" as const,
+    next_action: {
+      id: "events.inspect-configuration",
+      action: "repair_state" as const,
+      summary: "Inspect the configured event transport; do not repeat the command solely to replay its event.",
+      commandId: null,
+      retryAfterMs: 250,
+      idempotencyKey: "forged-event-repair",
     },
-    { recordsFrozen: true, leakedSecret: false, primary: { stdout: literalHelpProcess.stdout, exitCode: literalHelpProcess.exitCode }, order: ["build-allowlist", "redact", "validate", "freeze", "cross-seam"] },
-    "redaction must precede both seams without changing the fixed primary result",
+    message: "Inspect the configured event transport; do not repeat the command solely to replay its event." as const,
+  }
+  forgedEventRepair.pipeline.record(eventRepair)
+
+  const malformedContext = diagnosticHarness("debug")
+  const context = outcomeContextRecord()
+  const canonicalNextActionControl = diagnosticHarness("debug")
+  canonicalNextActionControl.pipeline.record({
+    ...diagnosticRecord(6, "info", "fixture.canonical-next-action"),
+    next_action: canonicalMaintenanceShowHelp,
+  })
+  expect(canonicalNextActionControl.records[0]?.next_action).toEqual(canonicalMaintenanceShowHelp)
+  const contextCases = [
+    withoutField(context, "station_id"),
+    withoutField(context, "result_code"),
+    withoutField(context, "transaction_state"),
+    withoutField(context, "retry_safety"),
+    { ...context, failure_class: "usage" },
+    { ...context, next_action: canonicalMaintenanceShowHelp },
+    { ...context, dropped_record_count: 1 },
+    {
+      ...context,
+      station_id: "help.previewed",
+      result_code: "previewed",
+      message: outcomeContextContract.previewedMessage,
+    },
+    {
+      ...context,
+      command: "maintenance",
+      station_id: "help.previewed",
+      result_code: "previewed",
+      message: outcomeContextContract.previewedMessage,
+    },
+    {
+      ...context,
+      command: "help",
+      station_id: "help.completed",
+      result_code: "completed",
+      message: outcomeContextContract.completedMessage,
+    },
+    { ...context, command: "help" },
+  ]
+  for (const [index, candidate] of contextCases.entries()) {
+    malformedContext.pipeline.record({ ...candidate, sequence: index + 7 } as unknown as DiagnosticRecord)
+  }
+
+  const writes: string[] = []
+  const native = createLogTapeDiagnosticAdapter({ write: (line) => writes.push(line) })
+  native.record({
+    ...diagnosticRecord(6, "error", "fixture.native-field-redaction"),
+    context: {
+      api_key: structuredSecret,
+      safe_label: "preserved",
+    },
+  } as unknown as DiagnosticRecord)
+  native.dispose()
+
+  const nativeRecord = JSON.parse(writes[0] ?? "{}") as {
+    context?: { api_key?: string; safe_label?: string }
+    message?: string
+  }
+  const harness = await facadeHarness({ eventAcceptance: "refused" })
+  const serialized = JSON.stringify({
+    diagnostics: diagnostic.records,
+    noncanonicalDiagnostics: noncanonical.records,
+    configuredDiagnostics: configured.records,
+    missingRepairDiagnostics: missingRepair.records,
+    forgedEventRepairDiagnostics: forgedEventRepair.records,
+    nativeRecord,
+    facadeDiagnostics: harness.diagnostics.records,
+    events: harness.events.records,
+  })
+
+  absent(
+    {
+      acceptedMessages: diagnostic.records.map(({ message }) => message),
+      noncanonicalRecords: noncanonical.records,
+      configuredSecretRecords: configured.records,
+      missingRepairRecords: missingRepair.records,
+      forgedEventRepairRecords: forgedEventRepair.records,
+      malformedContextRecords: malformedContext.records,
+      recordsFrozen: [...diagnostic.records, ...harness.diagnostics.records, ...harness.events.records]
+        .every(Object.isFrozen),
+      configuredSecretLeaked: serialized.includes(configuredSecret),
+      structuredSecretLeaked: serialized.includes(structuredSecret),
+      nativeContext: nativeRecord.context,
+      nativeMessage: nativeRecord.message,
+      primary: {
+        stdout: harness.observation.stdout,
+        exitCode: harness.observation.exitCode,
+      },
+      order: egressTrace,
+    },
+    {
+      acceptedMessages: ['Maintenance command failed with result code "usage-refused".'],
+      noncanonicalRecords: [],
+      configuredSecretRecords: [],
+      missingRepairRecords: [],
+      forgedEventRepairRecords: [],
+      malformedContextRecords: [],
+      recordsFrozen: true,
+      configuredSecretLeaked: false,
+      structuredSecretLeaked: false,
+      nativeContext: {
+        api_key: "[REDACTED]",
+        safe_label: "preserved",
+      },
+      nativeMessage: 'Maintenance command failed with result code "usage-refused".',
+      primary: {
+        stdout: literalHelpProcess.stdout,
+        exitCode: literalHelpProcess.exitCode,
+      },
+      order: ["build-allowlist", "canonicalize", "validate", "freeze", "cross-seam"],
+    },
+    "canonical diagnostics must precede both seams and LogTape must redact structured sensitive fields",
   )
 })

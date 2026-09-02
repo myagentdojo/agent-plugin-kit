@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "agent-plugin-kit",
+      "dependencies": {
+        "zod": "4.4.3",
+      },
       "devDependencies": {
         "@biomejs/biome": "2.4.15",
         "@types/bun": "1.4.0",
@@ -14,6 +17,11 @@
     "src/adapters/maintenance-command-facade": {
       "name": "@agent-plugin-kit/maintenance-command-facade",
       "version": "0.0.0",
+      "dependencies": {
+        "@logtape/logtape": "2.3.1",
+        "@logtape/redaction": "2.3.1",
+        "zod": "4.4.3",
+      },
     },
     "src/adapters/reusable-workflow-adapter": {
       "name": "@agent-plugin-kit/reusable-workflow-adapter",
@@ -23,21 +31,39 @@
     },
     "src/modules/canary-qualification": {
       "name": "@agent-plugin-kit/canary-qualification",
+      "dependencies": {
+        "zod": "4.4.3",
+      },
     },
     "src/modules/harness-journeys": {
       "name": "@agent-plugin-kit/harness-journeys",
+      "dependencies": {
+        "zod": "4.4.3",
+      },
     },
     "src/modules/maintenance-command-contract": {
       "name": "@agent-plugin-kit/maintenance-command-contract",
+      "dependencies": {
+        "zod": "4.4.3",
+      },
     },
     "src/modules/plugin-payload-production": {
       "name": "@agent-plugin-kit/plugin-payload-production",
+      "dependencies": {
+        "zod": "4.4.3",
+      },
     },
     "src/modules/qualification-evidence": {
       "name": "@agent-plugin-kit/qualification-evidence",
+      "dependencies": {
+        "zod": "4.4.3",
+      },
     },
     "src/modules/release-and-git-engine": {
       "name": "@agent-plugin-kit/release-and-git-engine",
+      "dependencies": {
+        "zod": "4.4.3",
+      },
     },
     "src/modules/runtime-custody": {
       "name": "@agent-plugin-kit/runtime-custody",
@@ -98,6 +124,10 @@
 
     "@fallow-cli/win32-x64-msvc": ["@fallow-cli/win32-x64-msvc@3.19.0", "", { "os": "win32", "cpu": "x64" }, "sha512-N9Hwxylu6kq+mCs1lvAlC02L5wIiOddXh8dnUT5hoC6irwssAX0w3DXwIgC82N1KyX+9KA5n5Cxxgwuh9ptepw=="],
 
+    "@logtape/logtape": ["@logtape/logtape@2.3.1", "", {}, "sha512-nYLsBWMKk0Llp62U6cDbQxNcEKc0E0s5hWbAxkmUM8ax6VchGkPSjPrVp3ixFQUuvUB9ku7MSgPzFhmVTSh2Jw=="],
+
+    "@logtape/redaction": ["@logtape/redaction@2.3.1", "", { "peerDependencies": { "@logtape/logtape": "^2.3.1" } }, "sha512-djd6+dl7QvwW4miYAX9p63gylz8EUKDANH9dlrkU6OzobELiTq7uqB1u5fINMtVsrJIQnukc1FpGx+fcZdeqVQ=="],
+
     "@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
     "@types/node": ["@types/node@26.3.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-L3fgrnchriRC2ExBflb8j4uZZURHZfQsmQeyVzhjcHW4kkwVyo8/0h1B2MVzMTrYUJYu6G7EWs14hW/L9putqw=="],
@@ -153,5 +183,7 @@
     "typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 
     "undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
+
+    "zod": ["zod@4.4.3", "", {}, "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="],
   }
 }

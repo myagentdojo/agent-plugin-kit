@@ -1,17 +1,20 @@
-# Fallow Repository Quality
+# Fallow Quality Gate
 
-Repository Quality Tooling owns the Kit Repository's deterministic changed-code
-quality policy. Use this guidance for Fallow setup, changed-code analysis,
-warning enforcement, comparison-base selection, editor resolution, and repair.
+Goal: audit the current code-changing delta through Fallow's JSON contract.
+`bun run check` is the complete done condition; its base-free Fallow step
+honors `FALLOW_AUDIT_BASE` and otherwise uses native upstream or remote-default
+merge-base detection. `quality:fallow` re-emits the native JSON after one
+inline completeness guard; there is no repository helper or replacement
+report format.
 
 ## Start
 
 1. Read root `CONTEXT.md` and `CONTEXT-MAP.md`.
 2. Read `.agents/skills/fallow/SKILL.md`, then its version-matched owner at
    `node_modules/fallow/skills/fallow/SKILL.md`.
-3. Resolve live flags from the repository-local executable, never from memory.
-4. Keep MCP, MCPorter, official hooks, global installation, and broad
-   suppressions outside this owner.
+3. Resolve flags from `node_modules/.bin/fallow`, never from memory.
+4. Keep MCP, global installation, PATH overrides, and broad suppressions out of
+   this owner.
 
 ## Commands
 
@@ -21,84 +24,107 @@ For a dirty code-changing turn:
 bun run --silent quality:fallow --changed-since HEAD
 ```
 
-For task review or handoff, first replace `HEAD` with the immutable task-start
-Full Commit Pin. Accept that run only when type-aware attribution is complete
-and warning-free. If Fallow reports incompatible base and head semantic
-identities, preserve the error and use the reviewed composite proof named in
-the project packet; never relabel its syntactic attribution as complete
-type-aware evidence. A clean comparison to `HEAD` is only an empty-delta smoke
-check.
+For review or handoff, replace `HEAD` with the immutable task-start Full Commit
+Pin. A clean comparison to `HEAD` is only an empty-delta smoke check.
 
-Run the focused policy proof with:
-
-```sh
-bun run test:quality:fallow-policy
-```
-
-Run the complete repository gate with:
+The complete repository gate is:
 
 ```sh
 bun run check
 ```
 
-## Machine result
+It invokes Fallow without a comparison-base argument. Pin
+`FALLOW_AUDIT_BASE` to the exact comparison commit for clean-tip review proof;
+otherwise Fallow selects the branch upstream or remote-default merge-base.
 
-The policy command emits exactly one JSON document on stdout and nothing on
-stderr. Interpret its adapter exit before inspecting native details:
+## Decisions
 
-| Exit | Decision | Meaning |
-| ---: | --- | --- |
-| 0 | `accepted` | Warning-free, complete Fallow 3.19.0 evidence has zero introduced findings. |
-| 1 | `refused` | Valid analysis completed, but findings violate Kit policy. |
-| 2 | `error` | Preflight, comparison, native runtime, schema, completeness, or Adapter evidence is unreliable. |
+The command re-emits Fallow JSON on stdout on every exit, including a
+refusal, so the finding or evidence gap that caused exit 1 stays visible.
+Preserve it as tool evidence; the inline guard is the only repository
+interpretation layer.
 
-Use `reason_code` and `repair_hint` as the stable continuation. Preserve the
-native `fallow` document as evidence. Never execute a repair hint as a command.
-Do not treat native exit 0 as automatic acceptance: warning findings can still
-be introduced and therefore refused.
+| Exit | Meaning |
+| ---: | --- |
+| 0 | The audit passed and its semantic project evidence is complete. |
+| 1 | Findings failed policy, semantic project evidence failed, an unapproved query gap occurred, or Fallow reported an operational error such as an invalid comparison base. |
+
+`.fallowrc.json` pins `new-only` attribution, requires complete type-aware
+evidence for direct Fallow use, and promotes every applicable warn-default rule
+to `error`. The package command requests `best-effort` only because Fallow
+3.19.0 truncates type-coupling evidence after 40 records. Its inline guard
+accepts that exact `evidence-limit` truncation only when every TypeScript
+project completed without blocking diagnostics; every other partial or
+unavailable result fails closed. Focused pinned-version tests prove the guard,
+a promoted finding, unavailable evidence, and Fallow's native invalid-base
+exit two.
+
+## Architecture policy
+
+Before changing a TypeScript import edge, inspect the rule that applies:
+
+```sh
+node_modules/.bin/fallow guard <FILE> --format json --quiet
+```
+
+Inspect the resolved first-match zone order with:
+
+```sh
+node_modules/.bin/fallow list --boundaries --format json --quiet
+```
+
+`.fallowrc.json` owns the zone graph, type-only edges, complete reachable-source
+coverage, and suppression hygiene. Keep an approved value dependency explicit.
+Use a type-only import when runtime access is not required, and target the
+other Module's Interface rather than its private files. The one accepted
+Qualification Evidence value edge reaches Release and Git Engine's private
+serialized-value surface through narrow private zones. Module Interfaces,
+private production, Module Contract Tests, Adapter production, and Adapter
+Contract Tests are explicit first-match lanes, so test access cannot authorize
+production and a future private file cannot inherit a public Interface zone.
+Admission's Interface, Implementation, and Contract Tests are separated for
+the same reason; only its Contract Tests may reach Clean Fixture. Do not add
+directory-wide auto-discovery. A new owner or source shape must remain unzoned
+until its policy is deliberately accepted. Every inline suppression carries
+`-- <reason>`; a missing reason or stale suppression is a native refusal.
+
+Run the focused architecture canary after changing imports or Fallow policy:
+
+```sh
+bun run test:quality:fallow-policy
+```
 
 ## Comparison bases
 
+- Complete gate: leave the CLI base unset so `FALLOW_AUDIT_BASE` or native
+  merge-base detection owns selection. Treat a zero-file result as an
+  empty-delta smoke, not changed-code review evidence.
 - Dirty turn: use `HEAD` so tracked and untracked work remains in scope.
-- Review and handoff: attempt the immutable task-start Full Commit Pin and
-  require warning-free semantic attribution. If semantic identities are
-  incompatible, fail closed and follow the packet's reviewed composite proof.
-- Remote integration: use a freshly resolved `origin/main` only after that
-  remote and action are separately approved. It never replaces the task pin.
-- Missing or unresolved bases and all type-aware warnings fail closed. Do not
-  substitute an implicit branch, disable type-aware analysis, or save a count
-  baseline.
+- Review and handoff: use the immutable task-start Full Commit Pin.
+- Remote integration: use a freshly resolved remote ref only after that remote
+  action is authorized.
+- Never disable type-aware analysis or save a count baseline to make a gate
+  pass.
 
 ## Editor resolution
 
-VS Code must resolve both `node_modules/.bin/fallow` and
-`node_modules/.bin/fallow-lsp` from this repository. One root `.fallowrc.json`
-governs the root plus all ten workspace packages. Tracked
-`.vscode/settings.json` supplies only `fallow.changedSince: "HEAD"` because
-this repository has no upstream from which the editor can infer a comparison.
-
-After final dependency, policy, and editor setup, restart or reload the Fallow
-language server and verify:
-
-- CLI and LSP both report 3.19.0 from the repository;
-- the root config reaches 11 roots and ten workspaces;
-- `Fallow: Audit Changed Files` returns a parsed verdict against `HEAD`; and
-- no PATH mismatch, managed-download 404, missing-config warning, or package
-  dependency-location warning remains.
+VS Code resolves both `node_modules/.bin/fallow` and
+`node_modules/.bin/fallow-lsp` from this repository. One root
+`.fallowrc.json` governs the root and all Owner Manifests. The tracked editor
+setting supplies only `fallow.changedSince: "HEAD"` because the repository has
+no upstream from which the editor can infer a comparison.
 
 If project-binary resolution fails, stop. Do not change global PATH, set
 `fallow.lspPath` or `fallow.configPath`, or add another editor override.
 
 ## Runtime state and repair
 
-Fallow may create a self-ignored `.fallow/` runtime cache at the repository
-root and at each invoked workspace root. Inspect these caches when diagnosing,
-but never commit them or place TypeScript source inside them; Repository
-Qualification refuses TypeScript found in any `.fallow/` directory. The
-tracked Codex and Claude skills are small version-matched pointers into ignored
-`node_modules`; a frozen Bun install must restore their target.
+Fallow may create self-ignored `.fallow/` caches. Inspect them when diagnosing,
+but never commit them or place source inside them. Repository Verification
+excludes these caches from source discovery before inspecting metadata.
 
-Repair only the named refusal. Do not delete or weaken an accepted Contract
-Test, add a broad ignore, or turn the existing inventory into a suppression
-baseline. TypeScript remains authoritative for compilation; Fallow type-aware
-completeness is quality evidence only.
+Repair only the reported finding. Do not weaken a Contract Test, add a broad
+ignore, or turn the repository into a suppression baseline. TypeScript remains
+authoritative for compilation; Fallow type-aware completeness is quality
+evidence only. An unzoned reachable source file, unapproved cross-zone edge,
+missing suppression reason, or stale suppression fails the complete gate.

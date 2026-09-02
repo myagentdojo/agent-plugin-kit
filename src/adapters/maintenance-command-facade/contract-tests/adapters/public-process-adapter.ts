@@ -10,21 +10,33 @@ export type ProcessCleanupReceipt = {
   retainedResources: 0
 }
 
-export async function invokeBoundedProcess(
+async function invokeBoundedProcess(
   command: readonly string[],
-  options: { cwd: string; environment?: Readonly<Record<string, string>>; deadlineMs?: number },
+  options: {
+    cwd: string
+    environment?: Readonly<Record<string, string>>
+    deadlineMs?: number
+    stdin?: string | ReadableStream<Uint8Array>
+    closeOutput?: "stdout" | "stderr"
+  },
 ): Promise<{ observation: ProcessObservation; cleanup: ProcessCleanupReceipt }> {
   const deadlineMs = options.deadlineMs ?? 2_000
   const processResult = Bun.spawn([...command], {
     cwd: options.cwd,
     detached: true,
     env: { ...process.env, ...options.environment },
-    stdin: "ignore",
+    stdin: typeof options.stdin === "string"
+      ? new TextEncoder().encode(options.stdin)
+      : options.stdin ?? "ignore",
     stdout: "pipe",
     stderr: "pipe",
   })
-  const stdout = new Response(processResult.stdout).text()
-  const stderr = new Response(processResult.stderr).text()
+  const stdout = options.closeOutput === "stdout"
+    ? processResult.stdout.cancel().then(() => "")
+    : new Response(processResult.stdout).text()
+  const stderr = options.closeOutput === "stderr"
+    ? processResult.stderr.cancel().then(() => "")
+    : new Response(processResult.stderr).text()
   let deadlineTriggered = false
   const natural = Promise.all([stdout, stderr, processResult.exited]).then(([stdout, stderr, exitCode]) => ({
     observation: { stdout, stderr, exitCode: deadlineTriggered ? 124 : exitCode },
@@ -64,14 +76,27 @@ export async function invokeRetainedDescriptorNegativeControl(): Promise<Process
   return (await invokeBoundedProcess([process.execPath, "-e", script], { cwd: import.meta.dir, deadlineMs: 100 })).cleanup
 }
 
+export async function invokeClosedStreamNegativeControl(
+  stream: "stdout" | "stderr",
+  argv: readonly string[],
+): Promise<ProcessObservation> {
+  const executable = resolve(import.meta.dir, "../../maintenance.ts")
+  return (await invokeBoundedProcess([executable, ...argv], {
+    cwd: import.meta.dir,
+    closeOutput: stream,
+  })).observation
+}
+
 export async function invokePublicProcess(
   argv: readonly string[],
   environment: Readonly<Record<string, string>> = {},
   cwd = import.meta.dir,
+  stdin?: string | ReadableStream<Uint8Array>,
 ): Promise<ProcessObservation> {
   const executable = resolve(import.meta.dir, "../../maintenance.ts")
   return (await invokeBoundedProcess([executable, ...argv], {
     cwd,
     environment,
+    ...(stdin === undefined ? {} : { stdin }),
   })).observation
 }

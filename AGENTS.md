@@ -29,7 +29,8 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
 - Repository Knowledge: `docs/agents/README.md` indexes branch guidance;
   `docs/adr/` owns Accepted Decisions.
 - Repository quality: `tooling/repository-quality/` owns changed-code quality
-  and the current Repository Qualification declaration outside Package Identity.
+  configuration and lifecycle-neutral Repository Verification outside Package
+  Identity. It owns no ticket, transition, or implementation state.
 - Package source: `src/` is the Source Tree. Reach its current Interface and
   Contract Test owners, and its deferred Implementation and Adapter owners,
   through `CONTEXT-MAP.md` and `docs/adr/0001-language-to-topology.md`.
@@ -53,45 +54,51 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   one Full Commit Pin before Kit Repository Implementation executes.
 - Evidence: preserve `proved`, `not-proved`, and `unknown`; attach a Skip
   Rationale and Non-Claims where evidence does not reach the requested layer.
-- Repository Qualification owns current repository-byte truth and the reviewed
-  RED or GREEN boundary. Read
-  `tooling/repository-quality/repository-qualification-contract.json` and
-  `docs/adr/0003-repository-quality-and-verification-transition.md` before
-  changing that declaration, its verifier, or a Clean Fixture evidence consumer.
-  Keep later Contract Tests, hosted workflows, and every Implementation path
-  absent until their owning gate.
+- Repository Verification owns only cross-owner manifest agreement, export and
+  source containment, and Admission dependency freedom. Read
+  `docs/adr/0005-simple-repository-quality-ownership.md` before changing its
+  Interface or a Clean Fixture evidence consumer. Keep tickets, worktrees,
+  reviews, RED or GREEN counts, and implementation progression outside this
+  repository owner.
 
 ## Checks
 
 - Complete gate: run `bun run check` from the repository root. It runs
-  `git diff --check`, Biome, TypeScript, structure verification, focused Fallow
-  policy Contract Tests, changed-code Fallow policy, and Repository
-  Qualification verification.
+  `git diff --check`, Biome, TypeScript, focused repository-quality Contract
+  Tests, native changed-code Fallow, and Repository Verification.
 - Changed-code quality: run
   `bun run --silent quality:fallow --changed-since HEAD` after a dirty
   code-changing turn. For comparison-base policy, JSON interpretation, editor
   resolution, or repair, read `docs/agents/fallow.md`.
-- Focused quality Contract Tests: run `bun run test:quality:fallow-policy` or
-  `bun run test:quality:repository-qualification`.
-- Repository Qualification: run `bun run verify:repository-qualification` for
-  the canonical current-repository receipt.
-- Product RED: run `bun run test:intentional-red` for the current product
-  Contract Tests; Repository Qualification owns the aggregate receipt.
-- Focused RED: run `bun run test:intentional-red:kit-interface`,
-  `bun run test:intentional-red:admission-bootstrap`,
-  `bun run test:intentional-red:maintenance-command-contract`,
-  `bun run test:intentional-red:qualification-evidence`, or
-  `bun run test:intentional-red:clean-fixture`.
-- CLI RED: run `bun run test:intentional-red:maintenance-cli:unit`,
-  `bun run test:intentional-red:maintenance-cli:catalog`,
-  `bun run test:intentional-red:maintenance-cli:process`,
-  `bun run test:intentional-red:maintenance-cli:observability`,
-  `bun run test:intentional-red:maintenance-cli:clean-fixture`,
-  `bun run test:intentional-red:maintenance-cli:local-link`, or the exact combined selector
-  `bun run test:intentional-red:maintenance-cli`.
+- Architecture edges: run `node_modules/.bin/fallow guard <FILE> --format json
+  --quiet` before adding or widening a TypeScript import. Read
+  `docs/agents/fallow.md` for zone and suppression policy.
+- Local static policy: read `docs/agents/biome.md` before changing
+  `biome.jsonc`, its pinned canary, or a Biome refusal.
+- Focused quality Contract Tests: run `bun run test:quality:repository`.
+- Repository Verification: run `bun run verify:repository` for the current
+  cross-owner and filesystem decision.
+- Product current-stage selector: run `bun run test:current-stage` for the
+  current product Contract Tests. Preserve its direct output as issue
+  evidence; Repository Verification does not parse or reinterpret it.
+- Focused current-stage selectors: run
+  `bun run test:current-stage:kit-interface`,
+  `bun run test:current-stage:admission-bootstrap`,
+  `bun run test:current-stage:maintenance-command-contract`,
+  `bun run test:current-stage:qualification-evidence`, or
+  `bun run test:current-stage:clean-fixture`.
+- CLI current-stage selectors: run
+  `bun run test:current-stage:maintenance-cli:unit`,
+  `bun run test:current-stage:maintenance-cli:catalog`,
+  `bun run test:current-stage:maintenance-cli:process`,
+  `bun run test:current-stage:maintenance-cli:observability`,
+  `bun run test:current-stage:maintenance-cli:clean-fixture`,
+  `bun run test:current-stage:maintenance-cli:local-link`, or the exact
+  combined selector `bun run test:current-stage:maintenance-cli`.
 - CLI shells: `bun run audit:maintenance-cli` and
-  `bun run verify:maintenance-cli:local-link` intentionally exit one in RED.
-- Workspace RED: run
+  `bun run verify:maintenance-cli:local-link` are complete current-stage
+  proofs and must exit zero when their accepted behaviour aligns.
+- Workspace current-stage selectors: run
   `bun run --filter @agent-plugin-kit/admission-bootstrap test`,
   `bun run --filter @agent-plugin-kit/maintenance-command-contract test`, or
   `bun run --filter @agent-plugin-kit/qualification-evidence test`, or
@@ -117,11 +124,11 @@ questions and lazy future context promotion. See `docs/agents/domain.md`.
 
 ### Repository quality
 
-Repository Quality Tooling owns changed-code Fallow policy, comparison bases,
-machine results, and repair guidance. See `docs/agents/fallow.md`.
+Repository Quality Tooling configures native Biome and Fallow policy. See
+`docs/agents/biome.md` for local rules and `docs/agents/fallow.md` for
+architecture edges, changed-code comparison, and repair.
 
-### Repository Qualification
+### Repository Verification
 
-Repository Qualification ownership and the current Clean Fixture evidence
-boundary are defined by
-`docs/adr/0003-repository-quality-and-verification-transition.md`.
+Repository Verification and the Clean Fixture evidence boundary are defined by
+`docs/adr/0005-simple-repository-quality-ownership.md`.

@@ -4,12 +4,21 @@ import { installedPackage } from "./adapters/contract-subjects"
 import {
   expectedInstalledFiles,
   expectedPublicSubpaths,
+  expectedQualificationConditionalExport,
   expectedRootTypeExports,
+  expectedSubpathRuntimeExports,
   expectedSubpathTypeExports,
 } from "./fixtures/plugin-consumer"
 
 test("the root package exposes exactly the accepted type catalog", () => {
   expect(Object.keys(packageMetadata.exports).sort()).toEqual([...expectedPublicSubpaths].sort())
+  expect(installedPackage.publicTypeResolution).toEqual({ exitCode: 0, stdout: "", stderr: "" })
+  expect(installedPackage.rootRuntimeExports).toEqual([])
+  expect(installedPackage.rootValueDeclarations).toEqual([])
+  expect(installedPackage.subpathRuntimeExports).toEqual(expectedSubpathRuntimeExports)
+  expect(installedPackage.subpathValueDeclarations).toEqual(
+    Object.fromEntries(Object.entries(expectedSubpathRuntimeExports).filter(([subpath]) => subpath !== ".")),
+  )
   expect(installedPackage?.rootTypeExports, "contract-absent: installed root type exports must be independently observed").toEqual(expectedRootTypeExports)
 })
 
@@ -17,9 +26,48 @@ test("the Git package exposes exactly nine accepted public subpaths", () => {
   expect(Object.keys(packageMetadata.exports)).toEqual([...expectedPublicSubpaths])
   expect(installedPackage?.publicSubpaths, "contract-absent: installed public subpaths must be importable").toEqual([...expectedPublicSubpaths])
   expect(installedPackage?.subpathTypeExports, "contract-absent: public subpaths must expose exact accepted names").toEqual(expectedSubpathTypeExports)
+  expect(installedPackage.publicSurfacePerturbationControl).toEqual({
+    typeFormsRefused: ["direct", "named-type", "default-interface", "wildcard"],
+    typeBaselineRestored: true,
+    runtimeSubpathsRefused: [...expectedPublicSubpaths],
+    runtimeSubpathsRestored: [...expectedPublicSubpaths],
+    valueDeclarationsRefused: [
+      "admission-bootstrap-remove",
+      "admission-bootstrap-drift",
+      "admission-bootstrap-add",
+      "qualification-evidence-remove",
+      "qualification-evidence-drift",
+      "qualification-evidence-add",
+    ],
+    compilerBaselineRestored: true,
+  })
 })
 
-test("Implementation and proof paths remain private in the installed inventory", () => {
+test("Implementation and proof paths stay private from exports and complete in inventory", () => {
   expect(Object.keys(packageMetadata.exports).some((path) => /implementation|contract-tests|fixtures/.test(path))).toBeFalse()
   expect(installedPackage?.regularFiles, "contract-absent: installed bytes must expose only the accepted package inventory").toEqual(expectedInstalledFiles)
+  expect(installedPackage.qualificationRuntimeTargetPerturbationControl).toEqual({
+    refused: true,
+    baselineRestored: true,
+    descriptor: expectedQualificationConditionalExport,
+    perturbationsRefused: [
+      "remove-types",
+      "remove-import",
+      "remove-default",
+      "reorder",
+      "redirect-types",
+      "redirect-import",
+      "redirect-default-only",
+    ],
+    restorationsProved: [
+      "remove-types",
+      "remove-import",
+      "remove-default",
+      "reorder",
+      "redirect-types",
+      "redirect-import",
+      "redirect-default-only",
+    ],
+    cachedBaselineRestorationRefused: true,
+  })
 })

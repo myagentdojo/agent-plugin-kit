@@ -27,13 +27,12 @@ surface.
 - The existing `src/adapters/*` workspace glob admits the private Maintenance
   Command Facade Adapter owner. Its Interface stays outside root exports; the
   root Package Identity owns the sole public binary mapping.
-- A future exact `@logtape/logtape@2.3.1` pin belongs only to the facade Owner
-  Manifest. It is absent in intentional RED and never belongs to root or
-  Admission Bootstrap.
-- The Repository Qualification contract owns the exact Admission manifest,
-  source, and Proof Layer declaration. The behavioral source-level
-  dependency-free claim remains owned by the independent public-process
-  sentinel, not a source scan.
+- The exact `@logtape/logtape@2.3.1` pin belongs only to the facade Owner
+  Manifest. It is installed and implemented there, and never belongs to root
+  or Admission Bootstrap.
+- Repository Verification owns Admission manifest dependency freedom and the
+  ordered public export relationship. The behavioural source-level claim
+  remains owned by the independent public-process sentinel.
 
 ## Consequences
 
