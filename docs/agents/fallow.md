@@ -1,10 +1,11 @@
-# Native Fallow Quality Gate
+# Fallow Quality Gate
 
-Goal: audit the current code-changing delta through Fallow's native JSON and
-exit contract. `bun run check` is the complete done condition; its base-free
-Fallow step honors `FALLOW_AUDIT_BASE` and otherwise uses native upstream or
-remote-default merge-base detection. The repository has no Fallow wrapper or
-JSON interpretation layer.
+Goal: audit the current code-changing delta through Fallow's JSON contract.
+`bun run check` is the complete done condition; its base-free Fallow step
+honors `FALLOW_AUDIT_BASE` and otherwise uses native upstream or remote-default
+merge-base detection. `quality:fallow` re-emits the native JSON after one
+inline completeness guard; there is no repository helper or replacement
+report format.
 
 ## Start
 
@@ -36,21 +37,26 @@ It invokes Fallow without a comparison-base argument. Pin
 `FALLOW_AUDIT_BASE` to the exact comparison commit for clean-tip review proof;
 otherwise Fallow selects the branch upstream or remote-default merge-base.
 
-## Native decisions
+## Decisions
 
-The command emits native Fallow JSON on stdout. Preserve it as tool evidence;
-do not parse it into another repository contract.
+The command re-emits Fallow JSON on stdout on every exit, including a
+refusal, so the finding or evidence gap that caused exit 1 stays visible.
+Preserve it as tool evidence; the inline guard is the only repository
+interpretation layer.
 
 | Exit | Meaning |
 | ---: | --- |
-| 0 | The native audit passed. |
-| 1 | Findings failed the configured policy, or required type-aware evidence was incomplete. |
-| 2 | The comparison base, configuration, or native operation was invalid. |
+| 0 | The audit passed and its semantic project evidence is complete. |
+| 1 | Findings failed policy, semantic project evidence failed, an unapproved query gap occurred, or Fallow reported an operational error such as an invalid comparison base. |
 
 `.fallowrc.json` pins `new-only` attribution, requires complete type-aware
-evidence, and promotes every applicable warn-default rule to `error`. This
-makes the native exit the gate without a wrapper. Focused pinned-version tests
-prove a promoted finding, unavailable type-aware evidence, and invalid-base
+evidence for direct Fallow use, and promotes every applicable warn-default rule
+to `error`. The package command requests `best-effort` only because Fallow
+3.19.0 truncates type-coupling evidence after 40 records. Its inline guard
+accepts that exact `evidence-limit` truncation only when every TypeScript
+project completed without blocking diagnostics; every other partial or
+unavailable result fails closed. Focused pinned-version tests prove the guard,
+a promoted finding, unavailable evidence, and Fallow's native invalid-base
 exit two.
 
 ## Architecture policy

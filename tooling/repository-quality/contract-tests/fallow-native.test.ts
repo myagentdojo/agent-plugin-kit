@@ -160,6 +160,27 @@ async function audit(root: string, base = "HEAD"): Promise<{
 	return { exitCode, stdout, stderr, document: JSON.parse(stdout) as Record<string, unknown> }
 }
 
+async function runQualityGatePredicate(source: string, report: Record<string, unknown> | string): Promise<{
+	exitCode: number
+	stdout: string
+	stderr: string
+}> {
+	const child = Bun.spawn([process.execPath, "-e", source], {
+		stdin: "pipe",
+		stdout: "pipe",
+		stderr: "pipe",
+		env: { ...process.env, FORCE_COLOR: "0" },
+	})
+	child.stdin.write(typeof report === "string" ? report : `${JSON.stringify(report)}\n`)
+	child.stdin.end()
+	const [exitCode, stdout, stderr] = await Promise.all([
+		child.exited,
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+	])
+	return { exitCode, stdout, stderr }
+}
+
 afterAll(async () => {
 	await Promise.all(temporaryRoots.map((root) => rm(root, { recursive: true, force: true })))
 })
@@ -193,6 +214,140 @@ test("fails closed when complete type-aware evidence is unavailable", async () =
 		warning_count: 1,
 		identity: { backend_family: "typescript-go", completeness: "unavailable" },
 	})
+	const repositoryPackageMetadata = (await Bun.file(resolve(repositoryRoot, "package.json")).json()) as {
+		scripts: { "quality:fallow": string }
+	}
+	await writeJson(join(root, "package.json"), {
+		name: "fallow-native-fixture",
+		private: true,
+		type: "module",
+		devDependencies: { typescript: "7.0.2" },
+		scripts: { "quality:fallow": repositoryPackageMetadata.scripts["quality:fallow"] },
+	})
+	await symlink(resolve(repositoryRoot, "node_modules/.bin"), join(root, "node_modules/.bin"), "dir")
+	const processChild = Bun.spawn(
+		[process.execPath, "run", "--silent", "quality:fallow", "--changed-since", "HEAD"],
+		{
+			cwd: root,
+			stdin: "ignore",
+			stdout: "pipe",
+			stderr: "pipe",
+			env: { ...process.env, FORCE_COLOR: "0" },
+		},
+	)
+	const [processExitCode, processStdout, processStderr] = await Promise.all([
+		processChild.exited,
+		new Response(processChild.stdout).text(),
+		new Response(processChild.stderr).text(),
+	])
+	expect(processExitCode).toBe(1)
+	expect(processStdout.endsWith("\n")).toBe(true)
+	const processReport = JSON.parse(processStdout) as {
+		verdict: string
+		_meta: {
+			type_aware: {
+				required_completeness: string
+				identity: { completeness: string }
+				projects: unknown
+				queries: unknown
+			}
+		}
+	}
+	const processTypeAware = processReport._meta.type_aware
+	expect(processReport.verdict).toBe("pass")
+	expect(processTypeAware.required_completeness).toBe("best-effort")
+	expect(processTypeAware.identity.completeness).toBe("unavailable")
+	expect(processTypeAware.projects).toEqual([])
+	expect(processTypeAware.queries).toEqual([
+		expect.objectContaining({
+			capability: "type-coupling",
+			status: "unavailable",
+			reason_code: "no-project",
+		}),
+	])
+	expect(processStderr).toBe("")
+})
+
+test("quality Fallow gate re-emits bounded partial evidence and refuses every other gap", async () => {
+	const packageMetadata = (await Bun.file(resolve(repositoryRoot, "package.json")).json()) as {
+		scripts: { "quality:fallow": string }
+	}
+	const predicate = packageMetadata.scripts["quality:fallow"].match(/bun -e '\\''(.+)'\\'' --' _$/u)?.[1]
+	expect(predicate, "quality:fallow must end with its inline JSON gate predicate").toBeDefined()
+	if (predicate === undefined) return
+	const acceptedReport = {
+		kind: "audit",
+		verdict: "pass",
+		_meta: {
+			type_aware: {
+				projects: [{ status: "complete", blocking_diagnostic_count: 0 }],
+				queries: [{ status: "partial", reason_code: "evidence-limit", truncated: true }],
+			},
+		},
+	}
+	const accepted = await runQualityGatePredicate(predicate, acceptedReport)
+	expect(accepted.exitCode).toBe(0)
+	expect(accepted.stderr).toBe("")
+	expect(accepted.stdout).toBe(`${JSON.stringify(acceptedReport)}\n`)
+	const emptyQueriesReport = {
+		...acceptedReport,
+		_meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [] } },
+	}
+	const emptyQueriesAccepted = await runQualityGatePredicate(predicate, emptyQueriesReport)
+	expect(emptyQueriesAccepted.exitCode).toBe(0)
+	expect(emptyQueriesAccepted.stderr).toBe("")
+	expect(emptyQueriesAccepted.stdout).toBe(`${JSON.stringify(emptyQueriesReport)}\n`)
+	for (const [label, report] of [
+		["non-pass verdict", { ...acceptedReport, verdict: "fail" }],
+		["zero projects", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, projects: [] } } }],
+		["incomplete project", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, projects: [{ status: "partial", blocking_diagnostic_count: 0 }] } } }],
+		["blocking diagnostic", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, projects: [{ status: "complete", blocking_diagnostic_count: 1 }] } } }],
+		["different partial reason", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ status: "partial", reason_code: "blocking-diagnostics", truncated: true }] } } }],
+		["untruncated evidence limit", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ status: "partial", reason_code: "evidence-limit", truncated: false }] } } }],
+		["unavailable query", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ status: "unavailable", reason_code: "evidence-limit", truncated: true }] } } }],
+		["missing meta", { kind: "audit", verdict: "pass" }],
+		["null type-aware", { ...acceptedReport, _meta: { type_aware: null } }],
+		[
+			"projects not an array",
+			{
+				...acceptedReport,
+				_meta: {
+					type_aware: {
+						projects: { status: "complete", blocking_diagnostic_count: 0 },
+						queries: acceptedReport._meta.type_aware.queries,
+					},
+				},
+			},
+		],
+		[
+			"queries missing",
+			{
+				...acceptedReport,
+				_meta: { type_aware: { projects: acceptedReport._meta.type_aware.projects } },
+			},
+		],
+		[
+			"project missing diagnostic count",
+			{
+				...acceptedReport,
+				_meta: {
+					type_aware: {
+						projects: [{ status: "complete" }],
+						queries: acceptedReport._meta.type_aware.queries,
+					},
+				},
+			},
+		],
+	] as const) {
+		const refused = await runQualityGatePredicate(predicate, report)
+		expect(refused.exitCode, label).toBe(1)
+		expect(refused.stdout, label).toBe(`${JSON.stringify(report)}\n`)
+		expect(refused.stderr, label).toBe("")
+	}
+	const nonJson = await runQualityGatePredicate(predicate, "not json\n")
+	expect(nonJson.exitCode).toBe(1)
+	expect(nonJson.stdout).toBe("")
+	expect(nonJson.stderr).not.toBe("")
 })
 
 test("preserves native operational exit two for an invalid comparison base", async () => {

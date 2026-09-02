@@ -294,6 +294,22 @@ export function validateCurrentStageProcess(result: CurrentStageProcessResult): 
 
 type SettledCurrentStageChild = Readonly<{ exitCode: number; signalCode: NodeJS.Signals | null; stdout: string; stderr: string; timedOut: boolean; pid: number }>
 const pause = (milliseconds: number): Promise<void> => new Promise((done) => setTimeout(done, milliseconds))
+const processGroupExists = (pid: number): boolean => {
+	try { process.kill(-pid, 0); return true } catch (error) {
+		if (error instanceof Error && "code" in error) {
+			if (error.code === "ESRCH") return false
+			if (error.code === "EPERM") return true
+		}
+		throw error
+	}
+}
+const waitForProcessGroupSettlement = async (pid: number): Promise<void> => {
+	for (let attempt = 0; attempt < 100; attempt += 1) {
+		if (!processGroupExists(pid)) return
+		await pause(10)
+	}
+	if (processGroupExists(pid)) throw new Error("current-stage process group did not settle")
+}
 type SpawnedCurrentStageChild = Readonly<{ child: ReturnType<typeof Bun.spawn>; natural: Promise<[number, string, string]> }>
 const terminateProcessGroup = (child: ReturnType<typeof Bun.spawn>): void => { process.kill(-child.pid, "SIGKILL") }
 const bestEffortTerminateProcessGroup = (child: ReturnType<typeof Bun.spawn>): void => { try { terminateProcessGroup(child) } catch {} }
@@ -319,6 +335,7 @@ async function settleCurrentStageChild(command: readonly string[], cwd: string, 
 		const observed = await Promise.race([natural.then((value) => ({ settled: true as const, value })), deadline.fired])
 		clearTimeout(deadline.timer)
 		const [exitCode, stdout, stderr] = observed.settled ? observed.value : await settleAfterDeadline(natural)
+		if (!observed.settled) await waitForProcessGroupSettlement(child.pid)
 		settled = true
 		return { exitCode, signalCode: child.signalCode, stdout, stderr, timedOut: !observed.settled, pid: child.pid }
 	} finally { if (!settled) bestEffortTerminateProcessGroup(child) }
