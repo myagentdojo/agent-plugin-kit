@@ -759,7 +759,7 @@ through this exact route, in order:
   transcript, credential, private path, raw event stream, or mutable
   remote-state snapshot.
 - Any new fixture path and the resulting test-count change are routed through
-  the respecified Repository Qualification Contract under ADR 0003, like every
+  the current Repository Qualification Contract under ADR 0005, like every
   other count change.
 
 ## Known residual risks
@@ -770,8 +770,7 @@ Recorded so that acceptance is informed rather than optimistic:
   pattern set. A newly declared structured field whose name carries sensitive
   meaning requires a negative control before admission.
 - Exact Zod version agreement across the root manifest and every declaring
-  Owner Manifest has no machine check until the respecified Verification
-  Transition Contract adds one.
+  Owner Manifest is enforced by the current Repository Qualification Contract.
 - `EvidenceCell.resolves` referential integrity is unreachable by a per-cell
   schema and depends entirely on the multi-cell rules inside `reduce`.
 - Adding Zod changes installed content, while `installed dependency freedom`
@@ -783,11 +782,8 @@ Recorded so that acceptance is informed rather than optimistic:
   boundary. Until its capability-negative and exactly-once composition tests
   are admitted, a binder that accepts a parsed `CandidateIdentity` as admitted
   could evade ordinary schema proof.
-- Failure Class ownership is decided but not yet expressed in source. Until the
-  named Interface amendment is admitted,
-  `src/adapters/maintenance-command-facade/interface.ts` still declares
-  `event_delivery` locally, so the executable source and this decision disagree
-  on the declaration site while agreeing on the owner.
+- Failure Class ownership is expressed in the accepted source Interface. Later
+  Implementation must preserve that owner boundary and the stated Non-Claims.
 
 ## Deferred choices
 
