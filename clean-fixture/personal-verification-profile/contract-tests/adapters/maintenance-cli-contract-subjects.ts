@@ -188,114 +188,160 @@ export type ProductionOwnerProof = Readonly<{
 
 let productionOwnerProofPromise: Promise<ProductionOwnerProof> | undefined
 
+type OwnerProofEnvironment = Readonly<Record<string, string | undefined>>
+
+const prepareOwnerProofSource = async (
+  root: string,
+  sourceRoot: string,
+  repositoryRoot: string,
+  environment: OwnerProofEnvironment,
+): Promise<string> => {
+  const sourceClone = await runChild(["git", "clone", "--quiet", repositoryRoot, sourceRoot], root, environment)
+  if (sourceClone.exitCode !== 0) throw new Error("owner proof source checkout failed")
+  const patchPath = join(root, "working-tree.patch")
+  const workingTree = await runChild(["git", "diff", "--binary", "HEAD"], repositoryRoot, environment)
+  if (workingTree.exitCode !== 0) throw new Error("owner proof working-tree capture failed")
+  writeFileSync(patchPath, workingTree.stdout, { mode: 0o600 })
+  const apply = await runChild(["git", "apply", "--binary", patchPath], sourceRoot, environment)
+  if (apply.exitCode !== 0) throw new Error(`owner proof working-tree application failed: ${apply.stderr}`)
+  const stage = await runChild(["git", "add", "--all"], sourceRoot, environment)
+  if (stage.exitCode !== 0) throw new Error("owner proof source staging failed")
+  const commit = await runChild([
+    "git",
+    "-c",
+    "user.name=agent-plugin-kit-owner-proof",
+    "-c",
+    "user.email=agent-plugin-kit-owner-proof@example.invalid",
+    "commit",
+    "--quiet",
+    "-m",
+    "owner-proof-source",
+  ], sourceRoot, environment)
+  if (commit.exitCode !== 0) throw new Error(`owner proof source commit failed: ${commit.stderr}`)
+  const sourceCommit = (await runChild(["git", "rev-parse", "HEAD^{commit}"], sourceRoot, environment)).stdout.trim()
+  if (!/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("owner proof source commit is not pinned")
+  return sourceCommit
+}
+
+const installOwnerProofPackage = async (
+  root: string,
+  sourceRoot: string,
+  remoteRoot: string,
+  consumerRoot: string,
+  sourceCommit: string,
+  environment: OwnerProofEnvironment,
+): Promise<string> => {
+  const clone = await runChild(["git", "clone", "--bare", "--quiet", sourceRoot, remoteRoot], root, environment)
+  if (clone.exitCode !== 0) throw new Error("owner proof remote creation failed")
+  writeFileSync(join(consumerRoot, "package.json"), `${JSON.stringify({
+    name: "agent-plugin-kit-owner-proof-consumer",
+    private: true,
+    type: "module",
+    dependencies: { "agent-plugin-kit": `git+file://${remoteRoot}#${sourceCommit}` },
+  }, null, 2)}\n`, { mode: 0o600 })
+  const dependency = `git+file://${remoteRoot}#${sourceCommit}`
+  const lock = await runChild(["bun", "add", "--ignore-scripts", "--exact", dependency], consumerRoot, environment)
+  if (lock.exitCode !== 0) throw new Error("owner proof lock creation failed")
+  rmSync(join(consumerRoot, "node_modules"), { recursive: true, force: true })
+  const install = await runChild(["bun", "install", "--ignore-scripts", "--production", "--frozen-lockfile"], consumerRoot, environment)
+  if (install.exitCode !== 0) throw new Error("owner proof production install failed")
+  return realpathSync(join(consumerRoot, "node_modules", "agent-plugin-kit"))
+}
+
+type InstalledOwnerProofFacts = Readonly<{
+  installedPrivateValidatorPaths: readonly string[]
+  publicValidatorExports: readonly string[]
+  zodVersions: Readonly<Record<string, string>>
+}>
+
+const installedOwnerProofFactsFor = (packageRoot: string): InstalledOwnerProofFacts => {
+  const privateValidatorPaths = [
+    "src/modules/plugin-payload-production/serialized-values.ts",
+    "src/modules/release-and-git-engine/serialized-values.ts",
+    "src/modules/harness-journeys/serialized-values.ts",
+    "src/modules/canary-qualification/serialized-values.ts",
+    "src/modules/qualification-evidence/serialized-values.ts",
+    "src/modules/maintenance-command-contract/serialized-values.ts",
+    "src/adapters/maintenance-command-facade/serialized-values.ts",
+  ] as const
+  const installedPrivateValidatorPaths = privateValidatorPaths.filter((path) => existsSync(join(packageRoot, path)))
+  const installedManifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
+    exports?: Record<string, unknown>
+  }
+  const publicValidatorExports = Object.entries(installedManifest.exports ?? {}).flatMap(([name, target]) =>
+    JSON.stringify(target).includes("serialized-values") || JSON.stringify(target).includes("trusted-command-binding") ? [name] : [])
+  const zodManifestPaths = [
+    "package.json",
+    "src/modules/plugin-payload-production/package.json",
+    "src/modules/release-and-git-engine/package.json",
+    "src/modules/harness-journeys/package.json",
+    "src/modules/canary-qualification/package.json",
+    "src/modules/qualification-evidence/package.json",
+    "src/modules/maintenance-command-contract/package.json",
+    "src/adapters/maintenance-command-facade/package.json",
+  ] as const
+  const zodVersions = Object.fromEntries(zodManifestPaths.map((path) => {
+    const manifest = JSON.parse(readFileSync(join(packageRoot, path), "utf8")) as { dependencies?: Record<string, unknown> }
+    const version = manifest.dependencies?.zod
+    if (typeof version !== "string") throw new Error(`owner proof manifest omits zod: ${path}`)
+    return [path, version]
+  })) as Record<string, string>
+  return { installedPrivateValidatorPaths, publicValidatorExports, zodVersions }
+}
+
+const runOwnerProofProbe = async (
+  packageRoot: string,
+  consumerRoot: string,
+  environment: OwnerProofEnvironment,
+): Promise<ProductionOwnerProof> => {
+  const candidatePath = join(consumerRoot, "candidate.json")
+  const candidate = {
+    source: { repository: { origin: "https://github.com/myagentdojo/example-plugin.git" }, commit: "1111111111111111111111111111111111111111" },
+    release: { reference: "refs/tags/v1.0.0", commit: "1111111111111111111111111111111111111111" },
+    package: { repository: { origin: "https://github.com/myagentdojo/agent-plugin-kit.git" }, commit: "1111111111111111111111111111111111111111" },
+    workflow: { repository: { origin: "https://github.com/myagentdojo/agent-plugin-kit.git" }, path: ".github/workflows/plugin-maintenance.yml", commit: "1111111111111111111111111111111111111111" },
+  }
+  const authorityPath = join(consumerRoot, "authority.txt")
+  writeFileSync(candidatePath, `${JSON.stringify(candidate)}\n`, { mode: 0o600 })
+  writeFileSync(authorityPath, "authority-file-must-not-be-read\n", { mode: 0o600 })
+  const binary = join(packageRoot, "src/adapters/maintenance-command-facade/maintenance.ts")
+  const help = await runChild(["bun", "--no-install", binary, "--run-id", "clean-fixture-help", "--help"], consumerRoot, environment)
+  if (help.exitCode !== 0 || help.stderr !== "") throw new Error("owner proof help process failed")
+  writeFileSync(join(consumerRoot, "help.json"), help.stdout, { mode: 0o600 })
+  const probePath = join(consumerRoot, "owner-proof.ts")
+  writeFileSync(probePath, productionOwnerProbeSource, { mode: 0o600 })
+  const probe = await runChild(["bun", "--no-install", probePath, packageRoot, consumerRoot, candidatePath, authorityPath], consumerRoot, environment)
+  if (probe.exitCode !== 0) throw new Error(`owner proof probe failed: ${probe.stderr}`)
+  return JSON.parse(probe.stdout) as ProductionOwnerProof
+}
+
+const createProductionOwnerProof = async (): Promise<ProductionOwnerProof> => {
+  const root = mkdtempSync(join(tmpdir(), "agent-plugin-kit-owner-proof-"))
+  const sourceRoot = join(root, "source")
+  const remoteRoot = join(root, "agent-plugin-kit.git")
+  const consumerRoot = join(root, "consumer")
+  const environment = productionEnvironmentFor(root)
+  const repositoryRoot = resolve(import.meta.dir, "../../../../")
+  mkdirSync(consumerRoot, { recursive: true, mode: 0o700 })
+  try {
+    const sourceCommit = await prepareOwnerProofSource(root, sourceRoot, repositoryRoot, environment)
+    const packageRoot = await installOwnerProofPackage(
+      root,
+      sourceRoot,
+      remoteRoot,
+      consumerRoot,
+      sourceCommit,
+      environment,
+    )
+    const facts = installedOwnerProofFactsFor(packageRoot)
+    const probe = await runOwnerProofProbe(packageRoot, consumerRoot, environment)
+    return { ...probe, ...facts }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
 export const productionOwnerProof = (): Promise<ProductionOwnerProof> => {
-  productionOwnerProofPromise ??= (async () => {
-    const root = mkdtempSync(join(tmpdir(), "agent-plugin-kit-owner-proof-"))
-    const sourceRoot = join(root, "source")
-    const remoteRoot = join(root, "agent-plugin-kit.git")
-    const consumerRoot = join(root, "consumer")
-    const environment = productionEnvironmentFor(root)
-    const repositoryRoot = resolve(import.meta.dir, "../../../../")
-    mkdirSync(consumerRoot, { recursive: true, mode: 0o700 })
-    try {
-      const sourceClone = await runChild(["git", "clone", "--quiet", repositoryRoot, sourceRoot], root, environment)
-      if (sourceClone.exitCode !== 0) throw new Error("owner proof source checkout failed")
-      const patchPath = join(root, "working-tree.patch")
-      const workingTree = await runChild(["git", "diff", "--binary", "HEAD"], repositoryRoot, environment)
-      if (workingTree.exitCode !== 0) throw new Error("owner proof working-tree capture failed")
-      writeFileSync(patchPath, workingTree.stdout, { mode: 0o600 })
-      const apply = await runChild(["git", "apply", "--binary", patchPath], sourceRoot, environment)
-      if (apply.exitCode !== 0) throw new Error(`owner proof working-tree application failed: ${apply.stderr}`)
-      const stage = await runChild(["git", "add", "--all"], sourceRoot, environment)
-      if (stage.exitCode !== 0) throw new Error("owner proof source staging failed")
-      const commit = await runChild([
-        "git",
-        "-c",
-        "user.name=agent-plugin-kit-owner-proof",
-        "-c",
-        "user.email=agent-plugin-kit-owner-proof@example.invalid",
-        "commit",
-        "--quiet",
-        "-m",
-        "owner-proof-source",
-      ], sourceRoot, environment)
-      if (commit.exitCode !== 0) throw new Error(`owner proof source commit failed: ${commit.stderr}`)
-      const sourceCommit = (await runChild(["git", "rev-parse", "HEAD^{commit}"], sourceRoot, environment)).stdout.trim()
-      if (!/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("owner proof source commit is not pinned")
-      const clone = await runChild(["git", "clone", "--bare", "--quiet", sourceRoot, remoteRoot], root, environment)
-      if (clone.exitCode !== 0) throw new Error("owner proof remote creation failed")
-      writeFileSync(join(consumerRoot, "package.json"), `${JSON.stringify({
-        name: "agent-plugin-kit-owner-proof-consumer",
-        private: true,
-        type: "module",
-        dependencies: { "agent-plugin-kit": `git+file://${remoteRoot}#${sourceCommit}` },
-      }, null, 2)}\n`, { mode: 0o600 })
-      const dependency = `git+file://${remoteRoot}#${sourceCommit}`
-      const lock = await runChild(["bun", "add", "--ignore-scripts", "--exact", dependency], consumerRoot, environment)
-      if (lock.exitCode !== 0) throw new Error("owner proof lock creation failed")
-      rmSync(join(consumerRoot, "node_modules"), { recursive: true, force: true })
-      const install = await runChild(["bun", "install", "--ignore-scripts", "--production", "--frozen-lockfile"], consumerRoot, environment)
-      if (install.exitCode !== 0) throw new Error("owner proof production install failed")
-      const packageRoot = realpathSync(join(consumerRoot, "node_modules", "agent-plugin-kit"))
-      const privateValidatorPaths = [
-        "src/modules/plugin-payload-production/serialized-values.ts",
-        "src/modules/release-and-git-engine/serialized-values.ts",
-        "src/modules/harness-journeys/serialized-values.ts",
-        "src/modules/canary-qualification/serialized-values.ts",
-        "src/modules/qualification-evidence/serialized-values.ts",
-        "src/modules/maintenance-command-contract/serialized-values.ts",
-        "src/adapters/maintenance-command-facade/serialized-values.ts",
-      ] as const
-      const installedPrivateValidatorPaths = privateValidatorPaths.filter((path) => existsSync(join(packageRoot, path)))
-      const installedManifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
-        exports?: Record<string, unknown>
-        dependencies?: Record<string, unknown>
-      }
-      const publicValidatorExports = Object.entries(installedManifest.exports ?? {}).flatMap(([name, target]) =>
-        JSON.stringify(target).includes("serialized-values") || JSON.stringify(target).includes("trusted-command-binding") ? [name] : [])
-      const zodManifestPaths = [
-        "package.json",
-        "src/modules/plugin-payload-production/package.json",
-        "src/modules/release-and-git-engine/package.json",
-        "src/modules/harness-journeys/package.json",
-        "src/modules/canary-qualification/package.json",
-        "src/modules/qualification-evidence/package.json",
-        "src/modules/maintenance-command-contract/package.json",
-        "src/adapters/maintenance-command-facade/package.json",
-      ] as const
-      const zodVersions = Object.fromEntries(zodManifestPaths.map((path) => {
-        const manifest = JSON.parse(readFileSync(join(packageRoot, path), "utf8")) as { dependencies?: Record<string, unknown> }
-        const version = manifest.dependencies?.zod
-        if (typeof version !== "string") throw new Error(`owner proof manifest omits zod: ${path}`)
-        return [path, version]
-      })) as Record<string, string>
-      const candidatePath = join(consumerRoot, "candidate.json")
-      const candidate = {
-        source: { repository: { origin: "https://github.com/myagentdojo/example-plugin.git" }, commit: "1111111111111111111111111111111111111111" },
-        release: { reference: "refs/tags/v1.0.0", commit: "1111111111111111111111111111111111111111" },
-        package: { repository: { origin: "https://github.com/myagentdojo/agent-plugin-kit.git" }, commit: "1111111111111111111111111111111111111111" },
-        workflow: { repository: { origin: "https://github.com/myagentdojo/agent-plugin-kit.git" }, path: ".github/workflows/plugin-maintenance.yml", commit: "1111111111111111111111111111111111111111" },
-      }
-      const authorityPath = join(consumerRoot, "authority.txt")
-      writeFileSync(candidatePath, `${JSON.stringify(candidate)}\n`, { mode: 0o600 })
-      writeFileSync(authorityPath, "authority-file-must-not-be-read\n", { mode: 0o600 })
-      const binary = join(packageRoot, "src/adapters/maintenance-command-facade/maintenance.ts")
-      const help = await runChild(["bun", "--no-install", binary, "--run-id", "clean-fixture-help", "--help"], consumerRoot, environment)
-      if (help.exitCode !== 0 || help.stderr !== "") throw new Error("owner proof help process failed")
-      writeFileSync(join(consumerRoot, "help.json"), help.stdout, { mode: 0o600 })
-      const probePath = join(consumerRoot, "owner-proof.ts")
-      writeFileSync(probePath, productionOwnerProbeSource, { mode: 0o600 })
-      const probe = await runChild(["bun", "--no-install", probePath, packageRoot, consumerRoot, candidatePath, authorityPath], consumerRoot, environment)
-      if (probe.exitCode !== 0) throw new Error(`owner proof probe failed: ${probe.stderr}`)
-      return {
-        ...JSON.parse(probe.stdout) as ProductionOwnerProof,
-        installedPrivateValidatorPaths,
-        publicValidatorExports,
-        zodVersions,
-      }
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })()
+  productionOwnerProofPromise ??= createProductionOwnerProof()
   return productionOwnerProofPromise
 }

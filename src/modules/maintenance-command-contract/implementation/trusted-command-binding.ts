@@ -68,12 +68,58 @@ export type TrustedCommandBindingDependencies = {
 type WireCommandRecord = Record<string, unknown>
 
 const isRecord = (value: unknown): value is WireCommandRecord =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
+	typeof value === "object" && value !== null && !Array.isArray(value)
+
+type DataProperty = Readonly<{ present: boolean; value: unknown }>
+
+const dataPropertyFor = (record: WireCommandRecord, key: string): DataProperty => {
+	const descriptor = Object.getOwnPropertyDescriptor(record, key)
+	if (descriptor === undefined || !("value" in descriptor)) {
+		return { present: false, value: undefined }
+	}
+	return { present: true, value: descriptor.value }
+}
 
 const refusal = (code: TrustedCommandBindingRefusalCode): TrustedCommandBindingRefusal => ({
-  status: "refused",
-  code,
+	status: "refused",
+	code,
 })
+
+const approvalRefusalFor = (
+	command: string,
+	approval: unknown,
+): TrustedCommandBindingRefusal | undefined => {
+	if (!isRecord(approval)) return undefined
+	const version = dataPropertyFor(approval, "schemaVersion")
+	if (!version.present || version.value === 1) return undefined
+	switch (command) {
+		case "release:apply":
+			return refusal("release-approval-invalid")
+		case "harness:claude:apply":
+			return refusal("claude-approval-invalid")
+		case "harness:codex:apply":
+			return refusal("codex-approval-invalid")
+		default:
+			return undefined
+	}
+}
+
+const fragmentRefusalFor = (
+	command: string,
+): TrustedCommandBindingRefusal | undefined => {
+	if (command.startsWith("payload:")) return refusal("payload-fragment-invalid")
+	if (command.startsWith("release:")) return refusal("release-fragment-invalid")
+	switch (command) {
+		case "harness:claude:inspect":
+		case "harness:claude:apply":
+			return refusal("claude-fragment-invalid")
+		case "harness:codex:inspect":
+		case "harness:codex:apply":
+			return refusal("codex-fragment-invalid")
+	default:
+		return command.startsWith("canary:") ? refusal("canary-fragment-invalid") : undefined
+	}
+}
 
 /**
  * Map structural failures to an owner-owned refusal without retaining the
@@ -81,34 +127,17 @@ const refusal = (code: TrustedCommandBindingRefusalCode): TrustedCommandBindingR
  * because an unsupported outer version is refused before nested validation.
  */
 export function wireCommandRefusalFor(value: unknown): TrustedCommandBindingRefusal {
-  if (isRecord(value)) {
-    const version = Object.getOwnPropertyDescriptor(value, "schemaVersion")
-    if (version !== undefined && "value" in version && version.value !== 1) {
-      return refusal("wire-version-unsupported")
-    }
-    const command = Object.getOwnPropertyDescriptor(value, "command")
-    if (command !== undefined && "value" in command && typeof command.value === "string") {
-      const nested = Object.getOwnPropertyDescriptor(value, "approval")
-      if (nested !== undefined && "value" in nested && isRecord(nested.value)) {
-        const approvalVersion = Object.getOwnPropertyDescriptor(nested.value, "schemaVersion")
-        if (approvalVersion !== undefined && "value" in approvalVersion && approvalVersion.value !== 1) {
-          if (command.value === "release:apply") return refusal("release-approval-invalid")
-          if (command.value === "harness:claude:apply") return refusal("claude-approval-invalid")
-          if (command.value === "harness:codex:apply") return refusal("codex-approval-invalid")
-        }
-      }
-      if (command.value.startsWith("payload:")) return refusal("payload-fragment-invalid")
-      if (command.value.startsWith("release:")) return refusal("release-fragment-invalid")
-      if (command.value === "harness:claude:inspect" || command.value === "harness:claude:apply") {
-        return refusal("claude-fragment-invalid")
-      }
-      if (command.value === "harness:codex:inspect" || command.value === "harness:codex:apply") {
-        return refusal("codex-fragment-invalid")
-      }
-      if (command.value.startsWith("canary:")) return refusal("canary-fragment-invalid")
-    }
-  }
-  return refusal("wire-command-invalid")
+	if (!isRecord(value)) return refusal("wire-command-invalid")
+	const version = dataPropertyFor(value, "schemaVersion")
+	if (version.present && version.value !== 1) return refusal("wire-version-unsupported")
+	const command = dataPropertyFor(value, "command")
+	if (!command.present || typeof command.value !== "string") {
+		return refusal("wire-command-invalid")
+	}
+	const approval = dataPropertyFor(value, "approval")
+	return approvalRefusalFor(command.value, approval.present ? approval.value : undefined)
+		?? fragmentRefusalFor(command.value)
+		?? refusal("wire-command-invalid")
 }
 
 const candidateFor = (command: WireCommand): CandidateIdentity | undefined => {
@@ -139,30 +168,82 @@ const candidateAgrees = (command: WireCommand, admittedIdentity: AdmittedIdentit
   return true
 }
 
-const boundCommandFor = (
-  command: WireCommand,
-  admittedIdentity: AdmittedIdentity,
+type PayloadWireCommand = Extract<
+	WireCommand,
+	{ command: "payload:check" | "payload:materialize" | "payload:package" }
+>
+type RuntimeWireCommand = Extract<
+	WireCommand,
+	{ command: "runtime:repair" | "runtime:repair-apply" }
+>
+type ReleaseWireCommand = Extract<
+	WireCommand,
+	{ command: "release:inspect" | "release:apply" }
+>
+type HarnessWireCommand = Extract<
+	WireCommand,
+	{
+		command:
+			| "harness:claude:inspect"
+			| "harness:claude:apply"
+			| "harness:codex:inspect"
+			| "harness:codex:apply"
+	}
+>
+type CanaryQualifyWireCommand = Extract<WireCommand, { command: "canary:qualify" }>
+
+const isPayloadWireCommand = (command: WireCommand): command is PayloadWireCommand =>
+	command.command.startsWith("payload:")
+
+const isRuntimeWireCommand = (command: WireCommand): command is RuntimeWireCommand =>
+	command.command.startsWith("runtime:")
+
+const isReleaseWireCommand = (command: WireCommand): command is ReleaseWireCommand =>
+	command.command.startsWith("release:")
+
+const isHarnessWireCommand = (command: WireCommand): command is HarnessWireCommand =>
+	command.command.startsWith("harness:")
+
+const isCanaryQualifyCommand = (command: WireCommand): command is CanaryQualifyWireCommand =>
+	command.command === "canary:qualify"
+
+const boundPayloadCommandFor = (command: PayloadWireCommand): MaintenanceCommand => {
+	switch (command.command) {
+		case "payload:check":
+			return { command: "payload:check", request: command.request }
+		case "payload:materialize":
+			return { command: "payload:materialize", request: command.request }
+		case "payload:package":
+			return { command: "payload:package", request: command.request }
+	}
+}
+
+const boundRuntimeCommandFor = (command: RuntimeWireCommand): MaintenanceCommand => {
+	switch (command.command) {
+		case "runtime:repair":
+			return { command: "runtime:repair", argv: command.argv }
+		case "runtime:repair-apply":
+			return { command: "runtime:repair-apply", argv: command.argv }
+	}
+}
+
+const boundReleaseCommandFor = (command: ReleaseWireCommand): MaintenanceCommand => {
+	switch (command.command) {
+		case "release:inspect":
+			return { command: "release:inspect", request: command.request }
+		case "release:apply":
+			return { command: "release:apply", request: command.request, approval: command.approval }
+	}
+}
+
+const boundHarnessCommandFor = (
+	command: HarnessWireCommand,
+	admittedIdentity: AdmittedIdentity,
 ): MaintenanceCommand => {
-  switch (command.command) {
-    case "help":
-      return { command: "help" }
-    case "payload:check":
-      return { command: "payload:check", request: command.request }
-    case "payload:materialize":
-      return { command: "payload:materialize", request: command.request }
-    case "payload:package":
-      return { command: "payload:package", request: command.request }
-    case "runtime:repair":
-      return { command: "runtime:repair", argv: command.argv }
-    case "runtime:repair-apply":
-      return { command: "runtime:repair-apply", argv: command.argv }
-    case "release:inspect":
-      return { command: "release:inspect", request: command.request }
-    case "release:apply":
-      return { command: "release:apply", request: command.request, approval: command.approval }
-    case "harness:claude:inspect":
-      return {
-        command: command.command,
+	switch (command.command) {
+		case "harness:claude:inspect":
+			return {
+				command: command.command,
         request: {
           identity: admittedIdentity,
           payload: command.request.payload,
@@ -202,62 +283,89 @@ const boundCommandFor = (
         },
         approval: command.approval,
       }
-    case "canary:inspect":
-      return { command: "canary:inspect", candidate: command.candidate }
-    case "canary:qualify":
-      throw new Error("canary authority must be resolved before binding")
-  }
+	}
 }
 
-const authorityReferenceFor = (command: WireCommand): string | undefined =>
-  command.command === "canary:qualify" ? command.authority : undefined
+const boundCommandFor = (
+	command: WireCommand,
+	admittedIdentity: AdmittedIdentity,
+): MaintenanceCommand => {
+	if (command.command === "help") return { command: "help" }
+	if (isPayloadWireCommand(command)) return boundPayloadCommandFor(command)
+	if (isRuntimeWireCommand(command)) return boundRuntimeCommandFor(command)
+	if (isReleaseWireCommand(command)) return boundReleaseCommandFor(command)
+	if (isHarnessWireCommand(command)) return boundHarnessCommandFor(command, admittedIdentity)
+	if (command.command === "canary:inspect") {
+		return { command: "canary:inspect", candidate: command.candidate }
+	}
+	throw new Error("canary authority must be resolved before binding")
+}
 
-const canaryCandidateFor = (command: WireCommand): CanaryCandidate | undefined =>
-  command.command === "canary:qualify" ? command.candidate : undefined
+const inspectAndAcceptCanaryPlan = async (
+	command: CanaryQualifyWireCommand,
+	dependencies: TrustedCommandBindingDependencies,
+): Promise<CanaryPlan | TrustedCommandBindingRefusal> => {
+	const canary = dependencies.canary
+	if (canary === undefined) return refusal("authority-unavailable")
+	dependencies.trace?.("inspect")
+	const plan = await canary.inspect(command.candidate)
+	if (!candidateIdentitiesMatch(plan.candidate, dependencies.admittedIdentity)) {
+		return refusal("candidate-mismatch")
+	}
+	dependencies.trace?.("plan-acceptance")
+	if (!(await canary.acceptPlan(plan))) return refusal("plan-not-accepted")
+	return plan
+}
+
+const resolveCanaryCommand = async (
+	command: CanaryQualifyWireCommand,
+	plan: CanaryPlan,
+	dependencies: TrustedCommandBindingDependencies,
+): Promise<TrustedCommandBindingResult> => {
+	const canary = dependencies.canary
+	if (canary === undefined) return refusal("authority-unavailable")
+	dependencies.trace?.("authority-resolution")
+	const resolution = await canary.authoritySource.resolve(
+		command.authority,
+		dependencies.admittedIdentity,
+		plan,
+	)
+	if (resolution.status !== "resolved") return refusal(resolution.code)
+
+	dependencies.trace?.("bind")
+	return {
+		status: "bound",
+		command: {
+			command: "canary:qualify",
+			candidate: command.candidate,
+			authority: resolution.authority,
+		},
+	}
+}
+
+const bindCanaryWireCommand = async (
+	command: CanaryQualifyWireCommand,
+	dependencies: TrustedCommandBindingDependencies,
+): Promise<TrustedCommandBindingResult> => {
+	if (command.authority.length === 0) return refusal("canary-authority-reference-invalid")
+	const plan = await inspectAndAcceptCanaryPlan(command, dependencies)
+	if ("status" in plan) return plan
+	return resolveCanaryCommand(command, plan, dependencies)
+}
 
 const bindParsedWireCommand = async (
-  command: WireCommand,
-  dependencies: TrustedCommandBindingDependencies,
+	command: WireCommand,
+	dependencies: TrustedCommandBindingDependencies,
 ): Promise<TrustedCommandBindingResult> => {
-  dependencies.trace?.("candidate-agreement")
-  if (!candidateAgrees(command, dependencies.admittedIdentity)) return refusal("candidate-mismatch")
+	dependencies.trace?.("candidate-agreement")
+	if (!candidateAgrees(command, dependencies.admittedIdentity)) return refusal("candidate-mismatch")
 
-  const canaryCandidate = canaryCandidateFor(command)
-  if (canaryCandidate === undefined) {
-    const bound = boundCommandFor(command, dependencies.admittedIdentity)
-    dependencies.trace?.("bind")
-    return { status: "bound", command: bound }
-  }
-
-  const canary = dependencies.canary
-  if (canary === undefined) return refusal("authority-unavailable")
-  const reference = authorityReferenceFor(command)
-  if (reference === undefined || reference.length === 0) return refusal("canary-authority-reference-invalid")
-
-  dependencies.trace?.("inspect")
-  const plan = await canary.inspect(canaryCandidate)
-  if (!candidateIdentitiesMatch(plan.candidate, dependencies.admittedIdentity)) {
-    return refusal("candidate-mismatch")
-  }
-  dependencies.trace?.("plan-acceptance")
-  if (!(await canary.acceptPlan(plan))) return refusal("plan-not-accepted")
-  dependencies.trace?.("authority-resolution")
-  const resolution = await canary.authoritySource.resolve(
-    reference,
-    dependencies.admittedIdentity,
-    plan,
-  )
-  if (resolution.status !== "resolved") return refusal(resolution.code)
-
-  dependencies.trace?.("bind")
-  return {
-    status: "bound",
-    command: {
-      command: "canary:qualify",
-      candidate: canaryCandidate,
-      authority: resolution.authority,
-    },
-  }
+	if (!isCanaryQualifyCommand(command)) {
+		const bound = boundCommandFor(command, dependencies.admittedIdentity)
+		dependencies.trace?.("bind")
+		return { status: "bound", command: bound }
+	}
+	return bindCanaryWireCommand(command, dependencies)
 }
 
 /**

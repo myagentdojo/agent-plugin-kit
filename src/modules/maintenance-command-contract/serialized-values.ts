@@ -973,6 +973,7 @@ function isPlainJsonRecord(value: object, seen: Set<object>): boolean {
   return true
 }
 
+// fallow-ignore-next-line code-duplication -- the owner keeps strict JSON boundary validation private and explicit
 export function isPlainJsonTree(value: unknown, seen = new Set<object>()): boolean {
   if (value === null || typeof value === "string" || typeof value === "boolean") return true
   if (typeof value === "number") return Number.isFinite(value)
