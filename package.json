@@ -47,7 +47,7 @@
     "typescript": "7.0.2"
   },
   "scripts": {
-    "check": "git diff --check && bun run biome:check && bun run typecheck && bun run test:quality:repository && bun run --silent quality:fallow && bun run verify:repository",
+    "check": "git diff --check && bun run biome:check && bun run typecheck && bun run --silent test:current-stage && bun run test:quality:repository && bun run --silent quality:fallow && bun run verify:repository",
     "biome:check": "biome check --diagnostic-level=error .",
     "biome:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
