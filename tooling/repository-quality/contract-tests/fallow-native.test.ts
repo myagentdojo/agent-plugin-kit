@@ -299,7 +299,11 @@ test("quality Fallow gate re-emits bounded partial evidence and refuses every ot
 		scope: "project-local-public-signatures",
 	}))
 	const firstEvidence = boundedEvidence[0]!
-	const projectedEvidence = boundedEvidence.flatMap((edge) => [edge, edge])
+	const projectedFiles = boundedEvidence.flatMap((edge) => [
+		{ path: edge.source.path, public_api_depends_on: 1, public_types_used_by: 0, edges: [edge] },
+		{ path: edge.target.path, public_api_depends_on: 0, public_types_used_by: 1, edges: [edge] },
+	])
+	const projectedEvidence = projectedFiles.flatMap((file) => file.edges)
 	const acceptedReport = {
 		kind: "audit",
 		verdict: "pass",
@@ -309,7 +313,7 @@ test("quality Fallow gate re-emits bounded partial evidence and refuses every ot
 				type_coupling: {
 					assertion: "coupling-found",
 					status: "partial",
-					files: [{ path: "src/index.ts", public_api_depends_on: 0, public_types_used_by: 0, edges: projectedEvidence }],
+					files: projectedFiles,
 					omissions: [{ reason_code: "evidence-limit", count: 11 }],
 					actions: ["Narrow the query to a specific symbol, entry point, or healthy TypeScript project and retry."],
 				},
@@ -327,6 +331,20 @@ test("quality Fallow gate re-emits bounded partial evidence and refuses every ot
 			},
 		},
 	}
+	const withCouplingFiles = (files: unknown[]) => ({
+		...acceptedReport,
+		_meta: {
+			type_aware: {
+				...acceptedReport._meta.type_aware,
+				type_coupling: { ...acceptedReport._meta.type_aware.type_coupling, files },
+			},
+		},
+	})
+	const withQueries = (queries: unknown[]) => ({
+		...acceptedReport,
+		_meta: { type_aware: { ...acceptedReport._meta.type_aware, queries } },
+	})
+	const extraEvidence = { ...firstEvidence, source: { ...firstEvidence.source, exported_name: "Extra" } }
 	const accepted = await runQualityGatePredicate(predicate, acceptedReport)
 	expect(accepted.exitCode).toBe(0)
 	expect(accepted.stderr).toBe("")
@@ -353,12 +371,14 @@ test("quality Fallow gate re-emits bounded partial evidence and refuses every ot
 		["incomplete project", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, projects: [{ status: "partial", blocking_diagnostic_count: 0 }] } } }],
 		["blocking diagnostic", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, projects: [{ status: "complete", blocking_diagnostic_count: 1 }] } } }],
 		["evidence total at ceiling", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ ...acceptedReport._meta.type_aware.queries[0], total_evidence_count: 40, omissions: [{ reason_code: "evidence-limit", count: 0 }] }] } } }],
-		["thirty-nine logical evidence records", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, type_coupling: { ...acceptedReport._meta.type_aware.type_coupling, files: [{ ...acceptedReport._meta.type_aware.type_coupling.files[0], edges: boundedEvidence.slice(0, 39).flatMap((edge) => [edge, edge]) }] } } } }],
-		["forty-one logical evidence records", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, type_coupling: { ...acceptedReport._meta.type_aware.type_coupling, files: [{ ...acceptedReport._meta.type_aware.type_coupling.files[0], edges: [...projectedEvidence, { ...firstEvidence, source: { ...firstEvidence.source, exported_name: "Extra" } }, { ...firstEvidence, source: { ...firstEvidence.source, exported_name: "Extra" } }] } ] } } } }],
-		["forty-one emitted records with one duplicate", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, type_coupling: { ...acceptedReport._meta.type_aware.type_coupling, files: [{ ...acceptedReport._meta.type_aware.type_coupling.files[0], edges: [...boundedEvidence, firstEvidence] }] } } } }],
-		["missing projected evidence records", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, type_coupling: { ...acceptedReport._meta.type_aware.type_coupling, files: [{ ...acceptedReport._meta.type_aware.type_coupling.files[0], edges: [] }] } } } }],
-		["single projected evidence copy", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, type_coupling: { ...acceptedReport._meta.type_aware.type_coupling, files: [{ ...acceptedReport._meta.type_aware.type_coupling.files[0], edges: boundedEvidence }] } } } }],
-		["triple projected evidence copies", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, type_coupling: { ...acceptedReport._meta.type_aware.type_coupling, files: [{ ...acceptedReport._meta.type_aware.type_coupling.files[0], edges: boundedEvidence.flatMap((edge) => [edge, edge, edge]) }] } } } }],
+		["thirty-nine logical evidence records", withCouplingFiles(projectedFiles.slice(0, -2))],
+		["forty-one logical evidence records", withCouplingFiles([...projectedFiles, { path: firstEvidence.source.path, public_api_depends_on: 1, public_types_used_by: 0, edges: [extraEvidence] }, { path: firstEvidence.target.path, public_api_depends_on: 0, public_types_used_by: 1, edges: [extraEvidence] }])],
+		["forty-one emitted records with one duplicate", withCouplingFiles([{ path: "src/index.ts", public_api_depends_on: 0, public_types_used_by: 0, edges: [...boundedEvidence, firstEvidence] }])],
+		["all copies under unrelated path", withCouplingFiles([{ path: "src/unrelated.ts", public_api_depends_on: 0, public_types_used_by: 0, edges: projectedEvidence }])],
+		["both copies under source", withCouplingFiles(boundedEvidence.map((edge) => ({ path: edge.source.path, public_api_depends_on: 1, public_types_used_by: 0, edges: [edge, edge] })))],
+		["missing target projection", withCouplingFiles(projectedFiles.filter((file) => file.path !== firstEvidence.target.path))],
+		["single projected evidence copy", withCouplingFiles([{ path: firstEvidence.source.path, public_api_depends_on: 1, public_types_used_by: 0, edges: [firstEvidence] }])],
+		["triple projected evidence copies", withCouplingFiles(projectedFiles.map((file, index) => ({ ...file, edges: file.edges.flatMap((edge) => index === 0 ? [edge, edge] : [edge]) })))],
 		["missing type-coupling report", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, type_coupling: undefined } } }],
 		["contradictory type-coupling assertion", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, type_coupling: { ...acceptedReport._meta.type_aware.type_coupling, assertion: "coupling-missing" } } } }],
 		["contradictory type-coupling status", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, type_coupling: { ...acceptedReport._meta.type_aware.type_coupling, status: "complete" } } } }],
@@ -366,6 +386,7 @@ test("quality Fallow gate re-emits bounded partial evidence and refuses every ot
 		["different query assertion", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ ...acceptedReport._meta.type_aware.queries[0], assertion: "symbol-used" }] } } }],
 		["different query ID", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ ...acceptedReport._meta.type_aware.queries[0], query_id: 1 }] } } }],
 		["complete expected query", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ ...acceptedReport._meta.type_aware.queries[0], status: "complete" }] } } }],
+		["duplicate expected query", withQueries([acceptedReport._meta.type_aware.queries[0], acceptedReport._meta.type_aware.queries[0]])],
 		["different partial reason", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ status: "partial", reason_code: "blocking-diagnostics", truncated: true }] } } }],
 		["untruncated evidence limit", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ status: "partial", reason_code: "evidence-limit", truncated: false }] } } }],
 		["missing evidence count", { ...acceptedReport, _meta: { type_aware: { ...acceptedReport._meta.type_aware, queries: [{ ...acceptedReport._meta.type_aware.queries[0], total_evidence_count: undefined }] } } }],
