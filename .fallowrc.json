@@ -1,5 +1,8 @@
 {
   "$schema": "./node_modules/fallow/schema.json",
+  "entry": [
+    "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-consumer.ts"
+  ],
   "typeAware": {
     "enabled": true,
     "require": "complete"

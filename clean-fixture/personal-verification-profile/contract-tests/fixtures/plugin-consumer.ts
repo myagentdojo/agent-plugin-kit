@@ -316,7 +316,6 @@ export const expectedInstalledFiles = [
   "src/modules/maintenance-command-contract/branch-stations.ts",
   "src/modules/maintenance-command-contract/command-vocabulary.ts",
   "src/modules/maintenance-command-contract/contract-tests/adapters/mutation-recording-module-adapter.ts",
-  "src/modules/maintenance-command-contract/contract-tests/adapters/public-process-adapter.ts",
   "src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
   "src/modules/maintenance-command-contract/contract-tests/effect-class-and-retry-safety.test.ts",
   "src/modules/maintenance-command-contract/contract-tests/fixtures/approval-digest-vectors.ts",
