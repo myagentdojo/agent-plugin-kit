@@ -2,6 +2,9 @@ import { expect, test } from "bun:test"
 import type {
   AdmissionRefusal,
   AdmissionRequest,
+  SourceCheckoutAdmissionRefusal,
+  SourceCheckoutAdmissionRequest,
+  SourceCheckoutCandidate,
   CandidateIdentity,
   PackageObservation,
   ReleaseCandidateApproval,
@@ -13,6 +16,9 @@ import type {
 import {
   parseAdmissionRefusal,
   parseAdmissionRequest,
+  parseSourceCheckoutAdmissionRefusal,
+  parseSourceCheckoutAdmissionRequest,
+  parseSourceCheckoutCandidate,
   parseCandidateIdentity,
   parsePackageObservation,
   parseReleaseCandidateApproval,
@@ -22,6 +28,9 @@ import {
   parseReleaseResult,
   serializeAdmissionRefusal,
   serializeAdmissionRequest,
+  serializeSourceCheckoutAdmissionRefusal,
+  serializeSourceCheckoutAdmissionRequest,
+  serializeSourceCheckoutCandidate,
   serializeCandidateIdentity,
   serializePackageObservation,
   serializeReleaseCandidateApproval,
@@ -71,6 +80,9 @@ const values: readonly [
   ReleasePlan,
   ReleaseRequest,
   ReleaseResult,
+  SourceCheckoutCandidate,
+  SourceCheckoutAdmissionRequest,
+  SourceCheckoutAdmissionRefusal,
 ] = [
   {
     candidate,
@@ -89,6 +101,9 @@ const values: readonly [
   { candidate, expectedEffectIds: ["effect:release"], approvalDigest: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" },
   { candidate, intent: "maintenance" },
   { candidate, completedEffectIds: ["effect:release"], remainingEffectIds: [] },
+  { source: candidate.source, package: candidate.package },
+  { candidate: { source: candidate.source, package: candidate.package }, repository: candidate.source.repository, provenance: candidate.source, source: candidate.source, package: candidate.package },
+  { code: "repository-mismatch", nextAction: "Correct the mismatched immutable identity observation." },
 ]
 
 test("Release and Git Engine serialized values make exact JSON round trips", () => {
@@ -102,6 +117,9 @@ test("Release and Git Engine serialized values make exact JSON round trips", () 
     serializeReleasePlan(values[6]),
     serializeReleaseRequest(values[7]),
     serializeReleaseResult(values[8]),
+    serializeSourceCheckoutCandidate(values[9]),
+    serializeSourceCheckoutAdmissionRequest(values[10]),
+    serializeSourceCheckoutAdmissionRefusal(values[11]),
   ]
   const parsed = [
     parseAdmissionRequest(JSON.parse(serialized[0]!)),
@@ -113,6 +131,9 @@ test("Release and Git Engine serialized values make exact JSON round trips", () 
     parseReleasePlan(JSON.parse(serialized[6]!)),
     parseReleaseRequest(JSON.parse(serialized[7]!)),
     parseReleaseResult(JSON.parse(serialized[8]!)),
+    parseSourceCheckoutCandidate(JSON.parse(serialized[9]!)),
+    parseSourceCheckoutAdmissionRequest(JSON.parse(serialized[10]!)),
+    parseSourceCheckoutAdmissionRefusal(JSON.parse(serialized[11]!)),
   ]
   expect([...parsed]).toEqual([...values])
 })
@@ -123,6 +144,9 @@ test("Release and Git Engine ingress is strict and preserves independent approva
   expect(parseReleaseRequest({ ...values[7], intent: "publish" })).toBeUndefined()
   expect(parseReleaseCandidateApproval({ ...approval, schemaVersion: 2 })).toBeUndefined()
   expect(parseReleaseCandidateApproval({ ...approval, candidate: { ...candidate, workflow: { ...candidate.workflow, commit: "2222222222222222222222222222222222222222" } } })).toBeUndefined()
+  expect(parseSourceCheckoutAdmissionRequest({ ...values[10], release: candidate.release })).toBeUndefined()
+  expect(parseSourceCheckoutAdmissionRequest({ ...values[10], workflow: candidate.workflow })).toBeUndefined()
+  expect(parseSourceCheckoutAdmissionRequest({ ...values[10], source: { ...candidate.source, commit: 7 } })).toBeUndefined()
 })
 
 test("Release and Git Engine egress rejects undefined and non-JSON values without raw detail", () => {
@@ -135,4 +159,7 @@ test("Release and Git Engine egress rejects undefined and non-JSON values withou
     ...values[8],
     completedEffectIds: ["effect:release", undefined],
   } as unknown as ReleaseResult)).toThrow("release-and-git-engine: invalid serialized value")
+  expect(() => serializeSourceCheckoutCandidate(undefined as unknown as SourceCheckoutCandidate)).toThrow("release-and-git-engine: invalid serialized value")
+  expect(() => serializeSourceCheckoutAdmissionRequest(undefined as unknown as SourceCheckoutAdmissionRequest)).toThrow("release-and-git-engine: invalid serialized value")
+  expect(() => serializeSourceCheckoutAdmissionRefusal(undefined as unknown as SourceCheckoutAdmissionRefusal)).toThrow("release-and-git-engine: invalid serialized value")
 })

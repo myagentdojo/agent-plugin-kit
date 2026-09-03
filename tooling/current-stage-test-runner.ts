@@ -6,10 +6,12 @@ export const currentStageTestFiles = [
 	"clean-fixture/personal-verification-profile/contract-tests/package-export-catalog.test.ts",
 	"src/admission-bootstrap/contract-tests/admitted-identity-before-execution.test.ts",
 	"src/admission-bootstrap/contract-tests/identity-refusal.test.ts",
+	"src/admission-bootstrap/contract-tests/source-checkout-admission.test.ts",
 	"src/modules/maintenance-command-contract/contract-tests/effect-class-and-retry-safety.test.ts",
 	"src/modules/maintenance-command-contract/contract-tests/human-and-agent-result-vocabulary.test.ts",
 	"src/modules/maintenance-command-contract/contract-tests/branch-station-catalog.test.ts",
 	"src/modules/maintenance-command-contract/contract-tests/wire-command-and-binding.test.ts",
+	"src/modules/maintenance-command-contract/contract-tests/source-checkout-binding.test.ts",
 	"src/modules/qualification-evidence/contract-tests/candidate-lineage-reduction.test.ts",
 	"src/modules/qualification-evidence/contract-tests/proof-layer-and-non-claim.test.ts",
 	"clean-fixture/personal-verification-profile/contract-tests/admission-and-invocation.test.ts",
@@ -21,6 +23,8 @@ export const currentStageTestFiles = [
 	"src/adapters/maintenance-command-facade/contract-tests/command-surface.test.ts",
 	"src/adapters/maintenance-command-facade/contract-tests/public-process.test.ts",
 	"src/adapters/maintenance-command-facade/contract-tests/observability.test.ts",
+	"src/adapters/maintenance-command-facade/contract-tests/source-checkout-observation.test.ts",
+	"clean-fixture/personal-verification-profile/contract-tests/source-checkout-admission.test.ts",
 	"src/modules/plugin-payload-production/contract-tests/serialized-values.test.ts",
 	"src/modules/release-and-git-engine/contract-tests/serialized-values.test.ts",
 	"src/modules/harness-journeys/contract-tests/serialized-values.test.ts",
@@ -28,9 +32,9 @@ export const currentStageTestFiles = [
 	"src/modules/canary-qualification/contract-tests/authority-source.test.ts",
 ] as const
 
-const expectedTests = [3, 2, 6, 9, 7, 8, 12, 8, 7, 3, 3, 2, 2, 8, 8, 13, 19, 12, 3, 3, 4, 3, 3] as const
+	const expectedTests = [3, 2, 6, 6, 9, 7, 8, 12, 5, 8, 7, 3, 3, 2, 2, 8, 8, 13, 19, 12, 7, 7, 3, 3, 4, 3, 3] as const
 const expectedTestsByFile = new Map<string, number>(currentStageTestFiles.map((file, index) => [file, expectedTests[index] ?? 0]))
-export const currentStageExpectedTestCount = 148
+export const currentStageExpectedTestCount = 173
 
 export type GuardCode =
 	| "selector-duplicate" | "selector-missing" | "selector-unexpected" | "selector-order" | "selector-file-missing" | "selector-discovery"

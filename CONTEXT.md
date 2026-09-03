@@ -223,6 +223,22 @@ refuses an Admitted Identity before Kit Repository Implementation executes.
 Release and Git Engine remains the single owner of Admission meaning.
 _Avoid_: Installer, setup hook, package lifecycle script
 
+**Source Checkout Admission**:
+The fail-closed identity judgment that admits an exact physical Kit checkout
+for `payload:package` without making Release or Workflow claims.
+_Avoid_: Released Admission, installation proof, checkout success
+
+**Admitted Source Checkout Identity**:
+A separately branded Source Checkout Admission result containing only its
+source and package identities for package-only binding.
+_Avoid_: Admitted Identity, serialized capability, released identity
+
+**Source Checkout Observation**:
+The read-only Facade composition-root observation of the executing checkout
+and committed consumer pin that supplies identity facts to Source Checkout
+Admission.
+_Avoid_: Request validation, Admission, Git configuration framework
+
 **Clean Fixture**:
 An isolated Plugin Consumer example with independently controlled Source
 Identity, Release Identity, Package Identity, Workflow Identity, and invocation

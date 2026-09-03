@@ -5,6 +5,7 @@ import type {
 } from "../../canary-qualification/interface"
 import type {
   AdmittedIdentity,
+  AdmittedSourceCheckoutIdentity,
   CandidateIdentity,
 } from "../../release-and-git-engine/interface"
 import type {
@@ -34,6 +35,8 @@ export type TrustedCommandBindingRefusalCode =
   | "authority-candidate-mismatch"
   | "authority-plan-mismatch"
   | "authority-unavailable"
+  | "capability-insufficient"
+  | "source-checkout-not-admitted"
 
 export type TrustedCommandBindingRefusal = {
   status: "refused"
@@ -58,10 +61,22 @@ export type TrustedCommandBindingStep =
   | "authority-resolution"
   | "bind"
   | "qualify"
+  | "capability-check"
+  | "admission"
 
 export type TrustedCommandBindingDependencies = {
   admittedIdentity: AdmittedIdentity
   canary?: CanaryBindingDependencies
+  trace?: (step: TrustedCommandBindingStep) => void
+}
+
+export type SourceCheckoutAdmissionSource = () => Promise<
+  | { kind: "admitted"; identity: AdmittedSourceCheckoutIdentity }
+  | { kind: "refused" }
+>
+
+export type SourceCheckoutBindingDependencies = {
+  admission: SourceCheckoutAdmissionSource
   trace?: (step: TrustedCommandBindingStep) => void
 }
 
@@ -126,7 +141,7 @@ const fragmentRefusalFor = (
  * input or exposing Zod's diagnostic tree. Version selection is kept distinct
  * because an unsupported outer version is refused before nested validation.
  */
-export function wireCommandRefusalFor(value: unknown): TrustedCommandBindingRefusal {
+function wireCommandRefusalFor(value: unknown): TrustedCommandBindingRefusal {
 	if (!isRecord(value)) return refusal("wire-command-invalid")
 	const version = dataPropertyFor(value, "schemaVersion")
 	if (version.present && version.value !== 1) return refusal("wire-version-unsupported")
@@ -382,6 +397,26 @@ export async function bindTrustedCommand(
   const command = parseWireCommand(value)
   if (command === undefined) return wireCommandRefusalFor(value)
   return bindParsedWireCommand(command, dependencies)
+}
+
+/**
+ * Bind the single command that Source Checkout Admission can authorize. The
+ * parsed Wire Command remains ordinary data; only Admission produces identity.
+ */
+export async function bindSourceCheckoutCommand(
+  value: unknown,
+  dependencies: SourceCheckoutBindingDependencies,
+): Promise<TrustedCommandBindingResult> {
+  dependencies.trace?.("parse")
+  const command = parseWireCommand(value)
+  if (command === undefined) return wireCommandRefusalFor(value)
+  dependencies.trace?.("capability-check")
+  if (command.command !== "payload:package") return refusal("capability-insufficient")
+  dependencies.trace?.("admission")
+  const admitted = await dependencies.admission()
+  if (admitted.kind !== "admitted") return refusal("source-checkout-not-admitted")
+  dependencies.trace?.("bind")
+  return { status: "bound", command: { command: "payload:package", request: command.request } }
 }
 
 /** Bind a command that has already crossed the structural parse boundary. */

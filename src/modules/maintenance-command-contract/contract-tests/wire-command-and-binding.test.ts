@@ -13,28 +13,14 @@ import {
 } from "../serialized-values"
 import type { WireCommand } from "../interface"
 import { mutatingRequests } from "./fixtures/literal-command-results"
+import { literalWireCommands } from "./fixtures/literal-wire-commands"
 import { createMaintenanceContractHarness } from "./adapters/mutation-recording-module-adapter"
 
 const candidate = mutatingRequests.release.request.candidate
 const admittedIdentity = mutatingRequests.claude.request.identity
 const payload = mutatingRequests.claude.request.payload
 
-const wireCommands: readonly WireCommand[] = [
-  { schemaVersion: 1, command: "help" },
-  { schemaVersion: 1, command: "payload:check", request: { repositoryRoot: "/fixture/plugin", mode: "check" } },
-  { schemaVersion: 1, command: "payload:materialize", request: { repositoryRoot: "/fixture/plugin", mode: "materialize" } },
-  { schemaVersion: 1, command: "payload:package", request: { repositoryRoot: "/fixture/plugin", mode: "package" } },
-  { schemaVersion: 1, command: "runtime:repair", argv: ["repair"] },
-  { schemaVersion: 1, command: "runtime:repair-apply", argv: ["repair", "--apply"] },
-  { schemaVersion: 1, command: "release:inspect", request: { candidate, intent: "maintenance" } },
-  { schemaVersion: 1, command: "release:apply", request: mutatingRequests.release.request, approval: mutatingRequests.release.approval },
-  { schemaVersion: 1, command: "harness:claude:inspect", request: { candidate, payload, profileIdentity: "claude-profile" } },
-  { schemaVersion: 1, command: "harness:claude:apply", request: { candidate, payload, profileIdentity: "claude-profile", expectedEffectIds: ["effect:claude"] }, approval: mutatingRequests.claude.approval },
-  { schemaVersion: 1, command: "harness:codex:inspect", request: { candidate, payload, profileIdentity: "codex-profile", checkoutIdentity: "checkout-b" } },
-  { schemaVersion: 1, command: "harness:codex:apply", request: { candidate, payload, profileIdentity: "codex-profile", checkoutIdentity: "checkout-b", expectedEffectIds: ["effect:codex"] }, approval: mutatingRequests.codex.approval },
-  { schemaVersion: 1, command: "canary:inspect", candidate: { identity: candidate, inertPayloadSha256: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" } },
-  { schemaVersion: 1, command: "canary:qualify", candidate: { identity: candidate, inertPayloadSha256: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }, authority: "/protected/authority" },
-]
+const wireCommands: readonly WireCommand[] = literalWireCommands
 
 const canary = wireCommands[12]
 if (canary === undefined || canary.command !== "canary:inspect") throw new Error("missing canary fixture")
@@ -56,6 +42,7 @@ test("Maintenance Wire Command version 1 round trips every unbranded command", (
 
 test("Wire Command ingress is strict, capability-negative, and owner-mapped", () => {
   expect(parseWireCommand({ ...helpWire, unexpected: true })).toBeUndefined()
+  expect(parseWireCommand({ ...helpWire, profile: "source-checkout", sourceCheckout: true })).toBeUndefined()
   expect(parseWireCommand({ ...payloadCheckWire, request: { repositoryRoot: 42, mode: "check" } })).toBeUndefined()
   expect(parseWireCommand({ ...claudeApplyWire, request: { ...claudeApplyWire.request, identity: admittedIdentity } })).toBeUndefined()
   expect(parseWireCommand({ ...canaryQualify, authority: {} })).toBeUndefined()

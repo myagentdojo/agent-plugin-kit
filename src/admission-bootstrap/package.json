@@ -6,6 +6,6 @@
     ".": "./interface.ts"
   },
   "scripts": {
-    "test": "bun test contract-tests/admitted-identity-before-execution.test.ts contract-tests/identity-refusal.test.ts"
+    "test": "bun test contract-tests/admitted-identity-before-execution.test.ts contract-tests/identity-refusal.test.ts contract-tests/source-checkout-admission.test.ts"
   }
 }

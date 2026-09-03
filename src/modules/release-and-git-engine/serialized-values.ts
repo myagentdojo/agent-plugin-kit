@@ -4,6 +4,7 @@ import { z } from "zod"
 import type {
   AdmissionRefusal,
   AdmissionRequest,
+  AdmittedSourceCheckoutIdentity,
   CandidateIdentity,
   PackageIdentity,
   PackageObservation,
@@ -15,6 +16,9 @@ import type {
   ReleaseResult,
   RepositoryIdentity,
   SourceIdentity,
+  SourceCheckoutAdmissionRefusal,
+  SourceCheckoutAdmissionRequest,
+  SourceCheckoutCandidate,
   WorkflowIdentity,
 } from "./interface"
 
@@ -253,6 +257,24 @@ const admissionRefusalSchema = z.strictObject({
   nextAction: z.literal("Correct the mismatched immutable identity observation."),
 })
 
+const sourceCheckoutCandidateSchema = z.strictObject({
+  source: sourceIdentitySchema,
+  package: packageIdentitySchema,
+})
+
+const sourceCheckoutAdmissionRequestSchema = z.strictObject({
+  candidate: sourceCheckoutCandidateSchema,
+  repository: repositoryIdentitySchema,
+  provenance: sourceIdentitySchema,
+  source: sourceIdentitySchema,
+  package: packageIdentitySchema,
+})
+
+const sourceCheckoutAdmissionRefusalSchema = z.strictObject({
+  code: z.enum(["repository-mismatch", "provenance-mismatch", "source-pin-mismatch", "package-pin-mismatch"]),
+  nextAction: z.literal("Correct the mismatched immutable identity observation."),
+})
+
 const packageObservationSchema = z.strictObject({
   identity: packageIdentitySchema,
   payloadSha256: sha256Schema,
@@ -340,8 +362,20 @@ const serializeValue = <T>(schema: z.ZodType<T>, value: T): string => {
 export const parseAdmissionRequest = (value: unknown): AdmissionRequest | undefined =>
   parseValue(admissionRequestSchema, value)
 
+export const parseRepositoryIdentity = (value: unknown): RepositoryIdentity | undefined =>
+  parseValue(repositoryIdentitySchema, value)
+
 export const parseAdmissionRefusal = (value: unknown): AdmissionRefusal | undefined =>
   parseValue(admissionRefusalSchema, value)
+
+export const parseSourceCheckoutAdmissionRequest = (value: unknown): SourceCheckoutAdmissionRequest | undefined =>
+  parseValue(sourceCheckoutAdmissionRequestSchema, value)
+
+export const parseSourceCheckoutAdmissionRefusal = (value: unknown): SourceCheckoutAdmissionRefusal | undefined =>
+  parseValue(sourceCheckoutAdmissionRefusalSchema, value)
+
+export const parseSourceCheckoutCandidate = (value: unknown): SourceCheckoutCandidate | undefined =>
+  parseValue(sourceCheckoutCandidateSchema, value)
 
 export const parseCandidateIdentity = (value: unknown): CandidateIdentity | undefined =>
   parseValue(candidateIdentitySchema, value)
@@ -369,6 +403,15 @@ export const serializeAdmissionRequest = (value: AdmissionRequest): string =>
 
 export const serializeAdmissionRefusal = (value: AdmissionRefusal): string =>
   serializeValue(admissionRefusalSchema, value)
+
+export const serializeSourceCheckoutAdmissionRequest = (value: SourceCheckoutAdmissionRequest): string =>
+  serializeValue(sourceCheckoutAdmissionRequestSchema, value)
+
+export const serializeSourceCheckoutAdmissionRefusal = (value: SourceCheckoutAdmissionRefusal): string =>
+  serializeValue(sourceCheckoutAdmissionRefusalSchema, value)
+
+export const serializeSourceCheckoutCandidate = (value: SourceCheckoutCandidate): string =>
+  serializeValue(sourceCheckoutCandidateSchema, value)
 
 export const serializeCandidateIdentity = (value: CandidateIdentity): string =>
   serializeValue(candidateIdentitySchema, value)
@@ -399,6 +442,9 @@ type InferredWorkflowIdentity = z.infer<typeof workflowIdentitySchema>
 type InferredCandidateIdentity = z.infer<typeof candidateIdentitySchema>
 type InferredAdmissionRequest = z.infer<typeof admissionRequestSchema>
 type InferredAdmissionRefusal = z.infer<typeof admissionRefusalSchema>
+type InferredSourceCheckoutCandidate = z.infer<typeof sourceCheckoutCandidateSchema>
+type InferredSourceCheckoutAdmissionRequest = z.infer<typeof sourceCheckoutAdmissionRequestSchema>
+type InferredSourceCheckoutAdmissionRefusal = z.infer<typeof sourceCheckoutAdmissionRefusalSchema>
 type InferredPackageObservation = z.infer<typeof packageObservationSchema>
 type InferredReleaseRequest = z.infer<typeof releaseRequestSchema>
 type InferredReleaseMutationRequest = z.infer<typeof releaseMutationRequestSchema>
@@ -423,6 +469,12 @@ const bidirectionalTypeChecks: [
   AdmissionRequest extends InferredAdmissionRequest ? true : false,
   InferredAdmissionRefusal extends AdmissionRefusal ? true : false,
   AdmissionRefusal extends InferredAdmissionRefusal ? true : false,
+  InferredSourceCheckoutCandidate extends SourceCheckoutCandidate ? true : false,
+  SourceCheckoutCandidate extends InferredSourceCheckoutCandidate ? true : false,
+  InferredSourceCheckoutAdmissionRequest extends SourceCheckoutAdmissionRequest ? true : false,
+  SourceCheckoutAdmissionRequest extends InferredSourceCheckoutAdmissionRequest ? true : false,
+  InferredSourceCheckoutAdmissionRefusal extends SourceCheckoutAdmissionRefusal ? true : false,
+  SourceCheckoutAdmissionRefusal extends InferredSourceCheckoutAdmissionRefusal ? true : false,
   InferredPackageObservation extends PackageObservation ? true : false,
   PackageObservation extends InferredPackageObservation ? true : false,
   InferredReleaseRequest extends ReleaseRequest ? true : false,
@@ -438,6 +490,7 @@ const bidirectionalTypeChecks: [
 ] = [
   true, true, true, true, true, true, true, true, true, true, true, true,
   true, true, true, true, true, true, true, true, true, true, true, true,
+  true, true, true, true, true, true,
   true, true, true, true,
 ]
 

@@ -1,13 +1,16 @@
-import type { AdmissionBootstrap, AdmissionResult } from "../interface"
+import type { AdmissionBootstrap, AdmissionResult, SourceCheckoutAdmissionResult } from "../interface"
 import type {
   AdmissionRefusal,
   AdmissionRequest,
   AdmittedIdentity,
+  AdmittedSourceCheckoutIdentity,
   CandidateIdentity,
   PackageIdentity,
   ReleaseIdentity,
   RepositoryIdentity,
   SourceIdentity,
+  SourceCheckoutAdmissionRefusal,
+  SourceCheckoutAdmissionRequest,
   WorkflowIdentity,
 } from "../../modules/release-and-git-engine/interface"
 
@@ -84,6 +87,24 @@ function refusal(code: AdmissionRefusal["code"]): AdmissionResult {
   }
 }
 
+function sourceCheckoutRefusal(code: SourceCheckoutAdmissionRefusal["code"]): SourceCheckoutAdmissionResult {
+  return { kind: "refused", refusal: { code, nextAction } }
+}
+
+function admittedSourceCheckoutIdentity(request: SourceCheckoutAdmissionRequest): AdmittedSourceCheckoutIdentity {
+  return Object.freeze({
+    profile: "source-checkout",
+    source: Object.freeze({
+      repository: Object.freeze({ origin: request.candidate.source.repository.origin }),
+      commit: request.candidate.source.commit,
+    }),
+    package: Object.freeze({
+      repository: Object.freeze({ origin: request.candidate.package.repository.origin }),
+      commit: request.candidate.package.commit,
+    }),
+  }) as AdmittedSourceCheckoutIdentity
+}
+
 export const admissionBootstrap: AdmissionBootstrap = {
   admit(request) {
     const candidate: CandidateIdentity = request.candidate
@@ -111,5 +132,17 @@ export const admissionBootstrap: AdmissionBootstrap = {
     }
 
     return { kind: "admitted", identity: admittedIdentity(candidate) }
+  },
+  admitSourceCheckout(request) {
+    const candidate = request.candidate
+    if (!sameRepository(request.repository, candidate.source.repository)) return sourceCheckoutRefusal("repository-mismatch")
+    if (!sameSource(request.provenance, candidate.source)) return sourceCheckoutRefusal("provenance-mismatch")
+    if (!sameSource(request.source, candidate.source) || !fullCommitPinPattern.test(candidate.source.commit)) {
+      return sourceCheckoutRefusal("source-pin-mismatch")
+    }
+    if (!samePackage(request.package, candidate.package) ||
+      !sameRepository(candidate.package.repository, candidate.source.repository) ||
+      candidate.package.commit !== candidate.source.commit) return sourceCheckoutRefusal("package-pin-mismatch")
+    return { kind: "admitted", identity: admittedSourceCheckoutIdentity(request) }
   },
 }
