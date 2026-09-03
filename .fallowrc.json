@@ -1,7 +1,8 @@
 {
   "$schema": "./node_modules/fallow/schema.json",
   "entry": [
-    "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-consumer.ts"
+    "clean-fixture/personal-verification-profile/contract-tests/fixtures/admission-consumer.ts",
+    "src/modules/plugin-payload-production/contract-tests/adapters/concurrent-publication-child.ts"
   ],
   "typeAware": {
     "enabled": true,

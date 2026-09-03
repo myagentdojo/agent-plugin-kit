@@ -255,7 +255,12 @@ function readDeclaredFile(pluginRoot: string, file: PreparedFileDeclaration): { 
   return { bytes, executable }
 }
 
-function snapshotClosure(pluginRoot: string, request: PayloadPackageRequest): Snapshot {
+/**
+ * Walk the actual payload tree and require it to be exactly the declared
+ * closure. Reused by the first snapshot and by the pre-publication recheck, so
+ * an entry added, removed, or made unsafe after the snapshot is refused.
+ */
+function assertDeclaredClosure(pluginRoot: string, request: PayloadPackageRequest): void {
   const inventory = walkPayload(pluginRoot)
   const declared = new Set(request.prepared.files.map((file) => file.path))
   const undeclared = inventory.find((path) => !declared.has(path))
@@ -263,6 +268,10 @@ function snapshotClosure(pluginRoot: string, request: PayloadPackageRequest): Sn
   const present = new Set(inventory)
   const missing = request.prepared.files.find((file) => !present.has(file.path))
   if (missing !== undefined) throw new PayloadRefusal("declared-file-missing", `plugin/${missing.path}: declared but absent`)
+}
+
+function snapshotClosure(pluginRoot: string, request: PayloadPackageRequest): Snapshot {
+  assertDeclaredClosure(pluginRoot, request)
   const snapshot = new Map<string, { bytes: Uint8Array; executable: boolean }>()
   const hash = createHash("sha256")
   const frame = (length: number): Buffer => {
@@ -285,28 +294,58 @@ function snapshotClosure(pluginRoot: string, request: PayloadPackageRequest): Sn
   return snapshot
 }
 
-function recheckClosure(pluginRoot: string, request: PayloadPackageRequest, snapshot: Snapshot): void {
+/**
+ * Recheck every source input immediately before publication: the exact closure
+ * and its safety, each declared file against the snapshot, and every
+ * projection. The snapshot bytes remain the packaged content; this recheck only
+ * refuses a source that changed while the archive was being compressed.
+ */
+function recheckSourceInputs(roots: Roots, request: PayloadPackageRequest, snapshot: Snapshot): ProjectionHashes {
+  assertDeclaredClosure(roots.pluginRoot, request)
   for (const file of request.prepared.files) {
-    const observed = readDeclaredFile(pluginRoot, file)
+    const observed = readDeclaredFile(roots.pluginRoot, file)
     const original = snapshot.get(file.path)
     if (original === undefined || observed.executable !== original.executable || Buffer.compare(observed.bytes, original.bytes) !== 0) {
       throw new PayloadRefusal("file-mismatch", `plugin/${file.path}: changed after the snapshot`)
     }
   }
+  return checkProjections(roots, request, snapshot)
 }
 
 type ProjectionHashes = { runtimeLockSha256: string; bundleInventorySha256: string }
 
-function readProjection(roots: Roots, projection: PreparedProjectionDeclaration): { bytes: Uint8Array; hex: string } {
-  const absolute = resolve(roots.root, projection.path)
-  if (!absolute.startsWith(`${roots.root}${sep}`)) throw new PayloadRefusal("declaration-invalid", `${projection.path}: projection escapes the repository root`)
-  let status: ReturnType<typeof lstatSync>
-  try {
-    status = lstatSync(absolute)
-  } catch {
-    throw new PayloadRefusal("projection-mismatch", `${projection.path}: projection is absent`)
+/**
+ * Resolve one repository-relative path physically. Every component from the
+ * root is `lstat`ed, so a symlinked ancestor cannot carry a regular leaf
+ * outside the named repository. Only a symlink or non-directory component is
+ * refused, so valid newline and representable long names stay packageable.
+ */
+function physicalPathWithin(root: string, relativePath: string): string {
+  const segments = relativePath.split("/")
+  let current = root
+  for (const [index, segment] of segments.entries()) {
+    current = join(current, segment)
+    let status: ReturnType<typeof lstatSync>
+    try {
+      status = lstatSync(current)
+    } catch {
+      throw new PayloadRefusal("projection-mismatch", `${relativePath}: projection is absent`)
+    }
+    if (status.isSymbolicLink()) {
+      throw new PayloadRefusal("unsafe-entry", `${relativePath}: path component "${segment}" is a symlink`)
+    }
+    if (index < segments.length - 1 && !status.isDirectory()) {
+      throw new PayloadRefusal("projection-mismatch", `${relativePath}: path component "${segment}" is not a directory`)
+    }
   }
-  if (!status.isFile()) throw new PayloadRefusal("projection-mismatch", `${projection.path}: projection is not a regular file`)
+  return current
+}
+
+function readProjection(roots: Roots, projection: PreparedProjectionDeclaration): { bytes: Uint8Array; hex: string } {
+  const lexical = resolve(roots.root, projection.path)
+  if (!lexical.startsWith(`${roots.root}${sep}`)) throw new PayloadRefusal("declaration-invalid", `${projection.path}: projection escapes the repository root`)
+  const absolute = physicalPathWithin(roots.root, projection.path)
+  if (!lstatSync(absolute).isFile()) throw new PayloadRefusal("projection-mismatch", `${projection.path}: projection is not a regular file`)
   const bytes = new Uint8Array(readFileSync(absolute))
   const hex = sha256Hex(bytes)
   if (bytes.byteLength !== projection.bytes || prefixed(hex) !== projection.sha256) {
@@ -498,11 +537,14 @@ async function compress(
     register(undefined)
     throw new PayloadFailure("compressor-deadline", "none", false, { archive: null, checksums: null }, "compressor exceeded its deadline")
   }
-  register(undefined)
   const [bytes, , exitCode] = await Promise.all([stdout, stderr, child.exited])
   if (timedOut || exitCode !== 0) {
+    terminate()
+    await reapProcessGroup(child.pid)
+    register(undefined)
     throw new PayloadFailure("compressor-failed", "none", false, { archive: null, checksums: null }, `compressor exited with ${exitCode}`)
   }
+  register(undefined)
   return Buffer.from(bytes)
 }
 
@@ -561,6 +603,14 @@ function stageArtifact(stagingRoot: string, name: string, bytes: Buffer): string
   return path
 }
 
+/**
+ * A publication-phase fault. It carries no publication claim of its own: the
+ * publication owner classifies every one of these against the artifacts it can
+ * actually observe, so a fault after the archive was published can never be
+ * reported as an unchanged repository.
+ */
+class PayloadPublicationFault extends Error {}
+
 /** Atomic no-replace publication; returns whether the existing file already matched. */
 function publishNoReplace(staged: string, final: string, expected: Buffer, label: string): "published" | "identical" {
   try {
@@ -568,25 +618,44 @@ function publishNoReplace(staged: string, final: string, expected: Buffer, label
     return "published"
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) {
-      throw new PayloadFailure("staging-failed", "none", false, { archive: null, checksums: null }, `dist/${label}: publication failed`)
+      throw new PayloadPublicationFault(`dist/${label}: publication failed`)
     }
     return existingOutputState(final, expected, label) === "identical" ? "identical" : "published"
   }
 }
 
 function artifactRecordFor(path: string, expected: Buffer, label: string): PayloadArtifactRecord {
+  const observed = observedArtifact(path, expected)
+  if (typeof observed === "string") {
+    throw new PayloadPublicationFault(`dist/${label}: published artifact could not be confirmed on reread`)
+  }
+  return observed
+}
+
+type ObservedArtifact = PayloadArtifactRecord | "absent" | "conflicting" | "unobservable"
+
+/**
+ * Read one output entry as evidence. The entry is this candidate's artifact
+ * only when its bytes match exactly; an unsafe entry or another candidate's
+ * bytes is a conflict, and an entry that cannot be read is unobservable rather
+ * than absent.
+ */
+function observedArtifact(path: string, expected: Buffer): ObservedArtifact {
   let status: ReturnType<typeof lstatSync>
-  let observed: Buffer
   try {
     status = lstatSync(path)
-    observed = readFileSync(path)
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "ENOENT" ? "absent" : "unobservable"
+  }
+  if (status.isSymbolicLink() || !status.isFile()) return "conflicting"
+  try {
+    const bytes = readFileSync(path)
+    return Buffer.compare(bytes, expected) === 0
+      ? { path, bytes: bytes.byteLength, sha256: prefixed(sha256Hex(bytes)) }
+      : "conflicting"
   } catch {
-    throw new PayloadFailure("publication-unobservable", "unknown", false, { archive: null, checksums: null }, `dist/${label}: published artifact could not be reread`)
+    return "unobservable"
   }
-  if (!status.isFile() || Buffer.compare(observed, expected) !== 0) {
-    throw new PayloadFailure("publication-unobservable", "unknown", false, { archive: null, checksums: null }, `dist/${label}: published artifact differs on reread`)
-  }
-  return { path, bytes: observed.byteLength, sha256: prefixed(sha256Hex(observed)) }
 }
 
 type Invocation = {
@@ -649,13 +718,59 @@ const stagingRootFor = (roots: Roots, invocation: Invocation): string => {
   }
 }
 
-const noPublication = (detail: string): PayloadFailure =>
-  new PayloadFailure("staging-failed", "none", false, { archive: null, checksums: null }, detail)
+type ObservedPublication = { publication: PayloadPublicationState; artifacts: Failed["artifacts"] }
 
-const archiveOnly = (archive: PayloadArtifactRecord, detail: string): PayloadFailure =>
-  new PayloadFailure("publication-interrupted", "archive-only", false, { archive, checksums: null }, detail)
+/** Read the published state from the actual output entries, never from the fault. */
+function observePublication(archive: ObservedArtifact, checksums: ObservedArtifact): ObservedPublication {
+  const archiveRecord = typeof archive === "string" ? null : archive
+  const checksumsRecord = typeof checksums === "string" ? null : checksums
+  const artifacts = { archive: archiveRecord, checksums: checksumsRecord }
+  if (archive === "unobservable" || checksums === "unobservable") return { publication: "unknown", artifacts }
+  if (archiveRecord === null) {
+    return checksumsRecord === null
+      ? { publication: "none", artifacts }
+      : { publication: "unknown", artifacts }
+  }
+  return checksumsRecord === null
+    ? { publication: "archive-only", artifacts }
+    : { publication: "unknown", artifacts }
+}
 
-type PublicationProgress = { archiveRecord: PayloadArtifactRecord | undefined; archivePublishedHere: boolean }
+const publicationFailureCodes = {
+  none: "staging-failed",
+  "archive-only": "publication-interrupted",
+  unknown: "publication-unobservable",
+} as const satisfies Record<PayloadPublicationState, PayloadFailureCode>
+
+/**
+ * Classify one publication-phase error against the artifacts actually present.
+ * An output entry owned by another candidate is a preserved conflict whatever
+ * raised the error. Otherwise the caller receives the observed publication
+ * state, so a fault after the archive was linked can never report an unchanged
+ * repository.
+ */
+function publicationOutcomeFor(
+  roots: Roots,
+  names: ArtifactNames,
+  bytes: ArtifactBytes,
+  error: unknown,
+): PayloadRefusal | PayloadFailure {
+  const detail = error instanceof Error && error.message !== "" ? error.message : "publication failed"
+  const archive = observedArtifact(join(roots.distRoot, names.archive), bytes.archive)
+  const checksums = observedArtifact(join(roots.distRoot, names.checksums), bytes.checksums)
+  if (archive === "conflicting" || checksums === "conflicting") {
+    return error instanceof PayloadRefusal ? error : new PayloadRefusal("output-conflict", detail)
+  }
+  const observed = observePublication(archive, checksums)
+  if (error instanceof PayloadRefusal && observed.publication === "none") return error
+  return new PayloadFailure(
+    publicationFailureCodes[observed.publication],
+    observed.publication,
+    false,
+    observed.artifacts,
+    detail,
+  )
+}
 
 function publishStaged(
   roots: Roots,
@@ -663,7 +778,6 @@ function publishStaged(
   bytes: ArtifactBytes,
   state: "absent" | "archive-only",
   stagingRoot: string,
-  progress: PublicationProgress,
   interrupt: PluginPayloadProductionOptions["interrupt"],
 ): PublishedArtifacts {
   const archivePath = join(roots.distRoot, names.archive)
@@ -672,17 +786,12 @@ function publishStaged(
   if (state === "absent") {
     const stagedArchive = stageArtifact(stagingRoot, names.archive, bytes.archive)
     interrupt?.("staged")
-    progress.archivePublishedHere = publishNoReplace(stagedArchive, archivePath, bytes.archive, names.archive) === "published"
+    publishNoReplace(stagedArchive, archivePath, bytes.archive, names.archive)
     unlinkSync(stagedArchive)
   }
-  progress.archiveRecord = artifactRecordFor(archivePath, bytes.archive, names.archive)
+  artifactRecordFor(archivePath, bytes.archive, names.archive)
   interrupt?.("archive-published")
-  try {
-    publishNoReplace(stagedChecksums, checksumsPath, bytes.checksums, names.checksums)
-  } catch (error) {
-    if (error instanceof PayloadRefusal && progress.archivePublishedHere) throw archiveOnly(progress.archiveRecord, error.detail)
-    throw error
-  }
+  publishNoReplace(stagedChecksums, checksumsPath, bytes.checksums, names.checksums)
   unlinkSync(stagedChecksums)
   fsyncDirectory(roots.distRoot)
   interrupt?.("checksums-published")
@@ -698,15 +807,18 @@ function publishArtifacts(
 ): PublishedArtifacts {
   ensureOutputRoot(roots.distRoot)
   const state = existingArtifactsState(roots, names, bytes)
-  if (state === "complete") return rereadArtifacts(roots, names, bytes)
+  if (state === "complete") {
+    try {
+      return rereadArtifacts(roots, names, bytes)
+    } catch (error) {
+      throw publicationOutcomeFor(roots, names, bytes, error)
+    }
+  }
   const stagingRoot = stagingRootFor(roots, invocation)
-  const progress: PublicationProgress = { archiveRecord: undefined, archivePublishedHere: false }
   try {
-    return publishStaged(roots, names, bytes, state, stagingRoot, progress, interrupt)
+    return publishStaged(roots, names, bytes, state, stagingRoot, interrupt)
   } catch (error) {
-    if (error instanceof PayloadRefusal || error instanceof PayloadFailure) throw error
-    if (progress.archiveRecord === undefined || !progress.archivePublishedHere) throw noPublication("publication failed before the archive was published")
-    throw archiveOnly(progress.archiveRecord, "publication failed after the archive was published")
+    throw publicationOutcomeFor(roots, names, bytes, error)
   } finally {
     cleanupInvocation(invocation)
   }
@@ -719,7 +831,7 @@ async function packagePayload(
   validateStatics(request)
   const roots = resolveRoots(request)
   const snapshot = snapshotClosure(roots.pluginRoot, request)
-  const projectionHashes = checkProjections(roots, request, snapshot)
+  checkProjections(roots, request, snapshot)
   const packageName = `${request.release.name}-${request.release.version}`
   const entries = archiveEntriesFor(packageName, snapshot)
   for (const entry of entries) splitUstarPath(entry.path)
@@ -730,6 +842,7 @@ async function packagePayload(
       invocation.compressor = handle
     })
     const archiveSha256 = sha256Hex(archive)
+    const projectionHashes = recheckSourceInputs(roots, request, snapshot)
     const names = { archive: `${packageName}.tar.gz`, checksums: `${packageName}.checksums.json` }
     const checksums = Buffer.from(`${JSON.stringify({
       repository: request.sourceIdentity.repository.origin,
@@ -745,7 +858,6 @@ async function packagePayload(
       payloadInventorySha256: request.prepared.payloadSha256.slice("sha256:".length),
       evidence: checksumEvidence,
     }, null, 2)}\n`, "utf8")
-    recheckClosure(roots.pluginRoot, request, snapshot)
     const artifacts = publishArtifacts(roots, names, { archive, checksums }, invocation, options.interrupt)
     const packaged: Packaged = {
       kind: "packaged",

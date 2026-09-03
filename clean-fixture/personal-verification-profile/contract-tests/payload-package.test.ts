@@ -239,6 +239,14 @@ const childrenOf = (pid: number): number[] => {
   const result = Bun.spawnSync({ cmd: ["pgrep", "-P", String(pid)], stdout: "pipe", stderr: "pipe" })
   return result.stdout.toString().split("\n").map((line) => Number.parseInt(line, 10)).filter((value) => Number.isInteger(value))
 }
+const commandOf = (pid: number): string =>
+  Bun.spawnSync({ cmd: ["ps", "-o", "comm=", "-p", String(pid)], stdout: "pipe", stderr: "pipe" }).stdout.toString().trim()
+/**
+ * The admitted process spawns Git children before it ever compresses, so the
+ * compressor is identified by its command name rather than by child order.
+ */
+const compressorChildOf = (pid: number): number | undefined =>
+  childrenOf(pid).find((child) => commandOf(child).split("/").at(-1) === "gzip")
 const waitUntil = async (condition: () => boolean, budgetMs: number): Promise<boolean> => {
   const started = performance.now()
   while (performance.now() - started < budgetMs) {
@@ -261,11 +269,12 @@ test("C05 an interrupted process terminates its compressor and the repeat recove
   })
   let compressor: number | undefined
   const reached = await waitUntil(() => {
-    compressor = childrenOf(child.pid)[0]
+    compressor = compressorChildOf(child.pid)
     return compressor !== undefined
   }, 20_000)
-  expect(reached, "the real process must spawn its compressor before interruption").toBe(true)
+  expect(reached, "the real process must reach its named compressor before interruption").toBe(true)
   if (compressor === undefined) return
+  expect(commandOf(compressor).split("/").at(-1), "the interrupted child must be the compressor itself").toBe("gzip")
   expect(alive(compressor)).toBe(true)
   child.kill("SIGTERM")
   await child.exited

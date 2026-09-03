@@ -77,9 +77,13 @@ owner, dependency, public export, Result Code, Exit Family, or Failure Class.
 
 ### Publication and failure
 
-- Snapshot bytes once, recheck the declared files before publication, stage
-  privately under `dist/`, then publish archive first and checksums last with
-  atomic no-replace link operations. Reread both files before success.
+- Snapshot bytes once. Immediately before publication recheck every source
+  input against that snapshot: the exact regular-file closure and its safety,
+  each declared file's bytes and executable mode, and every projection. A
+  source changed while the archive was compressed is refused and nothing is
+  published. Stage privately under `dist/`, then publish archive first and
+  checksums last with atomic no-replace link operations. Reread both files
+  before success.
 - Identical complete output is reusable. An exact archive without checksums
   is completed. A different archive, a different checksum document, a
   checksum-only state, or an unsafe existing path is preserved and refused.
@@ -91,7 +95,13 @@ owner, dependency, public export, Result Code, Exit Family, or Failure Class.
 - A `refused` result names its reason and one repair action and has no
   published effect. A `failed` result reports `none`, `archive-only`, or
   `unknown` publication, whether the failure is transient, and any artifact
-  record it observed.
+  record it observed. The publication owner classifies every publication-phase
+  fault against the artifacts actually present, so a fault after the archive is
+  linked never reports an unchanged repository, and an output entry owned by
+  another candidate stays a preserved conflict.
+- Every projection path is resolved physically: each component from the
+  repository root is inspected, so a symlinked ancestor cannot carry a regular
+  leaf outside the named repository.
 - Maintenance maps `packaged` with complete evidence to `completed` and
   `effect:payload-packaged`; `refused` to `command-refused`; `failed`
   `archive-only` to `continuation-required` with the archive effect completed
@@ -127,7 +137,7 @@ owner, dependency, public export, Result Code, Exit Family, or Failure Class.
 | Owner | Cases |
 | --- | --- |
 | `src/modules/plugin-payload-production/contract-tests/deterministic-plugin-payload.test.ts` | D01 to D20: exact paths, bytes, and modes; repeat stability under changed mtimes; code-unit ordering; newline paths; framing ambiguity; directory-adjacent descendants; literal USTAR/gzip digest; representable long paths; checksum identity and projection hashes; D10 to D18 nine checksum-field mutations refused with bytes preserved; product-only skill change; executable-bit-only change. |
-| `src/modules/plugin-payload-production/contract-tests/unsafe-inventory-refusal.test.ts` | U01 to U18: internal, external, dangling, and nested-escape symlinks; Unix socket; empty directory; unrepresentable USTAR component; undeclared file; missing declared file; changed bytes; source mismatch; stale projection; compressor failure; deadline; descriptor-retaining descendant; archive-only interruption and completion; identical and conflicting concurrent publication. |
+| `src/modules/plugin-payload-production/contract-tests/unsafe-inventory-refusal.test.ts` | U01 to U18: internal, external, dangling, and nested-escape symlinks; Unix socket; empty directory; unrepresentable USTAR component; undeclared file; missing declared file; changed bytes, including a change during compression; source mismatch; stale projection, including a symlinked projection ancestor; compressor failure with descendant reaping; deadline; descriptor-retaining descendant; archive-only interruption, link fault after archive publication, unobservable artifact, and completion; identical and conflicting concurrent publication through two real processes released by one barrier. |
 | `src/modules/maintenance-command-contract/contract-tests/package-result-and-admission.test.ts` | M01 wrong owner kind; M02 missing artifact evidence; M03 refusal keeps repair meaning; M05 unobservable publication maps to recovery. M04 stays Admission-owned. |
 | `src/adapters/maintenance-command-facade/contract-tests/package-public-process.test.ts` | P02 real-binary malformed input; P03 source mismatch; P05 check, P06 materialize, and P07 package preview deferred; P08 checksum-only conflict; P09 unsafe output; P10 archive-only failure; P11 pre-publication failure. |
 | `clean-fixture/personal-verification-profile/contract-tests/payload-package.test.ts` | C01 independent extraction; C02 byte, C03 mode, and C04 projection-hash sensitivity; C05 interrupted process cleanup and recovery; C06 second product and Canary-style consumer; C07 admitted real-process success. |

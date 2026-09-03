@@ -349,6 +349,7 @@ export const expectedInstalledFiles = [
   "src/modules/maintenance-command-contract/package.json",
   "src/modules/maintenance-command-contract/result-vocabulary.ts",
   "src/modules/maintenance-command-contract/serialized-values.ts",
+  "src/modules/plugin-payload-production/contract-tests/adapters/concurrent-publication-child.ts",
   "src/modules/plugin-payload-production/contract-tests/deterministic-plugin-payload.test.ts",
   "src/modules/plugin-payload-production/contract-tests/fixtures/prepared-plugin-fixture.ts",
   "src/modules/plugin-payload-production/contract-tests/serialized-values.test.ts",
