@@ -201,6 +201,23 @@ function validateStatics(request: PayloadPackageRequest): void {
 
 type Roots = { root: string; pluginRoot: string; distRoot: string }
 
+/**
+ * Require `plugin/` itself to be a real directory. `readdirSync` follows a
+ * symlinked root, so this is reasserted before every closure walk: a root
+ * replaced while the archive was compressed would otherwise carry the walk
+ * outside the named repository with every byte and mode still agreeing.
+ */
+function assertPayloadRoot(pluginRoot: string): void {
+  let status: ReturnType<typeof lstatSync>
+  try {
+    status = lstatSync(pluginRoot)
+  } catch {
+    throw new PayloadRefusal("payload-root-invalid", "plugin/ is absent")
+  }
+  if (status.isSymbolicLink()) throw new PayloadRefusal("payload-root-invalid", "plugin/ is a symlink")
+  if (!status.isDirectory()) throw new PayloadRefusal("payload-root-invalid", "plugin/ is not a directory")
+}
+
 function resolveRoots(request: PayloadPackageRequest): Roots {
   const root = resolve(request.repositoryRoot)
   try {
@@ -209,14 +226,7 @@ function resolveRoots(request: PayloadPackageRequest): Roots {
     throw new PayloadRefusal("repository-root-invalid", "repositoryRoot is not an existing directory")
   }
   const pluginRoot = join(root, PLUGIN_DIRECTORY)
-  let pluginStatus: ReturnType<typeof lstatSync>
-  try {
-    pluginStatus = lstatSync(pluginRoot)
-  } catch {
-    throw new PayloadRefusal("payload-root-invalid", "plugin/ is absent")
-  }
-  if (pluginStatus.isSymbolicLink()) throw new PayloadRefusal("payload-root-invalid", "plugin/ is a symlink")
-  if (!pluginStatus.isDirectory()) throw new PayloadRefusal("payload-root-invalid", "plugin/ is not a directory")
+  assertPayloadRoot(pluginRoot)
   return { root, pluginRoot, distRoot: join(root, OUTPUT_DIRECTORY) }
 }
 
@@ -258,9 +268,11 @@ function readDeclaredFile(pluginRoot: string, file: PreparedFileDeclaration): { 
 /**
  * Walk the actual payload tree and require it to be exactly the declared
  * closure. Reused by the first snapshot and by the pre-publication recheck, so
- * an entry added, removed, or made unsafe after the snapshot is refused.
+ * the root, or an entry, added, removed, or made unsafe after the snapshot is
+ * refused.
  */
 function assertDeclaredClosure(pluginRoot: string, request: PayloadPackageRequest): void {
+  assertPayloadRoot(pluginRoot)
   const inventory = walkPayload(pluginRoot)
   const declared = new Set(request.prepared.files.map((file) => file.path))
   const undeclared = inventory.find((path) => !declared.has(path))

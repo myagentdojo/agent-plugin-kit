@@ -15,6 +15,7 @@ import {
 
 const fixtures: PluginFixture[] = []
 const barriers: string[] = []
+const outsideRoots: string[] = []
 const fixture = (input: Parameters<typeof createPluginFixture>[0] = { files: [{ path: "a-safe.txt", bytes: "safe\n" }] }): PluginFixture => {
   const created = createPluginFixture(input)
   fixtures.push(created)
@@ -23,6 +24,7 @@ const fixture = (input: Parameters<typeof createPluginFixture>[0] = { files: [{ 
 afterEach(() => {
   for (const created of fixtures.splice(0)) rmSync(created.root, { recursive: true, force: true })
   for (const barrier of barriers.splice(0)) rmSync(barrier, { recursive: true, force: true })
+  for (const outside of outsideRoots.splice(0)) rmSync(outside, { recursive: true, force: true })
 })
 
 const produce = (subject: PluginFixture, options: PluginPayloadProductionOptions = {}, request = subject.request) =>
@@ -183,6 +185,21 @@ test("U10 bytes or modes changed after preparation are refused, including during
     symlinkSync(swappedAway, join(swapped.pluginRoot, "nested"))
   })
   expectRefusal(swappedEntry, "unsafe-entry", /nested.*symlink/u, swapped)
+
+  // The payload root itself must still be a real directory at the pre-publication
+  // recheck, not only at request resolution. A root replaced by a symlink during
+  // compression otherwise carries the closure walk outside the named repository
+  // while every byte, mode, and projection check still agrees.
+  const rooted = fixture()
+  const outsideRoot = mkdtempSync(join(tmpdir(), "agent-plugin-kit-swapped-root-"))
+  outsideRoots.push(outsideRoot)
+  const swappedRoot = await produceWithMutation(rooted, () => {
+    renameSync(rooted.pluginRoot, join(outsideRoot, "plugin"))
+    symlinkSync(join(outsideRoot, "plugin"), rooted.pluginRoot)
+  })
+  expectRefusal(swappedRoot, "payload-root-invalid", /plugin\/ is a symlink/u, rooted)
+  expect(existsSync(rooted.archivePath)).toBe(false)
+  expect(existsSync(rooted.checksumsPath)).toBe(false)
 }, 60_000)
 
 test("U11 a source identity disagreeing with the preparation is refused", async () => {
