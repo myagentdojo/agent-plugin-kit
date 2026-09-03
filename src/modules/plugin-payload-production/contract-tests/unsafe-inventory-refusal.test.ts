@@ -288,6 +288,35 @@ test("U15 a descendant retaining the compressor descriptor is reaped with the gr
   expect(existsSync(subject.distRoot)).toBe(false)
 })
 
+test("U15b a compressor stream rejection is contained and its process group is reaped", async () => {
+  const subject = fixture()
+  const pidPath = join(subject.root, "stream-rejection.pid")
+  const original = Object.getOwnPropertyDescriptor(Response.prototype, "arrayBuffer")
+  if (original === undefined) throw new Error("Response.arrayBuffer descriptor is absent")
+  let rejectNextRead = true
+  Object.defineProperty(Response.prototype, "arrayBuffer", {
+    ...original,
+    value: async function arrayBuffer(this: Response): Promise<ArrayBuffer> {
+      if (!rejectNextRead) return await original.value.call(this)
+      rejectNextRead = false
+      expect(await waitUntil(() => existsSync(pidPath), 2_000), "the compressor must start before its stream rejects").toBe(true)
+      throw new Error("injected compressor stream rejection")
+    },
+  })
+  try {
+    const result = await produce(subject, {
+      compressor: { command: ["sh", "-c", `echo $$ > ${JSON.stringify(pidPath)}; exec /bin/sleep 30`], deadlineMs: 5_000 },
+    })
+    expect(result).toMatchObject({ kind: "failed", code: "compressor-failed", publication: "none" })
+    const compressor = Number(readFileSync(pidPath, "utf8"))
+    expect(Number.isInteger(compressor)).toBe(true)
+    expect(await waitUntil(() => !alive(compressor), 2_000)).toBe(true)
+    expect(existsSync(subject.distRoot)).toBe(false)
+  } finally {
+    Object.defineProperty(Response.prototype, "arrayBuffer", original)
+  }
+})
+
 test("U16 an archive-only interruption is reported and the repeat completes safely", async () => {
   const subject = fixture()
   const interrupted = await produce(subject, { interrupt: (point) => { if (point === "archive-published") throw new Error("injected interruption") } })
@@ -332,7 +361,9 @@ test("U16 an archive-only interruption is reported and the repeat completes safe
   expect(readdirSync(linkFault.distRoot)).toEqual(["plugin-0.1.0.tar.gz"])
   expect(await produce(linkFault)).toMatchObject({ kind: "packaged" })
 
-  // An artifact that cannot be reread is unknown publication, not unchanged.
+})
+
+test("U16b mode-based unreadability does not overstate root-capable proof", async () => {
   const unreadable = fixture()
   const unobservable = await produce(unreadable, {
     interrupt: (point) => {
@@ -340,6 +371,10 @@ test("U16 an archive-only interruption is reported and the repeat completes safe
     },
   })
   try {
+    if (process.getuid?.() === 0) {
+      expect(unobservable).toMatchObject({ kind: "packaged" })
+      return
+    }
     expect(unobservable).toMatchObject({ kind: "failed", code: "publication-unobservable", publication: "unknown" })
     if (unobservable.kind === "failed") {
       expect(unobservable.artifacts.archive).toBeNull()

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { createHash, randomBytes } from "node:crypto"
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -48,10 +48,6 @@ const refusalEnvelope = (result: ProcessResult, exitCode: number): Record<string
   return envelope
 }
 
-const shared = {
-  subject: undefined as PluginFixture | undefined,
-  observation: undefined as ProcessResult | undefined,
-}
 const sharedFiles = [
   { path: ".claude-plugin/plugin.json", bytes: '{"name":"clean-fixture-plugin","version":"1.2.3"}\n' },
   { path: "bin/launch", bytes: "#!/bin/sh\necho launch\n", executable: true },
@@ -61,23 +57,20 @@ const sharedFiles = [
 
 beforeAll(() => {
   consumer = createAdmittedPackageConsumer()
-  shared.subject = createPluginFixture({ name: "clean-fixture-plugin", version: "1.2.3", files: [...sharedFiles] })
-  fixtures.push(shared.subject)
 })
 afterAll(() => {
   for (const created of fixtures.splice(0)) rmSync(created.root, { recursive: true, force: true })
   consumer?.dispose()
 })
 
-const sharedObservation = async (): Promise<{ subject: PluginFixture; observation: ProcessResult }> => {
-  const subject = shared.subject
-  if (subject === undefined) throw new Error("shared fixture is absent")
-  shared.observation ??= await consumer.run(packageArguments("clean-fixture-package", requestFile(subject)))
-  return { subject, observation: shared.observation }
+const packagedFixture = async (): Promise<{ subject: PluginFixture; observation: ProcessResult }> => {
+  const subject = fixture({ name: "clean-fixture-plugin", version: "1.2.3", files: [...sharedFiles] })
+  const observation = await consumer.run(packageArguments("clean-fixture-package", requestFile(subject)))
+  return { subject, observation }
 }
 
 test("C07 the admitted real process packages a prepared payload with complete evidence", async () => {
-  const { subject, observation } = await sharedObservation()
+  const { subject, observation } = await packagedFixture()
   const envelope = successEnvelope(observation)
   const archive = readFileSync(subject.archivePath)
   const checksums = readFileSync(subject.checksumsPath)
@@ -121,7 +114,7 @@ test("C07 the admitted real process packages a prepared payload with complete ev
 }, processGuardMs)
 
 test("C01 independent extraction reproduces bytes, modes, and digests", async () => {
-  const { subject } = await sharedObservation()
+  const { subject } = await packagedFixture()
   const archive = readFileSync(subject.archivePath)
   const extracted = mkdtempSync(join(tmpdir(), "agent-plugin-kit-extract-"))
   try {
@@ -167,7 +160,7 @@ test("C01 independent extraction reproduces bytes, modes, and digests", async ()
 }, processGuardMs)
 
 test("C02 byte corruption of the published archive is detected and preserved", async () => {
-  const { subject } = await sharedObservation()
+  const { subject } = await packagedFixture()
   const original = readFileSync(subject.archivePath)
   const corrupted = Buffer.from(original)
   corrupted[corrupted.byteLength - 20] = (corrupted[corrupted.byteLength - 20] ?? 0) ^ 0xff
@@ -184,7 +177,7 @@ test("C02 byte corruption of the published archive is detected and preserved", a
 }, processGuardMs)
 
 test("C03 an executable-mode change is visible in the archive and refused against published output", async () => {
-  const { subject } = await sharedObservation()
+  const { subject } = await packagedFixture()
   chmodSync(join(subject.pluginRoot, "z-last.txt"), 0o755)
   try {
     const changed = redeclare(subject)
@@ -202,7 +195,7 @@ test("C03 an executable-mode change is visible in the archive and refused agains
 }, processGuardMs)
 
 test("C04 a projection hash change is refused before packaging and in a published document", async () => {
-  const { subject } = await sharedObservation()
+  const { subject } = await packagedFixture()
   const lock = join(subject.root, "runtime/runtime.lock.json")
   const originalLock = readFileSync(lock)
   writeFileSync(lock, '{"lock":"drifted"}\n')

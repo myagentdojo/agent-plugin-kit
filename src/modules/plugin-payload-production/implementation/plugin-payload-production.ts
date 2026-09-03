@@ -528,32 +528,49 @@ async function compress(
     try { child.kill("SIGKILL") } catch {}
   }
   register({ kill: terminate })
-  if (!(child.stdout instanceof ReadableStream) || !(child.stderr instanceof ReadableStream)) {
+  const stopAndReap = async (): Promise<void> => {
     terminate()
+    await reapProcessGroup(child.pid)
+    await Promise.race([child.exited, pause(1_000)])
+    register(undefined)
+  }
+  if (!(child.stdout instanceof ReadableStream) || !(child.stderr instanceof ReadableStream)) {
+    await stopAndReap()
     throw new PayloadFailure("compressor-failed", "none", false, { archive: null, checksums: null }, "compressor streams were not piped")
   }
-  const stdout = new Response(child.stdout).arrayBuffer()
-  const stderr = new Response(child.stderr).text()
+  let stdout: Promise<ArrayBuffer>
+  let stderr: Promise<string>
+  try {
+    stdout = new Response(child.stdout).arrayBuffer()
+    stderr = new Response(child.stderr).text()
+  } catch {
+    await stopAndReap()
+    throw new PayloadFailure("compressor-failed", "none", false, { archive: null, checksums: null }, "compressor streams could not be read")
+  }
   let timedOut = false
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined
   const deadline = new Promise<"deadline">((done) => {
     deadlineTimer = setTimeout(() => { timedOut = true; done("deadline") }, compressor.deadlineMs)
   })
   const settled = Promise.all([stdout, stderr, child.exited]).then(() => "settled" as const)
-  const outcome = await Promise.race([settled, deadline])
+  let outcome: "settled" | "deadline"
+  try {
+    outcome = await Promise.race([settled, deadline])
+  } catch {
+    clearTimeout(deadlineTimer)
+    await stopAndReap()
+    await Promise.race([settled.catch(() => undefined), pause(1_000)])
+    throw new PayloadFailure("compressor-failed", "none", false, { archive: null, checksums: null }, "compressor streams could not be read")
+  }
   clearTimeout(deadlineTimer)
   if (outcome === "deadline") {
-    terminate()
-    await reapProcessGroup(child.pid)
-    await Promise.race([settled, pause(1_000)])
-    register(undefined)
+    await stopAndReap()
+    await Promise.race([settled.catch(() => undefined), pause(1_000)])
     throw new PayloadFailure("compressor-deadline", "none", false, { archive: null, checksums: null }, "compressor exceeded its deadline")
   }
   const [bytes, , exitCode] = await Promise.all([stdout, stderr, child.exited])
   if (timedOut || exitCode !== 0) {
-    terminate()
-    await reapProcessGroup(child.pid)
-    register(undefined)
+    await stopAndReap()
     throw new PayloadFailure("compressor-failed", "none", false, { archive: null, checksums: null }, `compressor exited with ${exitCode}`)
   }
   register(undefined)
