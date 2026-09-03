@@ -139,11 +139,15 @@ test("F05 symlink entry and outside entry retain physical checkout boundaries", 
 })
 
 test("F06 bounded scrubbed Git and request-independent observation remain controlled", async () => {
+  const gitExecutable = Bun.which("git")
+  if (gitExecutable === null) throw new Error("F06 requires Git on PATH; install Git before running this Contract Test")
+  const quotedGitExecutable = `'${gitExecutable.replaceAll("'", "'\\''")}'`
   const value = await fixture()
   expect(observe(value.entry, value.consumer, "/missing-git")).toEqual({ kind: "refused", code: "git-unavailable" })
   const lateFailureShim = join(value.consumer, "late-failure-shim"), lateFailureCount = join(value.consumer, "late-failure-count")
-  await mkdir(lateFailureShim); await writeFile(join(lateFailureShim, "git"), `#!/bin/sh\ncount=0\nif test -f ${JSON.stringify(lateFailureCount)}; then read count < ${JSON.stringify(lateFailureCount)}; fi\ncount=$((count + 1))\necho "$count" > ${JSON.stringify(lateFailureCount)}\nif test "$count" -ge 3; then exit 7; fi\nexec /usr/bin/git "$@"\n`); await chmod(join(lateFailureShim, "git"), 0o755)
+  await mkdir(lateFailureShim); await writeFile(join(lateFailureShim, "git"), `#!/bin/sh\ncount=0\nif test -f ${JSON.stringify(lateFailureCount)}; then read count < ${JSON.stringify(lateFailureCount)}; fi\ncount=$((count + 1))\necho "$count" > ${JSON.stringify(lateFailureCount)}\nif test "$count" -ge 3; then exit 7; fi\nexec ${quotedGitExecutable} "$@"\n`); await chmod(join(lateFailureShim, "git"), 0o755)
   expect(observe(value.entry, value.consumer, lateFailureShim)).toEqual({ kind: "refused", code: "git-unavailable" })
+  expect(await readFile(lateFailureCount, "utf8")).toBe("3\n")
   const first = observe(value.entry, value.consumer)
   const requestOne = join(value.consumer, "request-one.json"), requestTwo = join(value.consumer, "request-two.json")
   await writeFile(requestOne, JSON.stringify({ sourceIdentity: "first" })); await writeFile(requestTwo, JSON.stringify({ sourceIdentity: "second" }))

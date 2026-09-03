@@ -20,8 +20,8 @@ function git(root: string, ...args: string[]): string {
   if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr))
   return new TextDecoder().decode(result.stdout).trim()
 }
-async function run(args: string[], entryPath = join(consumerRoot, "node_modules/.bin/agent-plugin-kit"), cwd = consumerRoot) {
-  const child = Bun.spawn({ cmd: [entryPath, ...args], cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
+async function run(args: string[], entryPath = join(consumerRoot, "node_modules/.bin/agent-plugin-kit"), cwd = consumerRoot, environment = process.env) {
+  const child = Bun.spawn({ cmd: [entryPath, ...args], cwd, env: environment, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
   const [exitCode, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
   return { exitCode, stdout, stderr }
 }
@@ -127,6 +127,10 @@ test(sourceCheckoutAdmissionCases.committedRestoration.title, async () => {
 })
 test(sourceCheckoutAdmissionCases.dirtyCheckout.title, async () => {
   const dirty = join(kitRoot, "README.md"), original = await readFile(dirty, "utf8"), request = packageRequest
+  expect((await stat(request)).isFile()).toBe(true)
+  const setupFailure = await run(sourceCheckoutPackageArguments(request), undefined, undefined, { ...process.env, TMPDIR: request })
+  expect(setupFailure.stderr).not.toContain(request)
+  expectPublicRefusal(setupFailure, sourceCheckoutNotAdmittedMessage)
   await writeFile(dirty, `${original}\n`)
   try { expectPublicRefusal(await run(sourceCheckoutPackageArguments(request)), sourceCheckoutNotAdmittedMessage) } finally { await writeFile(dirty, original) }
   await expectOwnerAbsent(request)
