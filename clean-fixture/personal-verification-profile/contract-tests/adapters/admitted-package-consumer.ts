@@ -15,7 +15,7 @@ export type AdmittedPackageConsumer = {
   kitCommit: string
   binary: string
   commitAuthority(commit: string): void
-  run(args: readonly string[], options?: { cwd?: string; environment?: Record<string, string | undefined>; entry?: string }): Promise<ProcessResult>
+  run(args: readonly string[], options?: { cwd?: string; environment?: Record<string, string | undefined>; entry?: string; timeoutMs?: number }): Promise<ProcessResult>
   runSync(args: readonly string[], options?: { cwd?: string; environment?: Record<string, string | undefined>; entry?: string; timeoutMs?: number }): ProcessResult & { signalCode: string | null }
   dispose(): void
 }
@@ -64,10 +64,39 @@ const cloneWorkingTree = (kitRoot: string, fixtureRoot: string): string => {
 const streamText = (stream: unknown): Promise<string> =>
   stream instanceof ReadableStream ? new Response(stream).text() : Promise.resolve("")
 
-const settleChild = async (child: ReturnType<typeof Bun.spawn>): Promise<ProcessResult> => {
+/** Accepted outer process guard for one real admitted process. */
+export const processGuardMs = 45_000
+/**
+ * Exit and stream settlement are separate claims: a killed child closes its own
+ * descriptors, but a surviving grandchild keeps the inherited pipe open, so an
+ * unbounded drain outlives the guard. This bounds only that drain.
+ */
+const streamSettlementMs = 2_000
+
+/**
+ * Await one already-spawned child within a bounded settlement window. Killing a
+ * child is harness hygiene, never evidence that the application released its own
+ * resources; a stuck stream is surfaced as a named failure rather than a hang.
+ */
+export const settleProcess = async (child: ReturnType<typeof Bun.spawn>): Promise<ProcessResult> => {
   const streams = { stdout: streamText(child.stdout), stderr: streamText(child.stderr) }
   const exitCode = await child.exited
-  return { exitCode, stdout: await streams.stdout, stderr: await streams.stderr }
+  let expiry: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<"expired">((settle) => {
+    expiry = setTimeout(() => settle("expired"), streamSettlementMs)
+  })
+  try {
+    const settled = await Promise.race([Promise.all([streams.stdout, streams.stderr]), expired])
+    if (settled === "expired") {
+      for (const stream of [child.stdout, child.stderr]) {
+        if (stream instanceof ReadableStream) void stream.cancel().catch(() => {})
+      }
+      throw new Error(`admitted process streams did not settle within ${streamSettlementMs}ms: a surviving descendant still holds stdout or stderr`)
+    }
+    return { exitCode, stdout: settled[0], stderr: settled[1] }
+  } finally {
+    clearTimeout(expiry)
+  }
 }
 
 export function createAdmittedPackageConsumer(): AdmittedPackageConsumer {
@@ -103,12 +132,12 @@ export function createAdmittedPackageConsumer(): AdmittedPackageConsumer {
     commitAuthority,
     async run(args, options = {}) {
       const spawn = spawnOptions(options)
-      const child = Bun.spawn({ cmd: [...spawn.cmd, ...args], cwd: spawn.cwd, env: spawn.env, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
-      return settleChild(child)
+      const child = Bun.spawn({ cmd: [...spawn.cmd, ...args], cwd: spawn.cwd, env: spawn.env, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: options.timeoutMs ?? processGuardMs, killSignal: "SIGKILL" })
+      return settleProcess(child)
     },
     runSync(args, options = {}) {
       const spawn = spawnOptions(options)
-      const result = Bun.spawnSync({ cmd: [...spawn.cmd, ...args], cwd: spawn.cwd, env: spawn.env, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: options.timeoutMs ?? 45_000, killSignal: "SIGKILL" })
+      const result = Bun.spawnSync({ cmd: [...spawn.cmd, ...args], cwd: spawn.cwd, env: spawn.env, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: options.timeoutMs ?? processGuardMs, killSignal: "SIGKILL" })
       return { exitCode: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString(), signalCode: result.signalCode ?? null }
     },
     dispose() {

@@ -11,7 +11,7 @@ import {
   redeclare,
   type PluginFixture,
 } from "../../../src/modules/plugin-payload-production/contract-tests/fixtures/prepared-plugin-fixture"
-import { createAdmittedPackageConsumer, packageArguments, type AdmittedPackageConsumer, type ProcessResult } from "./adapters/admitted-package-consumer"
+import { createAdmittedPackageConsumer, packageArguments, processGuardMs, settleProcess, type AdmittedPackageConsumer, type ProcessResult } from "./adapters/admitted-package-consumer"
 
 let consumer: AdmittedPackageConsumer
 const fixtures: PluginFixture[] = []
@@ -26,8 +26,6 @@ const requestFile = (subject: PluginFixture, request = subject.request, name = "
   return path
 }
 const sha256 = (bytes: Uint8Array | string): string => createHash("sha256").update(bytes).digest("hex")
-/** Accepted outer guard for cases that run several real admitted processes. */
-const processGuardMs = 45_000
 
 type Envelope = {
   schema_version: number
@@ -266,6 +264,8 @@ test("C05 an interrupted process terminates its compressor and the repeat recove
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
+    timeout: processGuardMs,
+    killSignal: "SIGKILL",
   })
   let compressor: number | undefined
   const reached = await waitUntil(() => {
@@ -277,8 +277,7 @@ test("C05 an interrupted process terminates its compressor and the repeat recove
   expect(commandOf(compressor).split("/").at(-1), "the interrupted child must be the compressor itself").toBe("gzip")
   expect(alive(compressor)).toBe(true)
   child.kill("SIGTERM")
-  await child.exited
-  await new Response(child.stdout).text()
+  await settleProcess(child)
   expect(child.signalCode).toBe("SIGTERM")
   expect(await waitUntil(() => !alive(compressor as number), 2_000)).toBe(true)
   expect(existsSync(large.distRoot) ? readdirSync(large.distRoot) : []).toEqual([])
@@ -288,6 +287,29 @@ test("C05 an interrupted process terminates its compressor and the repeat recove
   expect(readdirSync(large.distRoot).sort()).toEqual(["large-plugin-0.0.1.checksums.json", "large-plugin-0.0.1.tar.gz"])
   const blob = readArchiveEntries(archive).find(({ path }) => path === "large-plugin-0.0.1/blob.bin")
   expect(blob !== undefined && Buffer.compare(blob.bytes, large.fileBytes.get("blob.bin") ?? new Uint8Array()) === 0).toBe(true)
+
+  // Harness hygiene only. The named-gzip observation above is the sole evidence that
+  // the application cleaned up; terminating a child from the harness proves nothing
+  // about the application. Both checks use a short controlled deadline so the
+  // accepted 45s default never has to elapse.
+  const guardPidPath = join(large.root, "guard.pid")
+  const guardStarted = performance.now()
+  const guarded = await consumer.run(["-c", `echo $$ > "${guardPidPath}"; exec sleep 8`], { entry: "/bin/sh", timeoutMs: 750 })
+  expect(performance.now() - guardStarted, "the outer guard must fire well before the child would finish").toBeLessThan(4_000)
+  expect(guarded.exitCode).not.toBe(0)
+  const guardedPid = Number.parseInt(readFileSync(guardPidPath, "utf8").trim(), 10)
+  expect(await waitUntil(() => !alive(guardedPid), 2_000), "the guard must terminate the real subprocess, not merely stop awaiting it").toBe(true)
+
+  // A surviving grandchild retains the inherited stdout pipe after its parent exits,
+  // so settlement is bounded independently of the exit guard.
+  const strayPidPath = join(large.root, "stray.pid")
+  const settlementStarted = performance.now()
+  await expect(consumer.run(["-c", `sleep 8 & echo $! > "${strayPidPath}"; exit 0`], { entry: "/bin/sh" })).rejects.toThrow(/did not settle/u)
+  expect(performance.now() - settlementStarted, "a retained pipe must not outlive the settlement bound").toBeLessThan(6_000)
+  const strayPid = Number.parseInt(readFileSync(strayPidPath, "utf8").trim(), 10)
+  try {
+    process.kill(strayPid, "SIGKILL")
+  } catch {}
 }, processGuardMs)
 
 test("C06 a second product packages through the same process and a Canary-style consumer verifies lineage", async () => {
