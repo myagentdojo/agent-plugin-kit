@@ -4,6 +4,7 @@ import {
   bindSourceCheckoutCommand,
 } from "../../modules/maintenance-command-contract/implementation/trusted-command-binding"
 import { createMaintenanceCommandFacade } from "./implementation/maintenance-command-facade"
+import type { PluginPayloadProduction } from "../../modules/plugin-payload-production/interface"
 import type { ProcessObservation } from "./interface"
 
 const writerContainmentFailure = "Maintenance command facade containment failure.\n"
@@ -63,8 +64,14 @@ const unavailable = async (..._arguments: unknown[]): Promise<never> => {
   throw new Error("later Maintenance owner is not admitted in this process")
 }
 
+/** Plugin Payload Production is loaded only when an admitted command dispatches to it. */
+const payloadProduction = async (): Promise<PluginPayloadProduction> => {
+  const { createPluginPayloadProduction } = await import("../../modules/plugin-payload-production/implementation/plugin-payload-production")
+  return createPluginPayloadProduction()
+}
+
 const commands = createMaintenanceCommands({
-  payload: { produce: unavailable },
+  payload: { produce: async (request) => (await payloadProduction()).produce(request) },
   runtime: unavailable,
   release: { inspect: unavailable, apply: unavailable },
   harness: { inspect: unavailable, apply: unavailable },
@@ -89,12 +96,7 @@ const sourceCheckoutAdmission = async () => {
 const eventEndpoint = process.env.AGENT_PLUGIN_KIT_EVENT_ENDPOINT
 const facade = createMaintenanceCommandFacade({
   commands,
-  wireBinding: async (value) => {
-    const bound = await bindSourceCheckoutCommand(value, { admission: sourceCheckoutAdmission })
-    return bound.status === "bound"
-      ? { status: "refused", code: "payload-owner-absent" }
-      : bound
-  },
+  wireBinding: async (value) => bindSourceCheckoutCommand(value, { admission: sourceCheckoutAdmission }),
   diagnosticFactory: async () => {
     const { createLogTapeDiagnosticAdapter } = await import("./implementation/logtape-diagnostic-adapter")
     return createLogTapeDiagnosticAdapter()

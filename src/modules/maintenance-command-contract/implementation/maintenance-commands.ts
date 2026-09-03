@@ -139,7 +139,14 @@ const inspectionInputFor = (command: MaintenanceCommand): MaintenanceInspectionI
   switch (command.command) {
     case "payload:materialize":
     case "payload:package":
-      return { command: "payload:check", request: { ...command.request, mode: "check" } }
+      return {
+        command: "payload:check",
+        request: {
+          repositoryRoot: command.request.repositoryRoot,
+          mode: "check",
+          ...(command.request.sourceIdentity === undefined ? {} : { sourceIdentity: command.request.sourceIdentity }),
+        },
+      }
     case "runtime:repair-apply":
       return { command: "runtime:repair", argv: ["repair"] }
     case "release:apply":
@@ -240,16 +247,49 @@ const projectCandidateIdentity = (candidate: CandidateIdentity): JsonValue => ({
   },
 })
 
-const projectPayloadResult = (result: PayloadResult): JsonValue => ({
+type PackagedPayloadResult = Extract<PayloadResult, { kind: "packaged" }>
+
+const projectPreparedPayload = (payload: NonNullable<Extract<PayloadResult, { kind: "checked" }>["payload"]>): JsonValue => ({
+  regularFiles: [...payload.regularFiles],
+  payloadSha256: payload.payloadSha256,
+})
+
+const projectArtifactRecord = (record: PackagedPayloadResult["artifacts"]["archive"]): JsonValue => ({
+  path: record.path,
+  bytes: record.bytes,
+  sha256: record.sha256,
+})
+
+/** Only a packaged result with both artifact records can complete a package apply. */
+const isCompletePackagedResult = (result: PayloadResult): result is PackagedPayloadResult => {
+  if (result.kind !== "packaged") return false
+  const records = [result.artifacts?.archive, result.artifacts?.checksums]
+  return records.every((record) =>
+    typeof record?.path === "string" && record.path.length > 0 &&
+    Number.isSafeInteger(record.bytes) && record.bytes >= 0 &&
+    typeof record.sha256 === "string" && /^sha256:[0-9a-f]{64}$/u.test(record.sha256)
+  ) && Array.isArray(result.payload?.regularFiles) && typeof result.payload.payloadSha256 === "string"
+}
+
+const projectPackagedResult = (result: PackagedPayloadResult): JsonValue => ({
   kind: result.kind,
-  ...(result.payload === undefined
-    ? {}
-    : {
-        payload: {
-          regularFiles: [...result.payload.regularFiles],
-          payloadSha256: result.payload.payloadSha256,
-        },
-      }),
+  sourceIdentity: {
+    repository: { origin: result.sourceIdentity.repository.origin },
+    commit: result.sourceIdentity.commit,
+  },
+  release: { name: result.release.name, version: result.release.version, tag: result.release.tag },
+  bindingSha256: result.bindingSha256,
+  payload: projectPreparedPayload(result.payload),
+  artifacts: {
+    archive: projectArtifactRecord(result.artifacts.archive),
+    checksums: projectArtifactRecord(result.artifacts.checksums),
+  },
+  nextAction: result.nextAction,
+})
+
+const projectPayloadResult = (result: Extract<PayloadResult, { kind: "checked" | "materialized" }>): JsonValue => ({
+  kind: result.kind,
+  ...(result.payload === undefined ? {} : { payload: projectPreparedPayload(result.payload) }),
   nextAction: result.nextAction,
 })
 
@@ -754,26 +794,54 @@ const expectedEffectIdsFor = (request: MaintenanceApplyRequest): readonly string
 const effectIdsMatch = (left: readonly string[], right: readonly string[]): boolean =>
   left.length === right.length && left.every((effectId, index) => effectId === right[index])
 
-const payloadKind = (
-  request: PayloadRequest,
-  result: Exclude<PayloadResult, { kind: "refused" }>,
-): Extract<AgentKind, "checked" | "materialized" | "packaged"> => {
-  if (request.mode === "materialize") return "materialized"
-  if (request.mode === "package") return "packaged"
-  return "checked"
+const packageArchiveEffectId = "effect:payload-archive-published"
+const packageChecksumsEffectId = "effect:payload-checksums-published"
+
+/**
+ * Payload owns the observed publication state; Maintenance owns only its
+ * mapping onto the sealed Result Vocabulary. A pre-publication failure maps
+ * to a retry only when the owner reports it transient.
+ */
+const failedPayloadOutcome = (
+  request: Extract<MaintenanceApplyRequest, { command: "payload:materialize" | "payload:package" }>,
+  result: Extract<PayloadResult, { kind: "failed" }>,
+): MaintenanceOutcome<never> => {
+  switch (result.publication) {
+    case "archive-only":
+      return continuationRequired(request, [packageArchiveEffectId], [packageChecksumsEffectId])
+    case "unknown":
+      return errorFor(request.command, "recovery-required")
+    case "none":
+      return errorFor(request.command, result.transient ? "retry-deferred" : "command-refused")
+  }
 }
 
-const payloadEffect = (request: PayloadRequest): string | null => {
-  switch (request.mode) {
-    case "materialize":
-      return "effect:payload-materialized"
-    case "package":
-      return "effect:payload-packaged"
-    case "check":
-      return null
-    default:
-      return null
-  }
+const applyMaterialize = (
+  request: Extract<MaintenanceApplyRequest, { command: "payload:materialize" }>,
+  ownerResult: PayloadResult,
+): MaintenanceOutcome<CommandResult> => {
+  if (ownerResult.kind !== "materialized") return errorFor(request.command, "runtime-failed")
+  return completedResult(
+    request,
+    ["effect:payload-materialized"],
+    [],
+    "materialized",
+    agentPayload("materialized", projectPayloadResult(ownerResult)),
+  )
+}
+
+const applyPackage = (
+  request: Extract<MaintenanceApplyRequest, { command: "payload:package" }>,
+  ownerResult: PayloadResult,
+): MaintenanceOutcome<CommandResult> => {
+  if (!isCompletePackagedResult(ownerResult)) return errorFor(request.command, "runtime-failed")
+  return completedResult(
+    request,
+    ["effect:payload-packaged"],
+    [],
+    "packaged",
+    agentPayload("packaged", projectPackagedResult(ownerResult)),
+  )
 }
 
 const applyPayload = async (
@@ -782,15 +850,10 @@ const applyPayload = async (
 ): Promise<MaintenanceOutcome<CommandResult>> => {
   const ownerResult = await collaborators.payload.produce(request.request)
   if (ownerResult.kind === "refused") return errorFor(request.command, "command-refused")
-  const kind = payloadKind(request.request, ownerResult)
-  const effectId = payloadEffect(request.request)
-  return completedResult(
-    request,
-    effectId === null ? [] : [effectId],
-    [],
-    kind,
-    agentPayload(kind, projectPayloadResult(ownerResult)),
-  )
+  if (ownerResult.kind === "failed") return failedPayloadOutcome(request, ownerResult)
+  return request.command === "payload:package"
+    ? applyPackage(request, ownerResult)
+    : applyMaterialize(request, ownerResult)
 }
 
 const inspectPayload = async (
@@ -799,7 +862,8 @@ const inspectPayload = async (
 ): Promise<MaintenanceOutcome<CommandPreview>> => {
   const ownerResult = await collaborators.payload.produce(command.request)
   if (ownerResult.kind === "refused") return errorFor(command.command, "command-refused")
-  return preview(command.command, [], agentPayload(ownerResult.kind, projectPayloadResult(ownerResult)))
+  if (ownerResult.kind !== "checked") return errorFor(command.command, "runtime-failed")
+  return preview(command.command, [], agentPayload("checked", projectPayloadResult(ownerResult)))
 }
 
 const inspectRelease = async (

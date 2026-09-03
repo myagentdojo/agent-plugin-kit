@@ -1,5 +1,5 @@
 import type { WireCommand } from "../../interface"
-import { mutatingRequests } from "./literal-command-results"
+import { literalPackageRequest, mutatingRequests } from "./literal-command-results"
 
 const candidate = mutatingRequests.release.request.candidate
 const payload = mutatingRequests.claude.request.payload
@@ -8,7 +8,7 @@ export const literalWireCommands: readonly WireCommand[] = [
   { schemaVersion: 1, command: "help" },
   { schemaVersion: 1, command: "payload:check", request: { repositoryRoot: "/fixture/plugin", mode: "check" } },
   { schemaVersion: 1, command: "payload:materialize", request: { repositoryRoot: "/fixture/plugin", mode: "materialize" } },
-  { schemaVersion: 1, command: "payload:package", request: { repositoryRoot: "/fixture/plugin", mode: "package" } },
+  { schemaVersion: 1, command: "payload:package", request: literalPackageRequest },
   { schemaVersion: 1, command: "runtime:repair", argv: ["repair"] },
   { schemaVersion: 1, command: "runtime:repair-apply", argv: ["repair", "--apply"] },
   { schemaVersion: 1, command: "release:inspect", request: { candidate, intent: "maintenance" } },

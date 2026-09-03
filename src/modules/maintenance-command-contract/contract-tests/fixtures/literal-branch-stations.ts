@@ -1,6 +1,8 @@
 export const literalRequiredStationIds = [
   "help.previewed",
   "maintenance.usage-refused",
+  "payload-package.completed",
+  "payload-package.command-refused",
 ] as const
 
 const literalDeclaredUnreachableStationIds = [
@@ -70,7 +72,7 @@ export const literalBranchKinds = [
 ] as const
 
 export const literalImplementationDeferredCounts = {
-  "plugin-payload-production": 17,
+  "plugin-payload-production": 15,
   "runtime-custody": 48,
   "release-and-git-engine": 11,
   "harness-journeys": 22,
@@ -82,11 +84,11 @@ export const literalDeferredOwnerProofs = {
     controllingOwnerId: "plugin-payload-production",
     futureSelector:
       "bun test src/modules/plugin-payload-production/contract-tests/deterministic-plugin-payload.test.ts src/modules/plugin-payload-production/contract-tests/unsafe-inventory-refusal.test.ts",
-    expectedTestCount: 8,
+    expectedTestCount: 38,
     skipRationale:
-      "Plugin Payload Production Implementation remains absent in the current stage; supplying a request file proves facade loading only, not an owner outcome. Future selector: bun test src/modules/plugin-payload-production/contract-tests/deterministic-plugin-payload.test.ts src/modules/plugin-payload-production/contract-tests/unsafe-inventory-refusal.test.ts. Non-Claim: The current-stage proof does not prove Plugin Payload Production result or effect through a real process.",
+      "Plugin Payload Production check and materialize modes remain deferred in the current stage; supplying a request file proves facade loading only, not an owner outcome. Future selector: bun test src/modules/plugin-payload-production/contract-tests/deterministic-plugin-payload.test.ts src/modules/plugin-payload-production/contract-tests/unsafe-inventory-refusal.test.ts. Non-Claim: The current-stage proof does not prove Plugin Payload Production check, materialize, or fault-only package failure outcomes through a real process.",
     nonClaim:
-      "The current-stage proof does not prove Plugin Payload Production result or effect through a real process.",
+      "The current-stage proof does not prove Plugin Payload Production check, materialize, or fault-only package failure outcomes through a real process.",
   },
   "runtime-custody": {
     controllingOwnerId: "runtime-custody",
@@ -151,7 +153,8 @@ const ownerPair = (inspectSlug: string, applySlug: string) => [
 ]
 
 export const literalBranchStationIds = [
-  ...literalRequiredStationIds,
+  "help.previewed",
+  "maintenance.usage-refused",
   ...literalDeclaredUnreachableStationIds,
   "payload-check.previewed", ...ids("payload-check", inspectFamily),
   "payload-materialize.completed", ...ids("payload-materialize", applyFamily),

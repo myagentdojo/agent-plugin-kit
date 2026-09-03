@@ -5,10 +5,12 @@ dependency-free Admission Bootstrap.
 
 The repository currently contains its accepted domain and Repository Topology,
 the Source Tree Interface skeleton, and the complete current-stage Contract
-Test scaffold. Admission Bootstrap, Qualification Evidence, and the Maintenance
-Command Contract are the current Deep Module Implementations. The Maintenance
-Command Facade also implements deterministic parsing, validation, help, and
-usage-refusal behaviour. Other apply and inspect execution remains absent.
+Test scaffold. Admission Bootstrap, Qualification Evidence, the Maintenance
+Command Contract, and Plugin Payload Production package mode are the current
+Deep Module Implementations. The Maintenance Command Facade also implements
+deterministic parsing, validation, help, usage-refusal, Source Checkout
+Admission, and admitted `payload:package` dispatch. Payload check and
+materialize and every other apply and inspect execution remain absent.
 
 ## Start here
 
@@ -33,6 +35,8 @@ The Owner Manifest and dependency Locality decision lives in
 [`docs/adr/0002-owner-manifests-and-dependency-locality.md`](docs/adr/0002-owner-manifests-and-dependency-locality.md).
 Simple Repository Quality Tooling and Repository Verification ownership live in
 [`docs/adr/0005-simple-repository-quality-ownership.md`](docs/adr/0005-simple-repository-quality-ownership.md).
+The accepted package contract, publication policy, and Test Design live in
+[`docs/adr/0008-package-prepared-plugin-payload.md`](docs/adr/0008-package-prepared-plugin-payload.md).
 
 ## Verify the current repository
 
@@ -71,8 +75,9 @@ Run only one owner's accepted Contract Tests from the repository root:
 bun run --filter @agent-plugin-kit/admission-bootstrap test
 ```
 
-The same selector shape accepts `@agent-plugin-kit/maintenance-command-contract`
-or `@agent-plugin-kit/qualification-evidence`. The private facade owner uses
+The same selector shape accepts `@agent-plugin-kit/maintenance-command-contract`,
+`@agent-plugin-kit/qualification-evidence`, or
+`@agent-plugin-kit/plugin-payload-production`. The private facade owner uses
 `@agent-plugin-kit/maintenance-command-facade`. Owners whose Contract Tests
 belong to later gates intentionally have no `test` script yet.
 

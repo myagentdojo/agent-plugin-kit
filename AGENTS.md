@@ -56,6 +56,10 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   Kit Repository Implementation dispatch.
 - Evidence: preserve `proved`, `not-proved`, and `unknown`; attach a Skip
   Rationale and Non-Claims where evidence does not reach the requested layer.
+- Packaging: `payload:package` follows
+  `docs/adr/0008-package-prepared-plugin-payload.md`. Payload validates a
+  sealed preparation declaration, publishes no-replace artifacts under the
+  Plugin Repository `dist/`, and never overwrites a conflicting artifact.
 - Repository Verification owns only cross-owner manifest agreement, export and
   source containment, and Admission dependency freedom. Read
   `docs/adr/0005-simple-repository-quality-ownership.md` before changing its
@@ -87,6 +91,9 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   `bun run test:current-stage:kit-interface`,
   `bun run test:current-stage:admission-bootstrap`,
   `bun run test:current-stage:maintenance-command-contract`,
+  `bun run test:current-stage:plugin-payload-production`,
+  `bun run test:current-stage:package-dispatch`,
+  `bun run test:current-stage:payload-package`,
   `bun run test:current-stage:qualification-evidence`, or
   `bun run test:current-stage:clean-fixture`.
 - CLI current-stage selectors: run
@@ -102,7 +109,8 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   proofs and must exit zero when their accepted behaviour aligns.
 - Workspace current-stage selectors: run
   `bun run --filter @agent-plugin-kit/admission-bootstrap test`,
-  `bun run --filter @agent-plugin-kit/maintenance-command-contract test`, or
+  `bun run --filter @agent-plugin-kit/maintenance-command-contract test`,
+  `bun run --filter @agent-plugin-kit/plugin-payload-production test`,
   `bun run --filter @agent-plugin-kit/qualification-evidence test`, or
   `bun run --filter @agent-plugin-kit/maintenance-command-facade test`.
 - Review: inspect `git status --short` and the exact intended diff.

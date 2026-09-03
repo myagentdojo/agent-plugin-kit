@@ -53,6 +53,29 @@ const releaseApproval = {
   digest: "sha256:91fa24c36a2b1c705fa539bdafc160e303a539a8973ec5b48b28453fc5fd9f45",
 } as const
 
+const pluginSourceIdentity = {
+  repository: { origin: "https://github.com/myagentdojo/example-plugin.git" },
+  commit: "1111111111111111111111111111111111111111",
+} as const
+
+/** Literal well-formed package request; its digests are structural fixtures, not proof. */
+export const literalPackageRequest = {
+  repositoryRoot: "/fixture/plugin",
+  mode: "package",
+  sourceIdentity: pluginSourceIdentity,
+  release: { name: "example-plugin", version: "1.0.0", tag: "v1.0.0" },
+  prepared: {
+    sourceIdentity: pluginSourceIdentity,
+    files: [{ path: ".claude-plugin/plugin.json", bytes: 2, sha256: `sha256:${"a".repeat(64)}`, executable: false }],
+    projections: [
+      { role: "bundle-inventory", path: "runtime/bundle-inventory.json", bytes: 2, sha256: `sha256:${"b".repeat(64)}` },
+      { role: "runtime-lock", path: "runtime/runtime.lock.json", bytes: 2, sha256: `sha256:${"c".repeat(64)}` },
+    ],
+    payloadSha256: `sha256:${"d".repeat(64)}`,
+    bindingSha256: `sha256:${"e".repeat(64)}`,
+  },
+} as const satisfies Extract<MaintenanceApplyRequest, { command: "payload:package" }>["request"]
+
 export const mutatingRequests = {
   materialize: {
     command: "payload:materialize",
@@ -60,7 +83,7 @@ export const mutatingRequests = {
   },
   package: {
     command: "payload:package",
-    request: { repositoryRoot: "/fixture/plugin", mode: "package" },
+    request: literalPackageRequest,
   },
   runtime: {
     command: "runtime:repair-apply",

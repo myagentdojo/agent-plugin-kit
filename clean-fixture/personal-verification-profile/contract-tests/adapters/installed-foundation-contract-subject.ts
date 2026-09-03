@@ -1109,13 +1109,8 @@ function writeRuntimeTracePreload(
   return preload
 }
 
-function observeStationMap(packageRoot: string): InstalledMaintenanceCliObservation["stationMap"] {
-  const target = join(packageRoot, "src/modules/maintenance-command-contract/branch-stations.ts")
-  const source = readFileSync(target, "utf8")
-  const sourceSha256 = sha256(source)
-  const catalogSource = source.split("export const branchStationCatalog = [")[1]?.split("] as const satisfies readonly BranchStation[]")[0]
-  if (catalogSource === undefined) throw new Error("installed Branch Station catalog declaration is absent")
-  const requiredStationIds = [...catalogSource.matchAll(/station\(\{([\s\S]*?)\}\)/gu)]
+const requiredStationIdsIn = (literal: string): string[] =>
+  [...literal.matchAll(/station\(\{([\s\S]*?)\}\)/gu)]
     .map((match) => match[1] ?? "")
     .filter((body) => /reachability:\s*"required"/u.test(body))
     .map((body) => {
@@ -1124,6 +1119,33 @@ function observeStationMap(packageRoot: string): InstalledMaintenanceCliObservat
       if (command === undefined || result === undefined) throw new Error("required Branch Station literal is incomplete")
       return `${command.replaceAll(":", "-")}.${result}`
     })
+
+/**
+ * Required Station IDs in catalog order: direct `station({...})` rows and each
+ * spread `...<name>` array literal in the order the catalog lists them.
+ */
+function requiredStationIdsInCatalogOrder(source: string): string[] {
+  const catalogSource = source.split("export const branchStationCatalog = [")[1]?.split("] as const satisfies readonly BranchStation[]")[0]
+  if (catalogSource === undefined) throw new Error("installed Branch Station catalog declaration is absent")
+  const ids: string[] = []
+  for (const member of catalogSource.matchAll(/station\(\{[\s\S]*?\}\)|\.\.\.([A-Za-z_$][\w$]*)/gu)) {
+    const spreadName = member[1]
+    if (spreadName === undefined) {
+      ids.push(...requiredStationIdsIn(member[0]))
+      continue
+    }
+    const declaration = new RegExp(`const ${spreadName} = (?:ownerPairStations\\(|\\[)([\\s\\S]*?)\\n(?:\\]|\\))\\n`, "u").exec(source)
+    if (declaration === null) throw new Error(`installed Branch Station spread ${spreadName} is absent`)
+    ids.push(...requiredStationIdsIn(declaration[1] ?? ""))
+  }
+  return ids
+}
+
+function observeStationMap(packageRoot: string): InstalledMaintenanceCliObservation["stationMap"] {
+  const target = join(packageRoot, "src/modules/maintenance-command-contract/branch-stations.ts")
+  const source = readFileSync(target, "utf8")
+  const sourceSha256 = sha256(source)
+  const requiredStationIds = requiredStationIdsInCatalogOrder(source)
   return {
     declared_branch_coverage: sourceSha256 === expectedBranchStationSourceSha256 ? 118 : 0,
     required_station_ids: requiredStationIds,
