@@ -47,8 +47,11 @@ test("catalog declares exactly 118 deterministic station rows", () => {
   expect(canonicalNextActionFor("help", "runtime-repair-unneeded")).toBeUndefined()
   implemented("Station Map projection consumes the closed catalog")
 })
-test("required current-stage scenarios are exactly help and usage", () => {
+test("required current-stage scenarios are help, usage, and the two real-process package stations", () => {
   expect(branchStationCatalog.filter(({ reachability }) => reachability === "required").map(({ stationId }) => stationId)).toEqual([...literalRequiredStationIds])
+  const packageFaultStations = branchStationCatalog.filter(({ commandId, reachability }) => commandId === "payload:package" && reachability === "implementation-deferred")
+  expect(packageFaultStations.map(({ expectedResultCode }) => expectedResultCode)).toEqual(["retry-deferred", "continuation-required", "recovery-required", "runtime-failed"])
+  expect(packageFaultStations.every(({ skipRationale }) => skipRationale?.includes("fault Adapters"))).toBe(true)
   const deferred = branchStationCatalog.find(({ reachability }) => reachability === "implementation-deferred")
   if (deferred === undefined) throw new Error("missing deferred Branch Station fixture")
   const projected = projectStationMap(branchStationCatalog, [

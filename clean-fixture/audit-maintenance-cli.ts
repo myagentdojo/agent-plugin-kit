@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, relative, resolve } from "node:path"
 import { z } from "zod"
 import packageMetadata from "../package.json"
@@ -14,6 +14,8 @@ import type { ResultCode } from "../src/modules/maintenance-command-contract/int
 import { literalHelpProcess, literalUsageProcess } from "../src/modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results"
 import { literalDeclaredUnreachableRationales, literalRequiredStationIds } from "../src/modules/maintenance-command-contract/contract-tests/fixtures/literal-branch-stations"
 import { literalProcessResult } from "./personal-verification-profile/contract-tests/fixtures/plugin-consumer"
+import { createAdmittedPackageConsumer, packageArguments } from "./personal-verification-profile/contract-tests/adapters/admitted-package-consumer"
+import { createPluginFixture } from "../src/modules/plugin-payload-production/contract-tests/fixtures/prepared-plugin-fixture"
 
 const repositoryRoot = resolve(import.meta.dir, "..")
 const facadeImplementation = resolve(repositoryRoot, "src/adapters/maintenance-command-facade/implementation/maintenance-command-facade.ts")
@@ -257,11 +259,12 @@ findings.push({
     "Non-Claim: the current-stage proof does not prove runtime-failed residual mapping through a real process.",
 })
 
-const requiredScenarios = [
+const fixedScenarios = [
   { stationId: "help.previewed", argv: ["--run-id", "contract-help-literal", "--help"], expected: literalHelpProcess },
   { stationId: "maintenance.usage-refused", argv: ["--run-id", "contract-help-literal", "unknown"], expected: literalUsageProcess },
 ] as const
 const publicProcessDeadlineMs = 2_000
+const packageProcessDeadlineMs = 45_000
 const usageDiagnosticExpectations = [
   {
     timestamp: true,
@@ -331,7 +334,9 @@ const usageDiagnosticsMatch = (stderr: string, expectedPrimary: string): boolean
   return JSON.stringify(diagnostics) === JSON.stringify(usageDiagnosticExpectations)
 }
 
-type RequiredScenario = (typeof requiredScenarios)[number]
+type FixedScenario = (typeof fixedScenarios)[number]
+type PackageScenario = { stationId: "payload-package.completed" | "payload-package.command-refused"; argv: readonly string[]; expected: { exitCode: 0 | 21; resultCode: "completed" | "command-refused" } }
+type RequiredScenario = FixedScenario | PackageScenario
 
 const primaryDataFor = (stdout: string, stderr: string): { data?: Record<string, unknown> } => {
   const primaryLine = (stdout || stderr).split("\n").filter(Boolean).at(-1)
@@ -342,12 +347,12 @@ const primaryDataFor = (stdout: string, stderr: string): { data?: Record<string,
   return data === undefined ? {} : { data }
 }
 
-const expectedStreamsMatch = (scenario: RequiredScenario, stdout: string, stderr: string): boolean =>
+const expectedStreamsMatch = (scenario: FixedScenario, stdout: string, stderr: string): boolean =>
   scenario.stationId === "maintenance.usage-refused"
     ? stdout === "" && usageDiagnosticsMatch(stderr, scenario.expected.stderr.trimEnd())
     : stderr === scenario.expected.stderr
 
-const observeRequiredScenario = (scenario: RequiredScenario) => {
+const observeFixedScenario = (scenario: FixedScenario) => {
   const result = Bun.spawnSync({
     cmd: [resolve(repositoryRoot, "src/adapters/maintenance-command-facade/maintenance.ts"), ...scenario.argv],
     cwd: repositoryRoot,
@@ -374,10 +379,52 @@ const observeRequiredScenario = (scenario: RequiredScenario) => {
     timedOut: result.signalCode === "SIGKILL",
   }
 }
-const requiredObservations = requiredScenarios.map(observeRequiredScenario)
+
+/**
+ * The two required package Stations are reconciled only through the real
+ * admitted process: a clean committed Kit clone linked from a consumer whose
+ * committed manifest pins that clone, packaging a prepared fixture and then
+ * naming a nonexistent payload root.
+ */
+const observePackageScenarios = () => {
+  const consumer = createAdmittedPackageConsumer()
+  const prepared = createPluginFixture({ files: [{ path: "a-safe.txt", bytes: "safe\n" }] })
+  try {
+    const packageRequest = resolve(consumer.consumerRoot, "package-request.json")
+    const refusedRequest = resolve(consumer.consumerRoot, "refused-request.json")
+    writeFileSync(packageRequest, `${JSON.stringify(prepared.request)}\n`)
+    writeFileSync(refusedRequest, `${JSON.stringify({ ...prepared.request, repositoryRoot: resolve(consumer.fixtureRoot, "nonexistent-payload-root") })}\n`)
+    const scenarios: readonly PackageScenario[] = [
+      { stationId: "payload-package.completed", argv: packageArguments("audit-package", packageRequest), expected: { exitCode: 0, resultCode: "completed" } },
+      { stationId: "payload-package.command-refused", argv: packageArguments("audit-package-refused", refusedRequest), expected: { exitCode: 21, resultCode: "command-refused" } },
+    ]
+    return scenarios.map((scenario) => {
+      const result = consumer.runSync(scenario.argv, { timeoutMs: packageProcessDeadlineMs })
+      const primary = primaryDataFor(result.stdout, result.stderr)
+      const observed = result.exitCode === scenario.expected.exitCode &&
+        primary.data?.result_code === scenario.expected.resultCode &&
+        primary.data?.station_id === scenario.stationId &&
+        (scenario.expected.exitCode === 0 ? result.stderr === "" : result.stdout === "")
+      return {
+        ...scenario,
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        primary,
+        observed,
+        deadlineMs: packageProcessDeadlineMs,
+        timedOut: result.signalCode === "SIGKILL",
+      }
+    })
+  } finally {
+    rmSync(prepared.root, { recursive: true, force: true })
+    consumer.dispose()
+  }
+}
+const requiredObservations = [...fixedScenarios.map(observeFixedScenario), ...observePackageScenarios()]
 const implementationAbsent = requiredObservations.every(({ exitCode, stderr }) => exitCode === 1 && stderr.includes("implementation-absent"))
 const publicProcessesAligned = requiredObservations.every(({ observed }) => observed)
-findings.push({ surface: "public_process", status: publicProcessesAligned ? "aligned" : "drifted", detail: implementationAbsent ? "implementation-absent" : publicProcessesAligned ? "two-required-stations-observed" : "required-observation-drift" })
+findings.push({ surface: "public_process", status: publicProcessesAligned ? "aligned" : "drifted", detail: implementationAbsent ? "implementation-absent" : publicProcessesAligned ? "four-required-stations-observed" : "required-observation-drift" })
 
 const resolveRelativeModule = (importer: string, specifier: string) => {
   const candidate = resolve(dirname(importer), specifier)

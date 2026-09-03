@@ -28,6 +28,7 @@ root context insufficient.
 | [`0005-simple-repository-quality-ownership.md`](../adr/0005-simple-repository-quality-ownership.md) | Biome, TypeScript, native Fallow, Repository Verification, and Clean Fixture proof ownership. |
 | [`0006-qualification-evidence-public-runtime.md`](../adr/0006-qualification-evidence-public-runtime.md) | Qualification Evidence public reducer ownership and installed-consumer proof. |
 | [`0007-source-checkout-admission.md`](../adr/0007-source-checkout-admission.md) | Exact physical Source Checkout Admission for package-only commands. |
+| [`0008-package-prepared-plugin-payload.md`](../adr/0008-package-prepared-plugin-payload.md) | Prepared Plugin Payload packaging, no-replace publication, result mapping, and its Test Design. |
 
 ## Accepted structure
 
@@ -54,7 +55,7 @@ root context insufficient.
 │   │   ├── contract-tests/
 │   │   │   ├── fixtures/
 │   │   │   └── adapters/
-│   │   └── implementation/               (future)
+│   │   └── implementation/               (present for Plugin Payload Production package mode; future elsewhere)
 │   └── adapters/reusable-workflow-adapter/
 │       ├── package.json                  (Owner Manifest)
 │       ├── interface.ts

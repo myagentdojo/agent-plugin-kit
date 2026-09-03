@@ -1,31 +1,20 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test"
-import { cp, mkdir, mkdtemp, readFile, rm, stat, symlink, unlink, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { mutatingRequests } from "../../../src/modules/maintenance-command-contract/contract-tests/fixtures/literal-command-results"
+import { createPluginFixture, type PluginFixture } from "../../../src/modules/plugin-payload-production/contract-tests/fixtures/prepared-plugin-fixture"
+import { createAdmittedPackageConsumer, git, kitOrigin, type AdmittedPackageConsumer, type ProcessResult } from "./adapters/admitted-package-consumer"
 import {
-  sourceCheckoutCandidateNewFiles,
   sourceCheckoutNotAdmittedMessage,
-  sourceCheckoutOwnerAbsentMessage,
   sourceCheckoutPackageArguments,
+  sourceCheckoutPayloadRefusalMessage,
 } from "./adapters/source-checkout-contract-subject"
 import { sourceCheckoutAdmissionCases } from "./fixtures/source-checkout-admission-cases"
 
-const repositoryRoot = resolve(import.meta.dir, "../../..")
-let fixtureRoot = "", kitRoot = "", consumerRoot = ""
-let packageRequest = "", checkRequest = ""
-let kitCommit = ""
-function git(root: string, ...args: string[]): string {
-  const result = Bun.spawnSync(["git", "-C", root, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe" })
-  if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr))
-  return new TextDecoder().decode(result.stdout).trim()
-}
-async function run(args: string[], entryPath = join(consumerRoot, "node_modules/.bin/agent-plugin-kit"), cwd = consumerRoot, environment = process.env) {
-  const child = Bun.spawn({ cmd: [entryPath, ...args], cwd, env: environment, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
-  const [exitCode, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
-  return { exitCode, stdout, stderr }
-}
-type ProcessResult = Awaited<ReturnType<typeof run>>
+let consumer: AdmittedPackageConsumer
+let prepared: PluginFixture
+let packageRequest = "", preparedRequest = "", checkRequest = ""
+const run = (args: string[], options: { entry?: string; cwd?: string; environment?: Record<string, string | undefined> } = {}) => consumer.run(args, options)
 function expectPublicRefusal(result: ProcessResult, message: string): ProcessResult {
   expect(result.exitCode).toBe(2)
   expect(result.stdout).toBe("")
@@ -70,86 +59,83 @@ function expectPublicRefusal(result: ProcessResult, message: string): ProcessRes
   })
   return result
 }
-async function expectOwnerAbsent(request: string) {
-  expectPublicRefusal(await run(sourceCheckoutPackageArguments(request)), sourceCheckoutOwnerAbsentMessage)
+/** Admitted checkout, well-formed request, nonexistent payload root: the Payload owner refuses, Admission does not. */
+async function expectPayloadRefusal(request: string) {
+  const result = await run(sourceCheckoutPackageArguments(request))
+  expect(result.exitCode).toBe(21)
+  expect(result.stdout).toBe("")
+  const envelope = JSON.parse(result.stderr.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>
+  expect(envelope).toMatchObject({
+    record_type: "error_envelope",
+    status: "error",
+    message: sourceCheckoutPayloadRefusalMessage,
+    run_id: "source-checkout",
+    data: { command: "payload:package", result_code: "command-refused", station_id: "payload-package.command-refused", transaction_state: "unchanged" },
+    error: { code: "command-refused", exitCodeHint: 21, failureClass: "refusal" },
+  })
+  expect(result.stderr).not.toContain(sourceCheckoutNotAdmittedMessage)
 }
-async function commitAuthority(commit: string): Promise<void> {
-  await writeFile(join(consumerRoot, "package.json"), JSON.stringify({ dependencies: { "agent-plugin-kit": `git+https://github.com/myagentdojo/agent-plugin-kit.git#${commit}` } }))
-  git(consumerRoot, "add", "package.json"); git(consumerRoot, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-qm", `authority-${commit.slice(0, 8)}`)
+/** Refused Admission never reaches Payload: the prepared fixture gains no dist/ output. */
+function expectPayloadUntouched(): void {
+  expect(existsSync(prepared.distRoot)).toBe(false)
 }
 beforeAll(async () => {
-  fixtureRoot = await mkdtemp(join(tmpdir(), "agent-plugin-kit-source-checkout-process-")); kitRoot = join(fixtureRoot, "kit"); consumerRoot = join(fixtureRoot, "consumer")
-  const clone = Bun.spawnSync(["git", "clone", "--quiet", repositoryRoot, kitRoot], { stdin: "ignore", stdout: "pipe", stderr: "pipe" })
-  if (clone.exitCode !== 0) throw new Error(new TextDecoder().decode(clone.stderr))
-  const patch = Bun.spawnSync(["git", "-C", repositoryRoot, "diff", "--binary", "HEAD"], { stdin: "ignore", stdout: "pipe", stderr: "pipe" })
-  if (patch.exitCode !== 0) throw new Error(new TextDecoder().decode(patch.stderr))
-  const patchPath = join(fixtureRoot, "working-tree.patch")
-  if (patch.stdout.byteLength > 0) {
-    await writeFile(patchPath, patch.stdout)
-    git(kitRoot, "apply", "--binary", patchPath)
-  }
-  for (const file of sourceCheckoutCandidateNewFiles) {
-    const target = join(kitRoot, file)
-    await mkdir(dirname(target), { recursive: true })
-    await cp(join(repositoryRoot, file), target)
-  }
-  git(kitRoot, "add", "--all"); git(kitRoot, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-qm", "candidate")
-  await Bun.$`bun install --frozen-lockfile`.cwd(kitRoot).quiet()
-  const commit = git(kitRoot, "rev-parse", "HEAD"); kitCommit = commit
-  await mkdir(join(consumerRoot, "node_modules"), { recursive: true })
-  await writeFile(join(consumerRoot, "package.json"), JSON.stringify({ name: "consumer", dependencies: { "agent-plugin-kit": `git+https://github.com/myagentdojo/agent-plugin-kit.git#${commit}` } }) + "\n")
-  await writeFile(join(consumerRoot, ".gitignore"), "node_modules\ndist\n"); await mkdir(join(consumerRoot, "dist"), { recursive: true }); await writeFile(join(consumerRoot, "dist/generated.txt"), "allowed\n")
-  await symlink(kitRoot, join(consumerRoot, "node_modules/agent-plugin-kit")); await mkdir(join(consumerRoot, "node_modules/.bin")); await symlink(join(kitRoot, "src/adapters/maintenance-command-facade/maintenance.ts"), join(consumerRoot, "node_modules/.bin/agent-plugin-kit")); git(consumerRoot, "init", "-q"); git(consumerRoot, "add", "package.json", ".gitignore"); git(consumerRoot, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "consumer")
-  packageRequest = join(consumerRoot, "request.json"); checkRequest = join(consumerRoot, "check-request.json")
-  await writeFile(packageRequest, JSON.stringify({ repositoryRoot: "/foreign", mode: "package", sourceIdentity: { repository: { origin: "https://github.com/example/foreign.git" }, commit: "e".repeat(40) } }))
-  await writeFile(checkRequest, JSON.stringify({ repositoryRoot: "/foreign", mode: "check", sourceIdentity: { repository: { origin: "https://github.com/example/foreign.git" }, commit: "e".repeat(40) } }))
+  consumer = createAdmittedPackageConsumer()
+  prepared = createPluginFixture({ files: [{ path: "a-safe.txt", bytes: "safe\n" }] })
+  packageRequest = join(consumer.consumerRoot, "request.json"); preparedRequest = join(consumer.consumerRoot, "prepared-request.json"); checkRequest = join(consumer.consumerRoot, "check-request.json")
+  writeFileSync(packageRequest, JSON.stringify({ ...prepared.request, repositoryRoot: join(consumer.fixtureRoot, "nonexistent-payload-root") }))
+  writeFileSync(preparedRequest, JSON.stringify(prepared.request))
+  writeFileSync(checkRequest, JSON.stringify({ repositoryRoot: "/foreign", mode: "check", sourceIdentity: { repository: { origin: "https://github.com/example/foreign.git" }, commit: "e".repeat(40) } }))
 })
-beforeEach(async () => { await commitAuthority(kitCommit) })
-afterAll(async () => { if (fixtureRoot) await rm(fixtureRoot, { recursive: true, force: true }) })
-test(sourceCheckoutAdmissionCases.admittedOwnerAbsent.title, async () => {
-  expect(git(kitRoot, "status", "--porcelain=v1", "--untracked-files=all")).toBe("")
-  expect(await readFile(join(consumerRoot, "dist/generated.txt"), "utf8")).toBe("allowed\n")
-  await expectOwnerAbsent(packageRequest)
+beforeEach(() => { consumer.commitAuthority(consumer.kitCommit) })
+afterAll(() => { rmSync(prepared.root, { recursive: true, force: true }); consumer?.dispose() })
+test(sourceCheckoutAdmissionCases.admittedPayloadRefusal.title, async () => {
+  expect(git(consumer.kitRoot, "status", "--porcelain=v1", "--untracked-files=all")).toBe("")
+  expect(readFileSync(join(consumer.consumerRoot, "dist/generated.txt"), "utf8")).toBe("allowed\n")
+  await expectPayloadRefusal(packageRequest)
   expectPublicRefusal(await run(["--run-id", "source-checkout", "maintenance", "payload", "check", "--request", checkRequest]), "Maintenance command is not admitted.")
 })
 test(sourceCheckoutAdmissionCases.committedWrongPin.title, async () => {
-  await commitAuthority("e".repeat(40))
-  expectPublicRefusal(await run(sourceCheckoutPackageArguments(packageRequest)), sourceCheckoutNotAdmittedMessage)
+  consumer.commitAuthority("e".repeat(40))
+  expectPublicRefusal(await run(sourceCheckoutPackageArguments(preparedRequest)), sourceCheckoutNotAdmittedMessage)
+  expectPayloadUntouched()
 })
 test(sourceCheckoutAdmissionCases.uncommittedRestoration.title, async () => {
-  await commitAuthority("e".repeat(40))
-  await writeFile(join(consumerRoot, "package.json"), JSON.stringify({ dependencies: { "agent-plugin-kit": `git+https://github.com/myagentdojo/agent-plugin-kit.git#${kitCommit}` } }))
-  expectPublicRefusal(await run(sourceCheckoutPackageArguments(packageRequest)), sourceCheckoutNotAdmittedMessage)
+  consumer.commitAuthority("e".repeat(40))
+  writeFileSync(join(consumer.consumerRoot, "package.json"), JSON.stringify({ dependencies: { "agent-plugin-kit": `git+${kitOrigin}#${consumer.kitCommit}` } }))
+  expectPublicRefusal(await run(sourceCheckoutPackageArguments(preparedRequest)), sourceCheckoutNotAdmittedMessage)
+  expectPayloadUntouched()
 })
 test(sourceCheckoutAdmissionCases.committedRestoration.title, async () => {
-  await commitAuthority("e".repeat(40)); await commitAuthority(kitCommit)
-  await expectOwnerAbsent(packageRequest)
+  consumer.commitAuthority("e".repeat(40)); consumer.commitAuthority(consumer.kitCommit)
+  await expectPayloadRefusal(packageRequest)
 })
 test(sourceCheckoutAdmissionCases.dirtyCheckout.title, async () => {
-  const dirty = join(kitRoot, "README.md"), original = await readFile(dirty, "utf8"), request = packageRequest
-  expect((await stat(request)).isFile()).toBe(true)
-  const setupFailure = await run(sourceCheckoutPackageArguments(request), undefined, undefined, { ...process.env, TMPDIR: request })
+  const dirty = join(consumer.kitRoot, "README.md"), original = readFileSync(dirty, "utf8"), request = preparedRequest
+  expect(statSync(request).isFile()).toBe(true)
+  const setupFailure = await run(sourceCheckoutPackageArguments(request), { environment: { ...process.env, TMPDIR: request } })
   expect(setupFailure.stderr).not.toContain(request)
   expectPublicRefusal(setupFailure, sourceCheckoutNotAdmittedMessage)
-  await writeFile(dirty, `${original}\n`)
-  try { expectPublicRefusal(await run(sourceCheckoutPackageArguments(request)), sourceCheckoutNotAdmittedMessage) } finally { await writeFile(dirty, original) }
-  await expectOwnerAbsent(request)
+  writeFileSync(dirty, `${original}\n`)
+  try { expectPublicRefusal(await run(sourceCheckoutPackageArguments(request)), sourceCheckoutNotAdmittedMessage) } finally { writeFileSync(dirty, original) }
+  expectPayloadUntouched()
+  await expectPayloadRefusal(packageRequest)
 })
 test(sourceCheckoutAdmissionCases.gitInstalledCopy.title, async () => {
-  const productionConsumer = join(fixtureRoot, "production-consumer"), commit = git(kitRoot, "rev-parse", "HEAD")
-  await mkdir(productionConsumer, { recursive: true })
-  const dependency = `git+file://${kitRoot}#${commit}`
-  await writeFile(join(productionConsumer, "package.json"), JSON.stringify({ name: "production-consumer", dependencies: { "agent-plugin-kit": dependency } }) + "\n")
-  await Bun.$`bun install`.cwd(productionConsumer)
+  const productionConsumer = join(consumer.fixtureRoot, "production-consumer"), commit = git(consumer.kitRoot, "rev-parse", "HEAD")
+  mkdirSync(productionConsumer, { recursive: true })
+  const dependency = `git+file://${consumer.kitRoot}#${commit}`
+  writeFileSync(join(productionConsumer, "package.json"), JSON.stringify({ name: "production-consumer", dependencies: { "agent-plugin-kit": dependency } }) + "\n")
+  await Bun.$`bun install`.cwd(productionConsumer).quiet()
   const installed = join(productionConsumer, "node_modules/agent-plugin-kit")
-  const gitMetadata = await stat(join(installed, ".git")).catch(() => undefined)
-  expect(gitMetadata).toBeUndefined()
+  expect(existsSync(join(installed, ".git"))).toBe(false)
   const entry = join(productionConsumer, "node_modules/.bin/agent-plugin-kit")
-  expectPublicRefusal(await run(sourceCheckoutPackageArguments(packageRequest), entry, productionConsumer), sourceCheckoutNotAdmittedMessage)
+  expectPublicRefusal(await run(sourceCheckoutPackageArguments(preparedRequest), { entry, cwd: productionConsumer }), sourceCheckoutNotAdmittedMessage)
+  expectPayloadUntouched()
 })
 test(sourceCheckoutAdmissionCases.protectedCommand.title, async () => {
-  const releaseRequest = join(consumerRoot, "release-request.json"), approval = join(consumerRoot, "approval.json"), canaryCandidate = join(consumerRoot, "canary-candidate.json"), authority = join(consumerRoot, "authority.json")
-  await writeFile(releaseRequest, JSON.stringify(mutatingRequests.release.request)); await writeFile(approval, JSON.stringify(mutatingRequests.release.approval)); await writeFile(canaryCandidate, JSON.stringify(mutatingRequests.canary.candidate)); await writeFile(authority, JSON.stringify("authority-sentinel"))
+  const releaseRequest = join(consumer.consumerRoot, "release-request.json"), approval = join(consumer.consumerRoot, "approval.json"), canaryCandidate = join(consumer.consumerRoot, "canary-candidate.json"), authority = join(consumer.consumerRoot, "authority.json")
+  writeFileSync(releaseRequest, JSON.stringify(mutatingRequests.release.request)); writeFileSync(approval, JSON.stringify(mutatingRequests.release.approval)); writeFileSync(canaryCandidate, JSON.stringify(mutatingRequests.canary.candidate)); writeFileSync(authority, JSON.stringify("authority-sentinel"))
   const release = await run(["--run-id", "source-checkout", "maintenance", "release", "apply", "--request", releaseRequest, "--approval", approval])
   const canary = await run(["--run-id", "source-checkout", "maintenance", "canary", "qualify", "--candidate", canaryCandidate, "--authority", authority])
   expectPublicRefusal(release, "Maintenance command is not admitted.")

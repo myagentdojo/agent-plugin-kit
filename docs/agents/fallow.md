@@ -78,7 +78,10 @@ coverage, and suppression hygiene. Keep an approved value dependency explicit.
 Use a type-only import when runtime access is not required, and target the
 other Module's Interface rather than its private files. The one accepted
 Qualification Evidence value edge reaches Release and Git Engine's private
-serialized-value surface through narrow private zones. Module Interfaces,
+serialized-value surface through narrow private zones. The Plugin Payload
+Production private production lane is reached by value only from the Facade
+composition root and the Payload, Facade, and Clean Fixture Contract Test lanes
+under `docs/adr/0008-package-prepared-plugin-payload.md`. Module Interfaces,
 private production, Module Contract Tests, Adapter production, and Adapter
 Contract Tests are explicit first-match lanes, so test access cannot authorize
 production and a future private file cannot inherit a public Interface zone.

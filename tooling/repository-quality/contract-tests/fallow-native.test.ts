@@ -497,6 +497,7 @@ test("resolves the complete architecture policy in first-match order", async () 
 		"maintenance-command-facade-contract-tests",
 		"deep-modules/canary-qualification",
 		"deep-module-private/canary-qualification",
+		"deep-module-private/plugin-payload-production",
 		"deep-module-serialized-values/canary-qualification",
 		"deep-module-serialized-values/harness-journeys",
 		"deep-module-serialized-values/plugin-payload-production",
@@ -544,7 +545,9 @@ test("resolves the complete architecture policy in first-match order", async () 
 			allow: [
 				"admission-bootstrap-implementation",
 				"deep-module-contract-tests/maintenance-command-contract",
+				"deep-module-contract-tests/plugin-payload-production",
 				"deep-module-private/maintenance-command-contract",
+				"deep-module-private/plugin-payload-production",
 				"source-tree-adapters/maintenance-command-facade",
 			],
 		},
@@ -553,6 +556,7 @@ test("resolves the complete architecture policy in first-match order", async () 
 			from: "deep-module-private/canary-qualification",
 			allow: ["deep-module-serialized-values/release-and-git-engine"],
 		},
+		{ from: "deep-module-private/plugin-payload-production", allow: [] },
 		{
 			from: "deep-module-serialized-values/canary-qualification",
 			allow: ["deep-module-serialized-values/release-and-git-engine"],
@@ -581,7 +585,10 @@ test("resolves the complete architecture policy in first-match order", async () 
 		},
 		{
 			from: "deep-module-contract-tests/plugin-payload-production",
-			allow: ["deep-module-serialized-values/plugin-payload-production"],
+			allow: [
+				"deep-module-private/plugin-payload-production",
+				"deep-module-serialized-values/plugin-payload-production",
+			],
 		},
 		{
 			from: "deep-module-contract-tests/release-and-git-engine",
@@ -618,6 +625,7 @@ test("resolves the complete architecture policy in first-match order", async () 
 			allow: [
 				"admission-bootstrap-implementation",
 				"deep-module-private/maintenance-command-contract",
+				"deep-module-private/plugin-payload-production",
 				"deep-module-serialized-values/release-and-git-engine",
 			],
 		},
@@ -627,6 +635,7 @@ test("resolves the complete architecture policy in first-match order", async () 
 			allow: [
 				"admission-bootstrap",
 				"deep-module-contract-tests/maintenance-command-contract",
+				"deep-module-contract-tests/plugin-payload-production",
 				"deep-modules/qualification-evidence",
 				"deep-module-private/maintenance-command-contract",
 			],
@@ -649,6 +658,8 @@ test("resolves the complete architecture policy in first-match order", async () 
 		"deep-modules/canary-qualification": "src/modules/canary-qualification/interface.ts",
 		"deep-module-private/canary-qualification":
 			"src/modules/canary-qualification/adapters/protected-file-authority-source.ts",
+		"deep-module-private/plugin-payload-production":
+			"src/modules/plugin-payload-production/implementation/plugin-payload-production.ts",
 		"deep-module-serialized-values/canary-qualification":
 			"src/modules/canary-qualification/serialized-values.ts",
 		"deep-module-serialized-values/harness-journeys":

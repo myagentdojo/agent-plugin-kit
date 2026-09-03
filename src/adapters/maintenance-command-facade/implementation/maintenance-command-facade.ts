@@ -427,7 +427,6 @@ const bindingRefusalMessages: Readonly<Record<string, string>> = {
 	"authority-unavailable": "Maintenance command authority is unavailable.",
 	"authority-reference-invalid": "Maintenance command authority is unavailable.",
 	"source-checkout-not-admitted": "Maintenance source checkout is not admitted.",
-	"payload-owner-absent": "Maintenance command owner is not implemented.",
 }
 
 const bindingRefusalMessageFor = (code: string): string =>

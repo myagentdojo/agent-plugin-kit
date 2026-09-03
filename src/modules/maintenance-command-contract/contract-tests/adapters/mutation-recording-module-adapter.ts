@@ -21,7 +21,7 @@ import type {
   CodexTransitionRequest,
   HarnessJourneys,
 } from "../../../harness-journeys/interface"
-import type { PluginPayloadProduction } from "../../../plugin-payload-production/interface"
+import type { PayloadProductionResult, PluginPayloadProduction } from "../../../plugin-payload-production/interface"
 import type {
   ReleaseAndGitEngine,
   ReleaseResult,
@@ -95,6 +95,8 @@ export function createMaintenanceContractHarness(
   options: {
     runtimeResults?: readonly RuntimeCustodyResult[]
     releaseResult?: ReleaseResult
+    /** Owner result returned for a package apply instead of the complete packaged fixture. */
+    payloadResult?: PayloadProductionResult
   } = {},
 ): MaintenanceContractHarness {
   const applyLedgers: Record<string, MaintenanceApplyRequest[]> = {
@@ -150,10 +152,20 @@ export function createMaintenanceContractHarness(
         testCollaborators.mutateDurableTarget("repository", request.mode)
         return { kind: "materialized", nextAction: "Inspect the payload." }
       }
-      const ownerRequest = { ...request, mode: "package" as const }
-      testCollaborators.recordApply("payload", { command: "payload:package", request: ownerRequest })
+      testCollaborators.recordApply("payload", { command: "payload:package", request })
       testCollaborators.mutateDurableTarget("profile", request.mode)
-      return { kind: "packaged", nextAction: "Inspect the payload." }
+      return options.payloadResult ?? {
+        kind: "packaged",
+        sourceIdentity: request.sourceIdentity,
+        release: request.release,
+        bindingSha256: request.prepared.bindingSha256,
+        payload: { regularFiles: request.prepared.files.map(({ path }) => path), payloadSha256: request.prepared.payloadSha256 },
+        artifacts: {
+          archive: { path: `${request.repositoryRoot}/dist/${request.release.name}-${request.release.version}.tar.gz`, bytes: 130, sha256: `sha256:${"1".repeat(64)}` },
+          checksums: { path: `${request.repositoryRoot}/dist/${request.release.name}-${request.release.version}.checksums.json`, bytes: 700, sha256: `sha256:${"2".repeat(64)}` },
+        },
+        nextAction: "Inspect the payload.",
+      }
     },
   }
 

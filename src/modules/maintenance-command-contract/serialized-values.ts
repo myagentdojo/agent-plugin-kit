@@ -30,7 +30,9 @@ import {
 } from "./branch-stations"
 import { commandVocabulary } from "./command-vocabulary"
 import {
-  payloadProductionRequestSchema,
+  payloadCheckRequestSchema,
+  payloadMaterializeRequestSchema,
+  payloadPackageRequestSchema,
 } from "../plugin-payload-production/serialized-values"
 import {
   releaseCandidateApprovalSchema,
@@ -432,7 +434,7 @@ const wireCommandSchemaFor = (trace?: WireCommandValidationTrace) => z.discrimin
     schemaVersion: z.literal(1),
     command: z.literal("payload:check"),
     request: observedNestedSchema(
-      payloadProductionRequestSchema.extend({ mode: z.literal("check") }),
+      payloadCheckRequestSchema,
       "plugin-payload-production.request",
       trace,
     ),
@@ -441,7 +443,7 @@ const wireCommandSchemaFor = (trace?: WireCommandValidationTrace) => z.discrimin
     schemaVersion: z.literal(1),
     command: z.literal("payload:materialize"),
     request: observedNestedSchema(
-      payloadProductionRequestSchema.extend({ mode: z.literal("materialize") }),
+      payloadMaterializeRequestSchema,
       "plugin-payload-production.request",
       trace,
     ),
@@ -450,7 +452,7 @@ const wireCommandSchemaFor = (trace?: WireCommandValidationTrace) => z.discrimin
     schemaVersion: z.literal(1),
     command: z.literal("payload:package"),
     request: observedNestedSchema(
-      payloadProductionRequestSchema.extend({ mode: z.literal("package") }),
+      payloadPackageRequestSchema,
       "plugin-payload-production.request",
       trace,
     ),
