@@ -790,6 +790,19 @@ their owning current source, rather than being new work instructions:
 GitHub Issue status remains outside this repository. This decision does not
 authorize P4 work, a new schema transition, or a repository-governance mirror.
 
+## Amendment by ADR 0007
+
+ADR 0007 accepts this limited interpretation of "Admission Bootstrap runs
+before any Kit Repository Implementation executes": Admission observation in
+the composition root, Wire Command validation, help, and refusal projection
+precede Admission. Deep Module Implementation dispatch through
+`MaintenanceCommands` follows Admission and trusted binding. Admission
+observation is read-only, effect-free, and bounded to identity facts of the
+executing checkout and its consumer.
+
+This amendment does not broaden pre-Admission execution beyond those named
+activities.
+
 ## Consequences
 
 - Validation, TypeScript type ownership, and refusal meaning stay with the

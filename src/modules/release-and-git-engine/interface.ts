@@ -85,6 +85,39 @@ export type AdmissionRefusal = {
   nextAction: "Correct the mismatched immutable identity observation."
 }
 
+export type SourceCheckoutCandidate = {
+  source: SourceIdentity
+  package: PackageIdentity
+}
+
+export type SourceCheckoutAdmissionRequest = {
+  candidate: SourceCheckoutCandidate
+  repository: RepositoryIdentity
+  provenance: SourceIdentity
+  source: SourceIdentity
+  package: PackageIdentity
+}
+
+export type SourceCheckoutAdmissionRefusal = {
+  code: "repository-mismatch" | "provenance-mismatch" | "source-pin-mismatch" | "package-pin-mismatch"
+  nextAction: "Correct the mismatched immutable identity observation."
+}
+
+declare const admittedSourceCheckoutIdentityBrand: unique symbol
+
+export type AdmittedSourceCheckoutIdentity = {
+  readonly profile: "source-checkout"
+  readonly source: {
+    readonly repository: { readonly origin: string }
+    readonly commit: string
+  }
+  readonly package: {
+    readonly repository: { readonly origin: string }
+    readonly commit: string
+  }
+  readonly [admittedSourceCheckoutIdentityBrand]: true
+}
+
 export type PackageObservation = {
   identity: PackageIdentity
   payloadSha256: `sha256:${string}`

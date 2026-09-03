@@ -525,7 +525,7 @@ test("resolves the complete architecture policy in first-match order", async () 
 		{ from: "admission-bootstrap-implementation", allow: [] },
 		{
 			from: "admission-bootstrap-contract-tests",
-			allow: ["admission-bootstrap", "admission-bootstrap-implementation", "clean-fixture"],
+			allow: ["admission-bootstrap", "admission-bootstrap-implementation", "deep-module-serialized-values/release-and-git-engine", "clean-fixture"],
 		},
 		{
 			from: "deep-module-contract-tests/maintenance-command-contract",
@@ -542,6 +542,7 @@ test("resolves the complete architecture policy in first-match order", async () 
 		{
 			from: "maintenance-command-facade-contract-tests",
 			allow: [
+				"admission-bootstrap-implementation",
 				"deep-module-contract-tests/maintenance-command-contract",
 				"deep-module-private/maintenance-command-contract",
 				"source-tree-adapters/maintenance-command-facade",
@@ -614,7 +615,11 @@ test("resolves the complete architecture policy in first-match order", async () 
 		{ from: "deep-module-serialized-values/release-and-git-engine", allow: [] },
 		{
 			from: "source-tree-adapters/maintenance-command-facade",
-			allow: ["deep-module-private/maintenance-command-contract"],
+			allow: [
+				"admission-bootstrap-implementation",
+				"deep-module-private/maintenance-command-contract",
+				"deep-module-serialized-values/release-and-git-engine",
+			],
 		},
 		{ from: "source-tree-adapters/reusable-workflow-adapter", allow: [] },
 		{

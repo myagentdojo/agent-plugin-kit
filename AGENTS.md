@@ -50,8 +50,10 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   owner.
 - Tests: keep Test Fixtures and test-only Adapters beneath the owning
   `contract-tests/`; keep independent higher Proof Layers in Clean Fixture.
-- Identity: bind Repository, Release, Package, Workflow, and evidence claims to
-  one Full Commit Pin before Kit Repository Implementation executes.
+- Identity: released Admission binds Repository, Release, Package, Workflow,
+  and evidence claims to one Full Commit Pin; Source Checkout Admission binds
+  only the exact source and package checkout identities under ADR 0007 before
+  Kit Repository Implementation dispatch.
 - Evidence: preserve `proved`, `not-proved`, and `unknown`; attach a Skip
   Rationale and Non-Claims where evidence does not reach the requested layer.
 - Repository Verification owns only cross-owner manifest agreement, export and

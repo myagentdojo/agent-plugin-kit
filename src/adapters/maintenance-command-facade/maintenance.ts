@@ -1,9 +1,8 @@
 #!/usr/bin/env bun
 import { createMaintenanceCommands } from "../../modules/maintenance-command-contract/implementation/maintenance-commands"
 import {
-  wireCommandRefusalFor,
+  bindSourceCheckoutCommand,
 } from "../../modules/maintenance-command-contract/implementation/trusted-command-binding"
-import { parseWireCommand } from "../../modules/maintenance-command-contract/serialized-values"
 import { createMaintenanceCommandFacade } from "./implementation/maintenance-command-facade"
 import type { ProcessObservation } from "./interface"
 
@@ -72,14 +71,25 @@ const commands = createMaintenanceCommands({
   canary: { inspect: unavailable, qualify: unavailable },
 })
 
+const sourceCheckoutAdmission = async () => {
+  const [{ observeSourceCheckout }, { admissionBootstrap }] = await Promise.all([
+    import("./implementation/source-checkout-observation"),
+    import("../../admission-bootstrap/implementation/admission-bootstrap"),
+  ])
+  const observation = observeSourceCheckout({ entryPath: import.meta.path, cwd: process.cwd(), environment: process.env })
+  return observation.kind === "observed"
+    ? admissionBootstrap.admitSourceCheckout(observation.request)
+    : { kind: "refused" as const }
+}
+
 const eventEndpoint = process.env.AGENT_PLUGIN_KIT_EVENT_ENDPOINT
 const facade = createMaintenanceCommandFacade({
   commands,
   wireBinding: async (value) => {
-    const parsed = parseWireCommand(value)
-    return parsed === undefined
-      ? wireCommandRefusalFor(value)
-      : { status: "refused", code: "maintenance-not-admitted" }
+    const bound = await bindSourceCheckoutCommand(value, { admission: sourceCheckoutAdmission })
+    return bound.status === "bound"
+      ? { status: "refused", code: "payload-owner-absent" }
+      : bound
   },
   diagnosticFactory: async () => {
     const { createLogTapeDiagnosticAdapter } = await import("./implementation/logtape-diagnostic-adapter")

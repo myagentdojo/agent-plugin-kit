@@ -38,7 +38,6 @@ import {
   serializeFacadeSuccessEgress,
   sanitizeEventRecord,
 } from "../serialized-values"
-import { wireCommandRefusalFor } from "../../../modules/maintenance-command-contract/implementation/trusted-command-binding"
 
 const runIdPattern = /^[A-Za-z0-9._-]{1,64}$/
 
@@ -427,6 +426,8 @@ const bindingRefusalMessages: Readonly<Record<string, string>> = {
 	"canary-fragment-invalid": "Invalid maintenance command input.",
 	"authority-unavailable": "Maintenance command authority is unavailable.",
 	"authority-reference-invalid": "Maintenance command authority is unavailable.",
+	"source-checkout-not-admitted": "Maintenance source checkout is not admitted.",
+	"payload-owner-absent": "Maintenance command owner is not implemented.",
 }
 
 const bindingRefusalMessageFor = (code: string): string =>
