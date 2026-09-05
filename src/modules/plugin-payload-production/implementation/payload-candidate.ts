@@ -459,12 +459,32 @@ const parsedPackages = (lock: FrozenLock): Map<string, FrozenPackage> => new Map
   Object.entries(lock.packages ?? {}).map(([key, value]) => [key, parsedPackage(key, value)]),
 )
 
+const partialSemver = /^(?:[xX*]|(?:0|[1-9]\d*)(?:\.(?:[xX*]|(?:0|[1-9]\d*)(?:\.(?:[xX*]|0|[1-9]\d*))?))?)$/u
+
+const supportedSemverOperand = (value: string): boolean => strictSemver.test(value) || partialSemver.test(value)
+
+const supportedSemverComparator = (value: string): boolean => {
+  const match = /^(?:<=|>=|<|>|=|\^|~)?(.+)$/u.exec(value)
+  return match !== null && supportedSemverOperand(match[1] ?? "")
+}
+
+const supportedSemverRange = (range: string): boolean => {
+  if (range.trim().length === 0) return false
+  return range.split("||").every((alternative) => {
+    const value = alternative.trim()
+    if (value.length === 0) return false
+    const hyphen = /^(.+)\s+-\s+(.+)$/u.exec(value)
+    if (hyphen !== null) {
+      return supportedSemverOperand(hyphen[1]?.trim() ?? "") && supportedSemverOperand(hyphen[2]?.trim() ?? "")
+    }
+    return value.split(/\s+/u).every(supportedSemverComparator)
+  })
+}
+
 const versionMatches = (version: string, requested: string): boolean => {
   if (requested === "*" || requested === "latest") return true
   if (requested.startsWith("workspace:")) return true
-  if (requested.startsWith("^") || requested.startsWith("~")) return version.startsWith(requested.slice(1).split(".").slice(0, requested.startsWith("^") ? 1 : 2).join("."))
-  if (/^\d+\.\d+\.\d+$/u.test(requested)) return version === requested
-  return version === requested || requested.includes(version)
+  return strictSemver.test(version) && supportedSemverRange(requested) && Bun.semver.satisfies(version, requested)
 }
 
 const dependencyTarget = (name: string, requested: string): { expectedName: string; range: string } => {
@@ -1113,8 +1133,8 @@ const removedBundlePaths = (
   const currentBundles = walkPlugin(pluginRoot).filter((file) => file.path.startsWith("runtime/") && managedBundlePattern.test(file.path.slice("runtime/".length)))
   const removed = currentBundles.filter((file) => !selectedBundles.has(file.path) && currentManaged.has(`plugin/${file.path}`))
   const unclaimed = currentBundles.filter((file) => !selectedBundles.has(file.path) && !currentManaged.has(`plugin/${file.path}`))
-  if (unclaimed.length > 0 || (!currentInventory.present && currentBundles.length > 0)) {
-    const paths = (currentInventory.present ? unclaimed : currentBundles).map((file) => `plugin/${file.path}`).sort(compareCodeUnits)
+  if (unclaimed.length > 0) {
+    const paths = unclaimed.map((file) => `plugin/${file.path}`).sort(compareCodeUnits)
     throw new PayloadCandidateRefusal("payload-outdated", `unclaimed bundle output requires inventory ownership: ${paths.join(", ")}`, paths)
   }
   return removed.map((file) => `plugin/${file.path}`).sort(compareCodeUnits)

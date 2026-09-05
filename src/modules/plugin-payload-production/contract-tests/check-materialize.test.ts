@@ -197,6 +197,7 @@ test("CM05 admits a frozen workspace and records an independently hashed bundle"
 		entry.path === "bun.lock" || entry.path.startsWith("workspace/") || entry.path.startsWith("node_modules/.bun/"),
 	)
 	const lockBefore = readFileSync(subject.lockPath)
+	expect(new TextDecoder().decode(lockBefore)).toContain('"fixture-dependency": "^1.0.0"')
 	const result = await expectMaterialized(subject)
 	const inventory = JSON.parse(readFileSync(join(subject.pluginRoot, "runtime/bundle-inventory.json"), "utf8")) as {
 		bundles: Record<string, { path: string; bytes: number; sha256: string }>
@@ -429,6 +430,26 @@ const verifyMaterializationInterruption = async (target: MaterializationInterrup
 
 test("CM14 reports exact named interruption states and converges on repeat materialization", async () => {
 	for (const target of materializationInterruptionPoints) await verifyMaterializationInterruption(target)
+
+	const workspace = fixture({ production: "workspace" })
+	let interruptedBundlePath: string | undefined
+	const interrupted = await createPluginPayloadProduction({
+		interrupt: (point, path) => {
+			if (point !== "materialization-file-published" || path === undefined || !/^plugin\/runtime\/beta-[0-9a-f]{16}\.js$/u.test(path)) return
+			interruptedBundlePath = path
+			throw new Error("interrupt after workspace bundle publication")
+		},
+	}).produce(materializeRequest(workspace))
+	expect(interrupted.kind).toBe("materialization-failed")
+	expect(interruptedBundlePath).toMatch(/^plugin\/runtime\/beta-[0-9a-f]{16}\.js$/u)
+	if (interruptedBundlePath === undefined) throw new Error("workspace bundle publication was not observed")
+	expect(existsSync(join(workspace.root, interruptedBundlePath))).toBe(true)
+	expect(existsSync(join(workspace.pluginRoot, "runtime/bundle-inventory.json"))).toBe(false)
+	const repeated = await produceMaterialize(workspace)
+	expect(repeated.kind).toBe("materialized")
+	if (repeated.kind === "materialized") expect(repeated.removedPaths).toEqual([])
+	expect(existsSync(join(workspace.root, interruptedBundlePath))).toBe(true)
+	expect((await produceCheck(workspace)).kind).toBe("checked")
 })
 
 test("CM15 independently rereads the final candidate and refuses invalid inventory before writes or deletes", async () => {

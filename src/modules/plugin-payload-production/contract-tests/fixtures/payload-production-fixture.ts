@@ -245,7 +245,7 @@ const dependencyLock = `{
   "workspaces": {
     "workspace/beta": {
       "dependencies": {
-        "fixture-dependency": "1.0.0"
+        "fixture-dependency": "^1.0.0"
       }
     }
   },

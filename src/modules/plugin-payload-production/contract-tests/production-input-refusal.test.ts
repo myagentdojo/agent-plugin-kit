@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { existsSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { basename, join } from "node:path"
 import type { PayloadProductionResult } from "../interface"
 import { createPluginPayloadProduction } from "../implementation/plugin-payload-production"
@@ -38,6 +38,25 @@ const expectNoWrite = (
 ): void => {
 	expectRefusal(result, code)
 	expect(snapshotRepository(subject.root)).toEqual(before)
+}
+
+const setFrozenDependency = (subject: PayloadProductionFixture, requested: string, version: string): void => {
+	writeFileSync(subject.lockPath, `${JSON.stringify({
+		workspaces: {
+			[subject.workspacePath]: { dependencies: { "fixture-dependency": requested } },
+		},
+		packages: {
+			[`fixture-dependency@${version}`]: [`fixture-dependency@${version}`, "sha512-fixture", {}],
+		},
+	}, null, 2)}\n`)
+	const dependencyRoot = join(subject.storeRoot, `fixture-dependency@${version}`, "node_modules", "fixture-dependency")
+	mkdirSync(dependencyRoot, { recursive: true })
+	writeFileSync(join(dependencyRoot, "package.json"), `${JSON.stringify({
+		name: "fixture-dependency",
+		version,
+		license: "MIT",
+	}, null, 2)}\n`)
+	writeFileSync(join(dependencyRoot, "LICENSE.md"), "Fixture dependency license text.\n")
 }
 
 test("IR01 rejects an unknown serialized configuration field before produce", () => {
@@ -178,6 +197,19 @@ test("IR09 refuses unresolved peers and rejected dependency licenses", async () 
 		const result = await createPluginPayloadProduction().produce(checkRequest(subject))
 		expectRefusal(result, "dependency-refused")
 		expect(snapshotRepository(subject.root)).toEqual(before)
+	}
+
+	for (const [requested, version] of [
+		["~1.1.0", "1.10.3"],
+		["^2.0.0", "20.1.0"],
+		[">1.2.3", "1.2.3"],
+		["garbage", "1.2.3"],
+	] as const) {
+		const subject = fixture({ production: "workspace" })
+		setFrozenDependency(subject, requested, version)
+		const before = snapshotRepository(subject.root)
+		const result = await createPluginPayloadProduction().produce(checkRequest(subject))
+		expectNoWrite(subject, before, result, "dependency-refused")
 	}
 })
 
