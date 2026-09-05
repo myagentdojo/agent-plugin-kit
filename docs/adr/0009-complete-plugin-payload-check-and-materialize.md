@@ -389,7 +389,7 @@ one complete candidate in private staging before comparing or writing:
 - repository-root `.claude-plugin/marketplace.json` and
   `.agents/plugins/marketplace.json`;
 - payload-root `plugin/.claude-plugin/plugin.json` and
-  `plugin/.agents/plugin.json` native manifests;
+  `plugin/.codex-plugin/plugin.json` native manifests;
 - the installed skill inventory;
 - every workspace-produced runtime bundle;
 - the bundle inventory JSON and shell projection;
@@ -656,8 +656,9 @@ the call. The unchanged consumer comparison is bound to My Second Brain commit
 An independent fixture reader enumerates the 61 committed baseline files and
 compares every payload-relative path, byte sequence, executable bit, and
 framed payload digest. Workspace bundles must also be byte-identical because
-the Bun and lock inputs are pinned. The migrated producer may not generate its
-own expected values.
+the Bun and lock inputs are pinned. Generated inventory bytes and executable
+modes must remain byte-for-byte equal to that same baseline. The migrated
+producer may not generate its own expected values.
 
 ### Required focused proof
 

@@ -17,7 +17,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs"
-import { dirname, join, resolve, sep } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { createHash } from "node:crypto"
 import type {
   PayloadCheckRequest,
@@ -82,7 +82,7 @@ const prefixed = (hex: string): `sha256:${string}` => `sha256:${hex}`
 
 const generatedPluginPaths = new Set([
   ".claude-plugin/plugin.json",
-  ".agents/plugin.json",
+  ".codex-plugin/plugin.json",
   "skill-inventory.json",
   "runtime/bundle-inventory.json",
   "runtime/bundle-inventory.sh",
@@ -800,7 +800,7 @@ const bundleWorkspace = async (
   const plugin = closedResolutionPlugin(root, workspaceRoot, manifest, violations)
   let result: Awaited<ReturnType<typeof Bun.build>>
   try {
-    result = await Bun.build({ entrypoints: [entry], outdir: outputDirectory, naming: "bundle.js", target: "bun", format: "esm", splitting: false, sourcemap: "none", minify: { whitespace: true }, env: "disable", plugins: [plugin] })
+    result = await Bun.build({ entrypoints: [entry], outdir: outputDirectory, naming: "bundle.js", target: "bun", format: "esm", splitting: false, sourcemap: "none", minify: false, env: "disable", plugins: [plugin] })
   } catch (error) {
     throw new PayloadCandidateRefusal("bundle-refused", `bundle ${skillId} failed: ${error instanceof Error ? error.message : String(error)}`)
   }
@@ -808,7 +808,14 @@ const bundleWorkspace = async (
   if (!result.success) throw new PayloadCandidateRefusal("bundle-refused", `bundle ${skillId} failed to build`)
   const outputs = readdirSync(outputDirectory).sort(compareCodeUnits)
   if (outputs.length !== 1 || outputs[0] !== "bundle.js") throw new PayloadCandidateRefusal("bundle-refused", `bundle ${skillId} emitted an unexpected output`)
-  const bytes = readBytes(join(outputDirectory, "bundle.js"))
+  const rawBytes = readBytes(join(outputDirectory, "bundle.js"))
+  const rootPrefix = relative(process.cwd(), realpathSync(root)).replaceAll("\\", "/")
+  const text = new TextDecoder().decode(rawBytes)
+  const bytes = rootPrefix === ""
+    ? rawBytes
+    : new TextEncoder().encode(text.split("\n").map((line) =>
+        line.startsWith(`// ${rootPrefix}/`) ? `// ${line.slice(`// ${rootPrefix}/`.length)}` : line
+      ).join("\n"))
   validateBundleText(skillId, new TextDecoder().decode(bytes))
   const digest = sha256Hex(bytes)
   const stem = logicalEntryPath.slice("runtime/".length, -".js".length)
@@ -890,9 +897,9 @@ const inventoryShell = (bundles: Record<string, { path: string; bytes: number; s
   const cases = Object.keys(bundles).sort(compareCodeUnits).map((id) => {
     const bundle = bundles[id]
     if (bundle === undefined) throw new Error(`missing bundle record for ${id}`)
-    return `\t${shellQuote(id)})\n\tRUNTIME_BUNDLE_PATH=${shellQuote(bundle.path)}\n\tRUNTIME_BUNDLE_BYTES=${shellQuote(String(bundle.bytes))}\n\tRUNTIME_BUNDLE_SHA256=${shellQuote(bundle.sha256)}\n\t;;`
+    return `\t${shellQuote(id)})\n\t\tRUNTIME_BUNDLE_PATH=${shellQuote(bundle.path)}\n\t\tRUNTIME_BUNDLE_BYTES=${shellQuote(String(bundle.bytes))}\n\t\tRUNTIME_BUNDLE_SHA256=${shellQuote(bundle.sha256)}\n\t\t;;`
   }).join("\n")
-  return new TextEncoder().encode(`#!/bin/sh\n# Generated from bundle-inventory.json by Agent Plugin Kit.\nruntime_inventory_select_bundle() {\n\tcase "$1" in\n${cases}\n\t*) return 1 ;;\n\tesac\n}\n`)
+  return new TextEncoder().encode(`#!/bin/sh\n# Generated from bundle-inventory.json by scripts/build.ts. Edit workspace sources, then run bun run build.\nruntime_inventory_select_bundle() {\n\tcase "$1" in\n${cases}\n\t*) return 1 ;;\n\tesac\n}\n`)
 }
 
 const noticesText = (dependencies: readonly { name: string; version: string; license: string; licenseText?: string; noticeText?: string }[]): Uint8Array => {
@@ -1094,15 +1101,15 @@ const generatedPayloadFiles = (
 ): { rootGenerated: PayloadCandidateFile[]; pluginGenerated: PayloadCandidateFile[] } => ({
   pluginGenerated: [
     generatedFile(".claude-plugin/plugin.json", nativeClaudeManifest(configuration)),
-    generatedFile(".agents/plugin.json", nativeCodexManifest(configuration)),
-    generatedFile("skill-inventory.json", json({
+    generatedFile(".codex-plugin/plugin.json", nativeCodexManifest(configuration)),
+    generatedFile("skill-inventory.json", new TextEncoder().encode(`${JSON.stringify({
       schemaVersion: 1,
       skills: configuration.skills.map((skill) => ({ id: skill.id, execution: skill.production.kind === "model-only" ? "model-only" : "bun-backed", hookDependence: skill.hookDependence })),
-    })),
+    }, null, "\t")}\n`)),
     ...[...artifacts.values()].map((artifact) => generatedFile(artifact.path, artifact.bytes)),
     generatedFile("THIRD-PARTY-NOTICES.md", notices),
     generatedFile("runtime/bundle-inventory.json", bundleInventory),
-    generatedFile("runtime/bundle-inventory.sh", inventoryShell(bundles), true),
+    generatedFile("runtime/bundle-inventory.sh", inventoryShell(bundles)),
   ],
   rootGenerated: [
     generatedFile(".claude-plugin/marketplace.json", claudeMarketplace(configuration)),
@@ -1120,7 +1127,7 @@ const candidateProjections = (
   projection("runtime-lock", paths.runtimeLock, sourceBytes.get(paths.runtimeLock) as Uint8Array),
   projection("skill-inventory", paths.skillInventory, sourceBytes.get(paths.skillInventory) as Uint8Array),
   projection("bundle-inventory", "plugin/runtime/bundle-inventory.json", bundleInventory),
-  projection("native-manifest", "plugin/.agents/plugin.json", nativeCodexManifest(configuration)),
+  projection("native-manifest", "plugin/.codex-plugin/plugin.json", nativeCodexManifest(configuration)),
   projection("native-manifest", "plugin/.claude-plugin/plugin.json", nativeClaudeManifest(configuration)),
 ].sort(projectionOrder)
 

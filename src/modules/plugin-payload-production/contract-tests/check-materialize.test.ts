@@ -9,6 +9,7 @@ import {
 	cleanupFixture,
 	compareCodeUnits,
 	createPayloadFixture,
+	expectedBundleInventoryShell,
 	expectedClaudeManifest,
 	expectedClaudeMarketplace,
 	expectedCodexManifest,
@@ -62,8 +63,8 @@ const declarationOrder = (left: PreparedProjectionDeclaration, right: PreparedPr
 const ownedOutputPaths = [
 	".agents/plugins/marketplace.json",
 	".claude-plugin/marketplace.json",
-	"plugin/.agents/plugin.json",
 	"plugin/.claude-plugin/plugin.json",
+	"plugin/.codex-plugin/plugin.json",
 	"plugin/THIRD-PARTY-NOTICES.md",
 	"plugin/runtime/bundle-inventory.json",
 	"plugin/runtime/bundle-inventory.sh",
@@ -99,7 +100,7 @@ const assertCandidateAgreement = (
 	const projections = [
 		...expectedSourceProjections(subject),
 		projectionDeclarationFor("bundle-inventory", "plugin/runtime/bundle-inventory.json", new Uint8Array(readFileSync(join(subject.root, "plugin/runtime/bundle-inventory.json")))),
-		projectionDeclarationFor("native-manifest", "plugin/.agents/plugin.json", new Uint8Array(readFileSync(join(subject.root, "plugin/.agents/plugin.json")))),
+		projectionDeclarationFor("native-manifest", "plugin/.codex-plugin/plugin.json", new Uint8Array(readFileSync(join(subject.root, "plugin/.codex-plugin/plugin.json")))),
 		projectionDeclarationFor("native-manifest", "plugin/.claude-plugin/plugin.json", new Uint8Array(readFileSync(join(subject.root, "plugin/.claude-plugin/plugin.json")))),
 	].sort(declarationOrder)
 	expect(candidate.projections).toEqual(projections)
@@ -161,7 +162,7 @@ test("CM02 produces a deterministic complete candidate for equal fixture inputs"
 	expect(secondResult.changedPaths).toEqual(firstResult.changedPaths)
 	expect(secondResult.removedPaths).toEqual(firstResult.removedPaths)
 	expect(readFileSync(join(first.root, "plugin/.claude-plugin/plugin.json"))).toEqual(readFileSync(join(second.root, "plugin/.claude-plugin/plugin.json")))
-	expect(readFileSync(join(first.root, "plugin/.agents/plugin.json"))).toEqual(readFileSync(join(second.root, "plugin/.agents/plugin.json")))
+	expect(readFileSync(join(first.root, "plugin/.codex-plugin/plugin.json"))).toEqual(readFileSync(join(second.root, "plugin/.codex-plugin/plugin.json")))
 })
 
 test("CM03 renders exactly four manifests and preserves hook and native inputs", async () => {
@@ -170,15 +171,15 @@ test("CM03 renders exactly four manifests and preserves hook and native inputs",
 	expect(readFileSync(join(subject.root, ".claude-plugin/marketplace.json"), "utf8")).toBe(expectedClaudeMarketplace)
 	expect(readFileSync(join(subject.root, ".agents/plugins/marketplace.json"), "utf8")).toBe(expectedCodexMarketplace)
 	expect(readFileSync(join(subject.pluginRoot, ".claude-plugin/plugin.json"), "utf8")).toBe(expectedClaudeManifest)
-	expect(readFileSync(join(subject.pluginRoot, ".agents/plugin.json"), "utf8")).toBe(expectedCodexManifest)
+	expect(readFileSync(join(subject.pluginRoot, ".codex-plugin/plugin.json"), "utf8")).toBe(expectedCodexManifest)
 	expect(readFileSync(join(subject.pluginRoot, "hooks/claude/hooks.json"), "utf8")).toBe('{"hooks":["claude"]}\n')
 	expect(readFileSync(join(subject.pluginRoot, "hooks/codex/hooks.json"), "utf8")).toBe('{"hooks":["codex"]}\n')
 	expect(readFileSync(join(subject.pluginRoot, "native/capability.json"), "utf8")).toBe('{"capability":"fixture-native"}\n')
 	expect(ownedOutputPaths.filter((path) => path.endsWith("marketplace.json") || path.endsWith("plugin.json"))).toEqual([
 		".agents/plugins/marketplace.json",
 		".claude-plugin/marketplace.json",
-		"plugin/.agents/plugin.json",
 		"plugin/.claude-plugin/plugin.json",
+		"plugin/.codex-plugin/plugin.json",
 	])
 })
 
@@ -258,7 +259,8 @@ test("CM08 returns complete file, projection, owned-file, mode, and framed-diges
 	const result = await expectMaterialized(subject)
 	assertCandidateAgreement(subject, result.candidate)
 	const shell = result.candidate.files.find((file) => file.path === "runtime/bundle-inventory.sh")
-	expect(shell?.executable).toBe(true)
+	expect(shell?.executable).toBe(false)
+	expect(readFileSync(join(subject.pluginRoot, "runtime/bundle-inventory.sh"), "utf8")).toBe(expectedBundleInventoryShell)
 	const pluginFiles = observedPluginFiles(subject)
 	expect(result.candidate.payloadSha256).toBe(`sha256:${independentFramedDigest(pluginFiles)}`)
 })
@@ -346,18 +348,18 @@ test("CM12 materializes changed outputs then converges to an equal no-op", async
 	}
 })
 
-test("CM13 preserves executable mode evidence and repairs a changed generated mode", async () => {
+test("CM13 preserves non-executable inventory mode evidence and repairs a changed generated mode", async () => {
 	const subject = fixture()
 	const first = await expectMaterialized(subject)
-	expect(first.candidate.files.find((file) => file.path === "runtime/bundle-inventory.sh")?.executable).toBe(true)
-	expect((statSync(join(subject.pluginRoot, "runtime/bundle-inventory.sh")).mode & 0o111) !== 0).toBe(true)
-	chmodSync(join(subject.pluginRoot, "runtime/bundle-inventory.sh"), 0o644)
+	expect(first.candidate.files.find((file) => file.path === "runtime/bundle-inventory.sh")?.executable).toBe(false)
+	expect((statSync(join(subject.pluginRoot, "runtime/bundle-inventory.sh")).mode & 0o111) !== 0).toBe(false)
+	chmodSync(join(subject.pluginRoot, "runtime/bundle-inventory.sh"), 0o755)
 	const drift = await produceCheck(subject)
 	expectRefusal(drift, "payload-outdated")
 	if (drift.kind === "refused" && drift.code === "payload-outdated") expect(drift.paths).toContain("plugin/runtime/bundle-inventory.sh")
 	const repaired = await expectMaterialized(subject)
 	expect(repaired.changedPaths).toContain("plugin/runtime/bundle-inventory.sh")
-	expect((statSync(join(subject.pluginRoot, "runtime/bundle-inventory.sh")).mode & 0o111) !== 0).toBe(true)
+	expect((statSync(join(subject.pluginRoot, "runtime/bundle-inventory.sh")).mode & 0o111) !== 0).toBe(false)
 })
 
 const materializationInterruptionPoints = [
