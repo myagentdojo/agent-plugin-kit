@@ -118,9 +118,9 @@ const failureActions: Readonly<Record<PayloadFailureCode, string>> = {
   "publication-unobservable": "Inspect dist/ before repeating payload:package.",
 }
 
-const refused = (code: PayloadRefusalCode, detail: string, paths: readonly string[] = []): Refused =>
+const refused = (code: PayloadRefusalCode, detail: string, paths: readonly string[] = [], nextAction?: string): Refused =>
   code === "payload-outdated"
-    ? { kind: "refused", code, paths: [...paths].sort(compareCodeUnits), detail, nextAction: refusalActions[code] }
+    ? { kind: "refused", code, paths: [...paths].sort(compareCodeUnits), detail, nextAction: nextAction ?? refusalActions[code] }
     : { kind: "refused", code, detail, nextAction: refusalActions[code] }
 
 const failed = (failure: PayloadFailure): Failed => ({
@@ -1004,7 +1004,7 @@ export function createPluginPayloadProduction(
         if (request.mode === "materialize") return await materializePayload(request, options)
         return await packagePayload(request, options)
       } catch (error) {
-        if (error instanceof PayloadCandidateRefusal) return refused(error.code, error.detail, error.paths)
+        if (error instanceof PayloadCandidateRefusal) return refused(error.code, error.detail, error.paths, error.nextAction)
         if (error instanceof MaterializationPublishError) return materializationFailed(error)
         if (error instanceof PayloadRefusal) return refused(error.code, error.detail)
         if (error instanceof PayloadFailure) return failed(error)
