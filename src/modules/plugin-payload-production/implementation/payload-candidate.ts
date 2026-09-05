@@ -50,7 +50,12 @@ export type PayloadCandidateBuild = {
 }
 
 export class PayloadCandidateRefusal extends Error {
-  constructor(readonly code: PayloadRefusalCode, readonly detail: string, readonly paths: readonly string[] = []) {
+  constructor(
+    readonly code: PayloadRefusalCode,
+    readonly detail: string,
+    readonly paths: readonly string[] = [],
+    readonly nextAction?: string,
+  ) {
     super(detail)
     this.name = "PayloadCandidateRefusal"
   }
@@ -92,6 +97,8 @@ const generatedRepositoryPaths = new Set([
   ".claude-plugin/marketplace.json",
   ".agents/plugins/marketplace.json",
 ])
+const legacyCodexManifestPath = ".agents/plugin.json"
+const legacyCodexManifestRepositoryPath = `plugin/${legacyCodexManifestPath}`
 const managedBundlePattern = /^([a-z0-9]+(?:-[a-z0-9]+)*)-[a-f0-9]{16}\.js$/u
 const skillIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 const imagePathPattern = /^\.\/assets\/[a-z0-9]+(?:-[a-z0-9]+)*\.svg$/u
@@ -1014,6 +1021,21 @@ const existingPluginFiles = (pluginRoot: string, selectedBundles: ReadonlySet<st
     return true
   })
 
+const refuseLegacyCodexManifest = (pluginRoot: string): void => {
+  try {
+    lstatSync(join(pluginRoot, legacyCodexManifestPath))
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return
+    throw error
+  }
+  throw new PayloadCandidateRefusal(
+    "payload-outdated",
+    `${legacyCodexManifestRepositoryPath}: legacy Codex manifest is preserved and requires explicit operator repair`,
+    [legacyCodexManifestRepositoryPath],
+    `Inspect and remove ${legacyCodexManifestRepositoryPath} if it is obsolete, then repeat payload:check or payload:materialize.`,
+  )
+}
+
 const sameFile = (left: PayloadCandidateFile | undefined, right: PayloadCandidateFile | undefined): boolean =>
   left !== undefined && right !== undefined && left.executable === right.executable && Buffer.compare(left.bytes, right.bytes) === 0
 
@@ -1194,6 +1216,7 @@ export async function buildPayloadCandidate(request: PayloadCandidateRequest): P
   validateConfiguration(request.configuration)
   const root = normalizeRoot(request.repositoryRoot)
   const pluginRoot = normalizePluginRoot(root)
+  refuseLegacyCodexManifest(pluginRoot)
   return await createModelOnlyCandidate(root, pluginRoot, request.configuration, request.sourceProjectionPaths)
 }
 

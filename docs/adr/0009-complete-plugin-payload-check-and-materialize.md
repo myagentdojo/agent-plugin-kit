@@ -430,6 +430,12 @@ Invalid or unsafe ownership evidence is a refusal, not deletion. Product-authore
 files, prepared runtime entries, hook declarations, native capability fixtures,
 and every path outside that removal set are preserved.
 
+The obsolete `plugin/.agents/plugin.json` Codex manifest is outside the owned
+removal set. If it exists, check and materialize preserve it and return
+`payload-outdated` before any write. The refusal names that exact path and tells
+the operator to inspect and remove the legacy manifest before retrying; the Kit
+never deletes it automatically.
+
 A missing bundle inventory contributes an empty removal set and never grants
 deletion authority. If the remaining payload contains an unclaimed bundle,
 check returns `payload-outdated`. Materialize detects the same unclaimed bundle

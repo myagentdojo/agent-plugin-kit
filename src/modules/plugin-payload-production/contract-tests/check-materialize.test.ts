@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { chmodSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { PayloadProductionResult, PreparedProjectionDeclaration } from "../interface"
 import { createPluginPayloadProduction } from "../implementation/plugin-payload-production"
@@ -326,6 +326,22 @@ test("CM11 orders drift paths and gives no deletion authority to a missing inven
 	const removed = await expectMaterialized(stale)
 	expect(removed.removedPaths).toEqual([`plugin/${stalePath}`])
 	expect(existsSync(join(stale.pluginRoot, stalePath))).toBe(false)
+
+	const legacy = fixture()
+	const legacyManifestPath = join(legacy.pluginRoot, ".agents/plugin.json")
+	mkdirSync(join(legacy.pluginRoot, ".agents"), { recursive: true })
+	writeFileSync(legacyManifestPath, '{"name":"legacy-codex-manifest"}\n')
+	const legacyBefore = snapshotRepository(legacy.root)
+	for (const result of [await produceCheck(legacy), await produceMaterialize(legacy)]) {
+		expectRefusal(result, "payload-outdated")
+		if (result.kind === "refused" && result.code === "payload-outdated") {
+			expect(result.paths).toEqual(["plugin/.agents/plugin.json"])
+			expect(result.detail).toContain("plugin/.agents/plugin.json")
+			expect(result.nextAction).toContain("Inspect and remove plugin/.agents/plugin.json")
+		}
+		expect(snapshotRepository(legacy.root)).toEqual(legacyBefore)
+		expect(readFileSync(legacyManifestPath, "utf8")).toBe('{"name":"legacy-codex-manifest"}\n')
+	}
 })
 
 test("CM12 materializes changed outputs then converges to an equal no-op", async () => {
