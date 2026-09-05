@@ -230,6 +230,17 @@ const childrenOf = (pid: number): number[] => {
   const result = Bun.spawnSync({ cmd: ["pgrep", "-P", String(pid)], stdout: "pipe", stderr: "pipe" })
   return result.stdout.toString().split("\n").map((line) => Number.parseInt(line, 10)).filter((value) => Number.isInteger(value))
 }
+const descendantsOf = (pid: number): number[] => {
+  const descendants: number[] = []
+  const pending = childrenOf(pid)
+  while (pending.length > 0) {
+    const child = pending.shift()
+    if (child === undefined || descendants.includes(child)) continue
+    descendants.push(child)
+    pending.push(...childrenOf(child))
+  }
+  return descendants
+}
 const commandOf = (pid: number): string =>
   Bun.spawnSync({ cmd: ["ps", "-o", "comm=", "-p", String(pid)], stdout: "pipe", stderr: "pipe" }).stdout.toString().trim()
 /**
@@ -237,7 +248,7 @@ const commandOf = (pid: number): string =>
  * compressor is identified by its command name rather than by child order.
  */
 const compressorChildOf = (pid: number): number | undefined =>
-  childrenOf(pid).find((child) => commandOf(child).split("/").at(-1) === "gzip")
+  descendantsOf(pid).find((child) => commandOf(child).split("/").at(-1) === "gzip")
 const waitUntil = async (condition: () => boolean, budgetMs: number): Promise<boolean> => {
   const started = performance.now()
   while (performance.now() - started < budgetMs) {

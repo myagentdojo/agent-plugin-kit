@@ -13,8 +13,8 @@ import { literalBranchKinds, literalBranchStationIds, literalDeclaredUnreachable
 
 const implemented = (claim: string) => expect(projectStationMap, `implemented: ${claim}`).toBeFunction()
 
-test("catalog declares exactly 118 deterministic station rows", () => {
-  expect(branchStationCatalog).toHaveLength(118)
+test("catalog declares exactly 119 deterministic station rows", () => {
+  expect(branchStationCatalog).toHaveLength(119)
   expect(branchStationCatalog.map(({ stationId }) => String(stationId))).toEqual([...literalBranchStationIds])
   expect(branchStationCatalog.every(({ commandId, expectedResultCode, classification }) =>
     isDeclaredBranchStation({ commandId, resultCode: expectedResultCode, classification }),
@@ -47,9 +47,9 @@ test("catalog declares exactly 118 deterministic station rows", () => {
   expect(canonicalNextActionFor("help", "runtime-repair-unneeded")).toBeUndefined()
   implemented("Station Map projection consumes the closed catalog")
 })
-test("required current-stage scenarios are help, usage, and the two real-process package stations", () => {
+test("required current-stage scenarios include check, materialize, and package real-process stations", () => {
   expect(branchStationCatalog.filter(({ reachability }) => reachability === "required").map(({ stationId }) => stationId)).toEqual([...literalRequiredStationIds])
-  const packageFaultStations = branchStationCatalog.filter(({ commandId, reachability }) => commandId === "payload:package" && reachability === "implementation-deferred")
+  const packageFaultStations = branchStationCatalog.filter(({ commandId, reachability, expectedResultCode }) => commandId === "payload:package" && reachability === "implementation-deferred" && expectedResultCode !== "previewed")
   expect(packageFaultStations.map(({ expectedResultCode }) => expectedResultCode)).toEqual(["retry-deferred", "continuation-required", "recovery-required", "runtime-failed"])
   expect(packageFaultStations.every(({ skipRationale }) => skipRationale?.includes("fault Adapters"))).toBe(true)
   const deferred = branchStationCatalog.find(({ reachability }) => reachability === "implementation-deferred")
@@ -89,7 +89,7 @@ test("required current-stage scenarios are help, usage, and the two real-process
   expect(drifted.observedBranchCoverage).toBe(0)
   expect(drifted.stations.find(({ stationId }) => stationId === "help.previewed")?.status).toBe("drifted")
 })
-test("declared unreachable rows retain the seven literal rationales", () => {
+test("declared unreachable rows retain the literal rationales", () => {
   const actual = Object.fromEntries(branchStationCatalog
     .filter(({ reachability }) => reachability === "declared-unreachable")
     .map(({ stationId, skipRationale, governingInterface }) => [stationId, {
@@ -145,6 +145,12 @@ test("five deferred owner proofs retain selectors rationales and Non-Claims", ()
 test("catalog never infers availability from request inputs", () => {
   expect(branchStationCatalog.every(({ governingInterface }) => governingInterface.endsWith("/interface.ts"))).toBe(true)
   const inspectionCommands = new Set(["help", "payload:check", "runtime:repair", "release:inspect", "harness:claude:inspect", "harness:codex:inspect", "canary:inspect"])
-  expect(branchStationCatalog.every(({ commandId, mutationExpectation }) => mutationExpectation.kind === (commandId === "maintenance" ? "none" : inspectionCommands.has(commandId) ? "preview" : "result"))).toBe(true)
+  expect(branchStationCatalog.every(({ commandId, expectedResultCode, mutationExpectation }) => mutationExpectation.kind === (
+    commandId === "maintenance"
+      ? "none"
+      : inspectionCommands.has(commandId) || (commandId === "payload:package" && expectedResultCode === "previewed")
+        ? "preview"
+        : "result"
+  ))).toBe(true)
   implemented("Station Map reconciles evidence without synthetic coverage")
 })

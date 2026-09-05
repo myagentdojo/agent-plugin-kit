@@ -12,7 +12,7 @@ export const literalCommandRows = [
   ["help", "help", "inspect", "inspect", null, "help.choose-command"],
   ["payload check", "payload:check", "inspect", "inspect", null, "payload-check.inspect-result"],
   ["payload materialize", "payload:materialize", "apply", "repository-local", "payload check", "payload-materialize.inspect-result"],
-  ["payload package", "payload:package", "apply", "repository-local", "payload check", "payload-package.inspect-result"],
+  ["payload package", "payload:package", "apply", "repository-local", null, "payload-package.inspect-result"],
   ["runtime repair", "runtime:repair", "inspect", "inspect", null, "runtime-repair.inspect-result"],
   ["runtime repair --apply", "runtime:repair-apply", "apply", "external", "runtime repair", "runtime-repair-apply.inspect-result"],
   ["release inspect", "release:inspect", "inspect", "inspect", null, "release-inspect.review-preview"],

@@ -1,7 +1,17 @@
 import { expect, test } from "bun:test"
+import type { CommandPreview, CommandResult, MaintenanceApplyRequest, MaintenanceCommand } from "../interface"
 import type { PayloadProductionResult } from "../../plugin-payload-production/interface"
 import { createMaintenanceContractHarness } from "./adapters/mutation-recording-module-adapter"
-import { literalPackageRequest, mutatingRequests } from "./fixtures/literal-command-results"
+import {
+  literalPackageRequest,
+  literalPayloadCandidate,
+  literalPayloadCheckCommand,
+  mutatingRequests,
+} from "./fixtures/literal-command-results"
+import {
+  createMaintenanceCommands,
+  type MaintenanceCommandDependencies,
+} from "../implementation/maintenance-commands"
 
 const packageApply = mutatingRequests.package
 const applyWith = async (payloadResult: PayloadProductionResult) => {
@@ -24,8 +34,8 @@ const completePackaged = (): Extract<PayloadProductionResult, { kind: "packaged"
 
 test("M01 a checked or materialized owner result cannot complete a package apply", async () => {
   for (const wrong of [
-    { kind: "checked", nextAction: "Inspect the payload." },
-    { kind: "materialized", nextAction: "Inspect the payload." },
+    { kind: "checked", candidate: literalPayloadCandidate, nextAction: "Inspect the payload." },
+    { kind: "materialized", candidate: literalPayloadCandidate, changedPaths: [], removedPaths: [], unchangedPaths: [], nextAction: "Inspect the payload." },
   ] as const) {
     const { harness, outcome } = await applyWith(wrong)
     expect(outcome).toMatchObject({
@@ -124,4 +134,481 @@ test("M05 an unobservable publication maps to recovery without a fabricated comp
       remainingEffectIds: ["effect:payload-checksums-published"],
     },
   })
+})
+
+const createPayloadOnlyCommands = (ownerResult: PayloadProductionResult) => {
+  const payloadCalls: unknown[] = []
+  const unexpectedCollaboratorCall = async (): Promise<never> => {
+    throw new Error("unexpected collaborator call")
+  }
+  const dependencies: MaintenanceCommandDependencies = {
+    payload: {
+      async produce(request) {
+        if (request.mode === "materialize") payloadCalls.push(request)
+        return ownerResult
+      },
+    },
+    runtime: unexpectedCollaboratorCall,
+    release: {
+      inspect: unexpectedCollaboratorCall,
+      apply: unexpectedCollaboratorCall,
+    },
+    harness: {
+      inspect: unexpectedCollaboratorCall,
+      apply: unexpectedCollaboratorCall,
+    },
+    canary: {
+      inspect: unexpectedCollaboratorCall,
+      qualify: unexpectedCollaboratorCall,
+    },
+  }
+  return { commands: createMaintenanceCommands(dependencies), payloadCalls }
+}
+
+const materializeApply = mutatingRequests.materialize as Extract<
+  MaintenanceApplyRequest,
+  { command: "payload:materialize" }
+>
+
+const payloadResultMappingRows = [
+    {
+      name: "checked",
+      mode: "inspect",
+      command: literalPayloadCheckCommand,
+      ownerResult: {
+        kind: "checked",
+        candidate: literalPayloadCandidate,
+        nextAction: "Inspect the payload.",
+      },
+      expected: {
+        status: "ok",
+        resultCode: "previewed",
+        stationId: "payload-check.previewed",
+        expectedEffectIds: [],
+        transactionState: "unchanged",
+        nextActionId: "payload-check.inspect-result",
+      },
+      projection: {
+        kind: "checked",
+        candidatePayloadSha256: literalPayloadCandidate.payloadSha256,
+      },
+    },
+    {
+      name: "payload-outdated refusal",
+      mode: "inspect",
+      command: literalPayloadCheckCommand,
+      ownerResult: {
+        kind: "refused",
+        code: "payload-outdated",
+        paths: ["plugin/skill-inventory.json"],
+        detail: "Bundle inventory is stale.",
+        nextAction: "Run payload:materialize.",
+      },
+      expected: {
+        status: "error",
+        resultCode: "command-refused",
+        stationId: "payload-check.command-refused",
+        failureClass: "refusal",
+        transactionState: "unchanged",
+        retrySafety: "requires-fresh-inspection",
+        exitCodeHint: 21,
+        nextActionId: "maintenance.inspect-refusal",
+      },
+    },
+    {
+      name: "input refusal",
+      mode: "apply",
+      command: materializeApply,
+      ownerResult: {
+        kind: "refused",
+        code: "configuration-invalid",
+        detail: "hookDeclarationPaths must be unique.",
+        nextAction: "Repair the Plugin Payload configuration.",
+      },
+      expected: {
+        status: "error",
+        resultCode: "command-refused",
+        stationId: "payload-materialize.command-refused",
+        failureClass: "refusal",
+        transactionState: "unchanged",
+        retrySafety: "requires-fresh-inspection",
+        exitCodeHint: 21,
+        nextActionId: "maintenance.inspect-refusal",
+      },
+    },
+    {
+      name: "materialized",
+      mode: "apply",
+      command: materializeApply,
+      ownerResult: {
+        kind: "materialized",
+        candidate: literalPayloadCandidate,
+        changedPaths: [".claude-plugin/marketplace.json"],
+        removedPaths: [],
+        unchangedPaths: [".agents/plugins/marketplace.json"],
+        nextAction: "Inspect the payload.",
+      },
+      expected: {
+        status: "ok",
+        resultCode: "completed",
+        stationId: "payload-materialize.completed",
+        completedEffectIds: ["effect:payload-materialized"],
+        remainingEffectIds: [],
+        transactionState: "completed",
+        nextActionId: "payload-materialize.inspect-result",
+      },
+      projection: {
+        kind: "materialized",
+        candidatePayloadSha256: literalPayloadCandidate.payloadSha256,
+        changedPaths: [".claude-plugin/marketplace.json"],
+        removedPaths: [],
+        unchangedPaths: [".agents/plugins/marketplace.json"],
+      },
+    },
+    {
+      name: "transient none",
+      mode: "apply",
+      command: materializeApply,
+      ownerResult: {
+        kind: "materialization-failed",
+        code: "materialization-staging-failed",
+        state: "none",
+        transient: true,
+        changedPaths: [],
+        remainingPaths: [".claude-plugin/marketplace.json"],
+        nextAction: "Retry payload:materialize.",
+      },
+      expected: {
+        status: "error",
+        resultCode: "retry-deferred",
+        stationId: "payload-materialize.retry-deferred",
+        failureClass: "transient",
+        transactionState: "unchanged",
+        retrySafety: "safe",
+        exitCodeHint: 22,
+        nextActionId: "maintenance.retry-command",
+      },
+    },
+    {
+      name: "non-transient none",
+      mode: "apply",
+      command: materializeApply,
+      ownerResult: {
+        kind: "materialization-failed",
+        code: "materialization-interrupted",
+        state: "none",
+        transient: false,
+        changedPaths: [],
+        remainingPaths: [".claude-plugin/marketplace.json"],
+        nextAction: "Repair the interrupted materialization.",
+      },
+      expected: {
+        status: "error",
+        resultCode: "command-refused",
+        stationId: "payload-materialize.command-refused",
+        failureClass: "refusal",
+        transactionState: "unchanged",
+        retrySafety: "requires-fresh-inspection",
+        exitCodeHint: 21,
+        nextActionId: "maintenance.inspect-refusal",
+      },
+    },
+    {
+      name: "partial",
+      mode: "apply",
+      command: materializeApply,
+      ownerResult: {
+        kind: "materialization-failed",
+        code: "materialization-interrupted",
+        state: "partial",
+        transient: false,
+        changedPaths: [".agents/plugins/marketplace.json"],
+        remainingPaths: [".claude-plugin/marketplace.json"],
+        nextAction: "Repeat payload:materialize to finish the remaining files.",
+      },
+      expected: {
+        status: "error",
+        resultCode: "continuation-required",
+        stationId: "payload-materialize.continuation-required",
+        failureClass: "continuation",
+        transactionState: "partially-completed",
+        retrySafety: "unsafe",
+        exitCodeHint: 20,
+        completedEffectIds: [],
+        remainingEffectIds: ["effect:payload-materialized"],
+        nextActionId: "maintenance.inspect-continuation",
+      },
+    },
+    {
+      name: "unknown",
+      mode: "apply",
+      command: materializeApply,
+      ownerResult: {
+        kind: "materialization-failed",
+        code: "materialization-state-unobservable",
+        state: "unknown",
+        transient: false,
+        changedPaths: null,
+        remainingPaths: null,
+        nextAction: "Run payload:check to observe the current state.",
+      },
+      expected: {
+        status: "error",
+        resultCode: "recovery-required",
+        stationId: "payload-materialize.recovery-required",
+        failureClass: "recovery",
+        transactionState: "unknown",
+        retrySafety: "requires-fresh-inspection",
+        exitCodeHint: 20,
+        nextActionId: "maintenance.inspect-recovery",
+      },
+    },
+    {
+      name: "materialize packaged result",
+      mode: "apply",
+      command: materializeApply,
+      ownerResult: completePackaged(),
+      expected: {
+        status: "error",
+        resultCode: "runtime-failed",
+        stationId: "payload-materialize.runtime-failed",
+        failureClass: "unexpected",
+        transactionState: "unknown",
+        retrySafety: "unsafe",
+        exitCodeHint: 1,
+        nextActionId: "maintenance.contact-support",
+      },
+    },
+    {
+      name: "materialize checked result",
+      mode: "apply",
+      command: materializeApply,
+      ownerResult: {
+        kind: "checked",
+        candidate: literalPayloadCandidate,
+        nextAction: "Inspect the payload.",
+      },
+      expected: {
+        status: "error",
+        resultCode: "runtime-failed",
+        stationId: "payload-materialize.runtime-failed",
+        failureClass: "unexpected",
+        transactionState: "unknown",
+        retrySafety: "unsafe",
+        exitCodeHint: 1,
+        nextActionId: "maintenance.contact-support",
+      },
+    },
+    {
+      name: "check materialized result",
+      mode: "inspect",
+      command: literalPayloadCheckCommand,
+      ownerResult: {
+        kind: "materialized",
+        candidate: literalPayloadCandidate,
+        changedPaths: [],
+        removedPaths: [],
+        unchangedPaths: [],
+        nextAction: "Inspect the payload.",
+      },
+      expected: {
+        status: "error",
+        resultCode: "runtime-failed",
+        stationId: "payload-check.runtime-failed",
+        failureClass: "unexpected",
+        transactionState: "unknown",
+        retrySafety: "unsafe",
+        exitCodeHint: 1,
+        nextActionId: "maintenance.contact-support",
+      },
+    },
+    {
+      name: "check packaged result",
+      mode: "inspect",
+      command: literalPayloadCheckCommand,
+      ownerResult: completePackaged(),
+      expected: {
+        status: "error",
+        resultCode: "runtime-failed",
+        stationId: "payload-check.runtime-failed",
+        failureClass: "unexpected",
+        transactionState: "unknown",
+        retrySafety: "unsafe",
+        exitCodeHint: 1,
+        nextActionId: "maintenance.contact-support",
+      },
+    },
+    {
+      name: "materialized result with empty digest",
+      mode: "apply",
+      command: materializeApply,
+      ownerResult: {
+        kind: "materialized",
+        candidate: { ...literalPayloadCandidate, payloadSha256: "" },
+        changedPaths: [],
+        removedPaths: [],
+        unchangedPaths: [],
+        nextAction: "Inspect the payload.",
+      } as unknown as PayloadProductionResult,
+      expected: {
+        status: "error",
+        resultCode: "runtime-failed",
+        stationId: "payload-materialize.runtime-failed",
+        failureClass: "unexpected",
+        transactionState: "unknown",
+        retrySafety: "unsafe",
+        exitCodeHint: 1,
+        nextActionId: "maintenance.contact-support",
+      },
+    },
+    {
+      name: "materialized result with malformed files",
+      mode: "apply",
+      command: materializeApply,
+      ownerResult: {
+        kind: "materialized",
+        candidate: { ...literalPayloadCandidate, files: "not-an-array" },
+        changedPaths: [],
+        removedPaths: [],
+        unchangedPaths: [],
+        nextAction: "Inspect the payload.",
+      } as unknown as PayloadProductionResult,
+      expected: {
+        status: "error",
+        resultCode: "runtime-failed",
+        stationId: "payload-materialize.runtime-failed",
+        failureClass: "unexpected",
+        transactionState: "unknown",
+        retrySafety: "unsafe",
+        exitCodeHint: 1,
+        nextActionId: "maintenance.contact-support",
+      },
+    },
+    {
+      name: "checked result with missing owned files",
+      mode: "inspect",
+      command: literalPayloadCheckCommand,
+      ownerResult: {
+        kind: "checked",
+        candidate: { ...literalPayloadCandidate, ownedFiles: undefined },
+        nextAction: "Inspect the payload.",
+      } as unknown as PayloadProductionResult,
+      expected: {
+        status: "error",
+        resultCode: "runtime-failed",
+        stationId: "payload-check.runtime-failed",
+        failureClass: "unexpected",
+        transactionState: "unknown",
+        retrySafety: "unsafe",
+        exitCodeHint: 1,
+        nextActionId: "maintenance.contact-support",
+      },
+    },
+  ] as const satisfies readonly {
+    name: string
+    mode: "inspect" | "apply"
+    command: MaintenanceCommand
+    ownerResult: PayloadProductionResult
+    expected: Record<string, unknown>
+    projection?: {
+      kind: "checked" | "materialized"
+      candidatePayloadSha256: string
+      changedPaths?: readonly string[]
+      removedPaths?: readonly string[]
+      unchangedPaths?: readonly string[]
+    }
+  }[]
+
+type PayloadOnlyCommands = ReturnType<typeof createPayloadOnlyCommands>["commands"]
+type PayloadMappingOutcome =
+  | Awaited<ReturnType<PayloadOnlyCommands["inspect"]>>
+  | Awaited<ReturnType<PayloadOnlyCommands["apply"]>>
+
+const normalizedPayloadOutcome = (outcome: PayloadMappingOutcome): Record<string, unknown> => {
+  if (outcome.status === "ok" && "expectedEffectIds" in outcome.value) {
+    const value = outcome.value as CommandPreview
+    return {
+      status: "ok",
+      resultCode: outcome.resultCode,
+      stationId: outcome.stationId,
+      expectedEffectIds: value.expectedEffectIds,
+      transactionState: value.transactionState,
+      nextActionId: value.nextAction.id,
+    }
+  }
+  if (outcome.status === "ok") {
+    const value = outcome.value as CommandResult
+    return {
+      status: "ok",
+      resultCode: outcome.resultCode,
+      stationId: outcome.stationId,
+      completedEffectIds: value.completedEffectIds,
+      remainingEffectIds: value.remainingEffectIds,
+      transactionState: value.transactionState,
+      nextActionId: value.nextAction.id,
+    }
+  }
+  const base = {
+    status: "error",
+    resultCode: outcome.resultCode,
+    stationId: outcome.stationId,
+    failureClass: outcome.error.failureClass,
+    transactionState: outcome.error.transactionState,
+    retrySafety: outcome.error.retrySafety,
+    exitCodeHint: outcome.error.exitCodeHint,
+    nextActionId: outcome.error.nextAction.id,
+  }
+  return outcome.error.completedEffectIds === undefined
+    ? base
+    : {
+        ...base,
+        completedEffectIds: outcome.error.completedEffectIds,
+        remainingEffectIds: outcome.error.remainingEffectIds,
+      }
+}
+
+test("MC01 one table maps every check and materialize owner result to its exact Station, state, effects, and next action", async () => {
+  const rows = payloadResultMappingRows
+
+  expect(rows.length).toBe(15)
+  let exercisedCount = 0
+  for (const row of rows) {
+    const { commands, payloadCalls } = createPayloadOnlyCommands(row.ownerResult)
+    const outcome = row.mode === "inspect"
+      ? await commands.inspect(row.command)
+      : await commands.apply(row.command)
+    expect(normalizedPayloadOutcome(outcome), row.name).toEqual(row.expected)
+    expect(payloadCalls).toEqual(row.mode === "apply" ? [materializeApply.request] : [])
+
+    if ("projection" in row) {
+      expect(outcome.status).toBe("ok")
+      if (outcome.status === "ok") {
+        expect(outcome.value.agent.kind).toBe(row.projection.kind)
+        if (row.projection.kind === "checked") {
+          const projected = outcome.value.agent.result as { candidate: { payloadSha256: string } }
+          expect(projected.candidate.payloadSha256).toBe(row.projection.candidatePayloadSha256)
+        } else {
+          const projected = outcome.value.agent.result as {
+            candidate: { payloadSha256: string }
+            changedPaths: readonly string[]
+            removedPaths: readonly string[]
+            unchangedPaths: readonly string[]
+          }
+          expect({
+            candidatePayloadSha256: projected.candidate.payloadSha256,
+            changedPaths: projected.changedPaths,
+            removedPaths: projected.removedPaths,
+            unchangedPaths: projected.unchangedPaths,
+          }).toEqual({
+            candidatePayloadSha256: row.projection.candidatePayloadSha256,
+            changedPaths: row.projection.changedPaths,
+            removedPaths: row.projection.removedPaths,
+            unchangedPaths: row.projection.unchangedPaths,
+          })
+        }
+      }
+    }
+    exercisedCount += 1
+  }
+  expect(exercisedCount).toBe(rows.length)
 })

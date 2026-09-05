@@ -27,6 +27,13 @@ import type {
   PreparedFileDeclaration,
   PreparedProjectionDeclaration,
 } from "../interface"
+import {
+  buildPayloadCandidate,
+  compareCandidate,
+  materializePayloadCandidate,
+  PayloadCandidateRefusal,
+  MaterializationPublishError,
+} from "./payload-candidate"
 
 /** Owner-local proof seams. Production composition uses the defaults only. */
 export type PayloadCompressor = {
@@ -34,12 +41,19 @@ export type PayloadCompressor = {
   deadlineMs: number
 }
 
-export type PayloadPublicationPoint = "staged" | "archive-published" | "checksums-published"
+export type PayloadPublicationPoint =
+  | "staged"
+  | "archive-published"
+  | "checksums-published"
+  | "materialization-staged"
+  | "materialization-file-published"
+  | "materialization-inventory-published"
+  | "materialization-verified"
 
 export type PluginPayloadProductionOptions = {
   compressor?: PayloadCompressor
   /** Test-only interruption seam invoked at each named publication point. */
-  interrupt?: (point: PayloadPublicationPoint) => void
+  interrupt?: (point: PayloadPublicationPoint, path?: string) => void
 }
 
 const defaultPayloadCompressor: PayloadCompressor = {
@@ -76,7 +90,6 @@ class PayloadFailure extends Error {
 }
 
 const refusalActions: Readonly<Record<PayloadRefusalCode, string>> = {
-  "mode-deferred": "Use payload:package; check and materialize are not implemented in this stage.",
   "repository-root-invalid": "Name an existing Plugin Repository directory as repositoryRoot.",
   "payload-root-invalid": "Prepare a regular plugin/ directory under the repository root.",
   "source-identity-mismatch": "Regenerate the preparation for the requested plugin Source Identity.",
@@ -90,6 +103,11 @@ const refusalActions: Readonly<Record<PayloadRefusalCode, string>> = {
   "file-mismatch": "Regenerate the preparation from the current plugin/ bytes and modes.",
   "projection-mismatch": "Regenerate the projection declarations from the current source inputs.",
   "output-conflict": "Inspect dist/ and move the conflicting artifact aside before repeating payload:package.",
+  "configuration-invalid": "Correct the normalized Plugin Payload configuration, then repeat payload:check or payload:materialize.",
+  "dependency-refused": "Restore the frozen lock or run bun install --frozen-lockfile from the Plugin Repository root, then repeat payload:check or payload:materialize.",
+  "bundle-refused": "Correct the workspace entry or bundle inputs, then repeat payload:check or payload:materialize.",
+  "payload-outdated": "Run payload:materialize to repair the Plugin Payload outputs, then repeat payload:check.",
+  "inventory-invalid": "Restore a valid bundle inventory or inspect the generated runtime outputs, then repeat payload:check or payload:materialize.",
 }
 
 const failureActions: Readonly<Record<PayloadFailureCode, string>> = {
@@ -100,12 +118,10 @@ const failureActions: Readonly<Record<PayloadFailureCode, string>> = {
   "publication-unobservable": "Inspect dist/ before repeating payload:package.",
 }
 
-const refused = (code: PayloadRefusalCode, detail: string): Refused => ({
-  kind: "refused",
-  code,
-  detail,
-  nextAction: refusalActions[code],
-})
+const refused = (code: PayloadRefusalCode, detail: string, paths: readonly string[] = []): Refused =>
+  code === "payload-outdated"
+    ? { kind: "refused", code, paths: [...paths].sort(compareCodeUnits), detail, nextAction: refusalActions[code] }
+    : { kind: "refused", code, detail, nextAction: refusalActions[code] }
 
 const failed = (failure: PayloadFailure): Failed => ({
   kind: "failed",
@@ -115,6 +131,42 @@ const failed = (failure: PayloadFailure): Failed => ({
   artifacts: failure.artifacts,
   nextAction: failureActions[failure.code],
 })
+
+const materializationFailed = (failure: MaterializationPublishError): PayloadProductionResult => {
+  if (failure.unknownState || failure.code === "materialization-state-unobservable") {
+    return {
+      kind: "materialization-failed",
+      code: "materialization-state-unobservable",
+      state: "unknown",
+      transient: false,
+      changedPaths: null,
+      remainingPaths: null,
+      nextAction: "Inspect the Plugin Repository outputs before repeating payload:materialize.",
+    }
+  }
+  const changedPaths = [...failure.publishedPaths].sort(compareCodeUnits)
+  const remainingPaths = [...failure.remainingPaths].sort(compareCodeUnits)
+  if (changedPaths.length === 0) {
+    return {
+      kind: "materialization-failed",
+      code: failure.code === "materialization-interrupted" ? "materialization-interrupted" : "materialization-staging-failed",
+      state: "none",
+      transient: failure.code === "materialization-staging-failed",
+      changedPaths: [],
+      remainingPaths,
+      nextAction: "Repeat payload:materialize after inspecting the Plugin Repository outputs.",
+    }
+  }
+  return {
+    kind: "materialization-failed",
+    code: failure.code === "materialization-staging-failed" ? "materialization-verification-failed" : failure.code,
+    state: "partial",
+    transient: false,
+    changedPaths: changedPaths as [string, ...string[]],
+    remainingPaths,
+    nextAction: "Repeat payload:materialize to complete the remaining Plugin Payload outputs.",
+  }
+}
 
 const compareCodeUnits = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0
@@ -907,19 +959,53 @@ async function packagePayload(
   })
 }
 
+async function checkPayload(
+  request: Extract<PayloadProductionRequest, { mode: "check" }>,
+): Promise<PayloadProductionResult> {
+  const build = await buildPayloadCandidate(request)
+  const comparison = compareCandidate(resolve(request.repositoryRoot), build)
+  if (comparison.changedPaths.length > 0 || comparison.removedPaths.length > 0) {
+    const paths = [...comparison.changedPaths, ...comparison.removedPaths].sort(compareCodeUnits)
+    throw new PayloadCandidateRefusal("payload-outdated", `Plugin Payload outputs differ at ${paths.join(", ")}`, paths)
+  }
+  return {
+    kind: "checked",
+    candidate: build.candidate,
+    nextAction: "Inspect the payload check result.",
+  }
+}
+
+async function materializePayload(
+  request: Extract<PayloadProductionRequest, { mode: "materialize" }>,
+  options: PluginPayloadProductionOptions,
+): Promise<PayloadProductionResult> {
+  const result = await materializePayloadCandidate(request, options.interrupt === undefined ? {} : { interrupt: options.interrupt })
+  return {
+    kind: "materialized",
+    candidate: result.build.candidate,
+    changedPaths: [...result.comparison.changedPaths].sort(compareCodeUnits),
+    removedPaths: [...result.comparison.removedPaths].sort(compareCodeUnits),
+    unchangedPaths: [...result.comparison.unchangedPaths].sort(compareCodeUnits),
+    nextAction: "Inspect the materialized Plugin Payload.",
+  }
+}
+
 /**
- * The Plugin Payload Production Implementation. Package mode is complete;
- * check and materialize remain deferred refusals until their own gate.
+ * The Plugin Payload Production Implementation. Check and materialize share
+ * one complete candidate builder; package keeps its source-bound contract.
  */
 export function createPluginPayloadProduction(
   options: PluginPayloadProductionOptions = {},
 ): PluginPayloadProduction {
   return {
     async produce(request: PayloadProductionRequest): Promise<PayloadProductionResult> {
-      if (request.mode !== "package") return refused("mode-deferred", `payload ${request.mode} is not implemented`)
       try {
+        if (request.mode === "check") return await checkPayload(request)
+        if (request.mode === "materialize") return await materializePayload(request, options)
         return await packagePayload(request, options)
       } catch (error) {
+        if (error instanceof PayloadCandidateRefusal) return refused(error.code, error.detail, error.paths)
+        if (error instanceof MaterializationPublishError) return materializationFailed(error)
         if (error instanceof PayloadRefusal) return refused(error.code, error.detail)
         if (error instanceof PayloadFailure) return failed(error)
         throw error

@@ -1,5 +1,5 @@
 export const sourceCheckoutAdmissionCases = {
-  admittedPayloadRefusal: { title: "admitted package checkout reaches the Payload refusal for a nonexistent payload root" },
+  admittedPayloadRefusal: { title: "an admitted checkout binds real payload check and materialize while package refusal stays owner-owned" },
   committedWrongPin: { title: "a committed wrong pin refuses source admission" },
   uncommittedRestoration: { title: "an uncommitted restored pin cannot authorize source admission" },
   committedRestoration: { title: "a committed restored pin reaches the Payload owner" },

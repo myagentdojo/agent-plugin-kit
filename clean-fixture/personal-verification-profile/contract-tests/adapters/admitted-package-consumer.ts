@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
@@ -104,13 +104,28 @@ export function createAdmittedPackageConsumer(): AdmittedPackageConsumer {
   const kitRoot = join(fixtureRoot, "kit")
   const consumerRoot = join(fixtureRoot, "consumer")
   const kitCommit = cloneWorkingTree(kitRoot, fixtureRoot)
+  const gitDirectory = join(fixtureRoot, "kit.git")
+  renameSync(join(kitRoot, ".git"), gitDirectory)
+  writeFileSync(join(kitRoot, ".git"), `gitdir: ${gitDirectory}\n`)
   mkdirSync(join(consumerRoot, "node_modules", ".bin"), { recursive: true })
   writeFileSync(join(consumerRoot, ".gitignore"), "node_modules\ndist\n")
   mkdirSync(join(consumerRoot, "dist"), { recursive: true })
   writeFileSync(join(consumerRoot, "dist", "generated.txt"), "allowed\n")
   symlinkSync(kitRoot, join(consumerRoot, "node_modules", "agent-plugin-kit"))
   const binary = join(consumerRoot, "node_modules", ".bin", "agent-plugin-kit")
-  symlinkSync(join(kitRoot, "src/adapters/maintenance-command-facade/maintenance.ts"), binary)
+  writeFileSync(binary, `#!/usr/bin/env bun
+const child = Bun.spawn([${JSON.stringify(join(kitRoot, "src/adapters/maintenance-command-facade/maintenance.ts"))}, ...process.argv.slice(2)], { cwd: process.cwd(), env: process.env, stdin: "inherit", stdout: "inherit", stderr: "inherit" })
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+  const forward = () => {
+    process.off(signal, forward)
+    child.kill(signal)
+    process.kill(process.pid, signal)
+  }
+  process.on(signal, forward)
+}
+process.exitCode = await child.exited
+`, { mode: 0o755 })
+  chmodSync(binary, 0o755)
   git(consumerRoot, "init", "-q")
   const commitAuthority = (commit: string): void => {
     writeFileSync(join(consumerRoot, "package.json"), `${JSON.stringify({ name: "consumer", dependencies: { "agent-plugin-kit": `git+${kitOrigin}#${commit}` } })}\n`)

@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test"
 import type {
+  PayloadCheckRequest,
   PayloadProductionRequest,
   PayloadProductionResult,
+  PluginPayloadConfiguration,
   PreparedPluginPayload,
 } from "../interface"
 import {
@@ -19,9 +21,40 @@ const sourceIdentity = {
   commit: "1111111111111111111111111111111111111111",
 }
 
-const request: PayloadProductionRequest = {
+const configuration = {
+  plugin: {
+    name: "example-plugin",
+    displayName: "Example Plugin",
+    version: "1.0.0",
+    description: "Example Plugin",
+    author: { name: "Example Author" },
+    repository: "https://github.com/myagentdojo/example-plugin",
+    license: "MIT",
+    keywords: ["example"],
+    category: "Developer Tools",
+    shortDescription: "Example Plugin",
+    longDescription: "Example Plugin for serialized value fixtures.",
+    capabilities: ["payload"],
+    defaultPrompts: ["Inspect the payload."],
+    brandColor: "#123456",
+    composerIcon: "./assets/example.svg",
+    logo: "./assets/example.svg",
+    hookDeclarationPaths: [],
+  },
+  skills: [{ id: "example", hookDependence: "hook-independent", production: { kind: "model-only" } }],
+} as const satisfies PluginPayloadConfiguration
+
+const sourceProjectionPaths = {
+  config: "plugin.config.json",
+  runtimeLock: "runtime.lock.json",
+  skillInventory: "skill-catalog.json",
+} as const
+
+const request: PayloadCheckRequest = {
   repositoryRoot: "/fixture/plugin",
   mode: "check",
+  configuration,
+  sourceProjectionPaths,
 }
 
 const packageRequest: PayloadProductionRequest = {
@@ -48,6 +81,12 @@ const prepared: PreparedPluginPayload = {
 
 const result: PayloadProductionResult = {
   kind: "checked",
+  candidate: {
+    files: [],
+    projections: [],
+    ownedFiles: [],
+    payloadSha256: hex("0"),
+  },
   nextAction: "Inspect the payload check result.",
 }
 

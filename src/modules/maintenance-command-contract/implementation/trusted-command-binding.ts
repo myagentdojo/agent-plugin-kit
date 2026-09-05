@@ -210,6 +210,11 @@ type CanaryQualifyWireCommand = Extract<WireCommand, { command: "canary:qualify"
 const isPayloadWireCommand = (command: WireCommand): command is PayloadWireCommand =>
 	command.command.startsWith("payload:")
 
+const isSourceCheckoutPayloadCommand = (command: WireCommand): command is PayloadWireCommand =>
+	command.command === "payload:check" ||
+	command.command === "payload:materialize" ||
+	command.command === "payload:package"
+
 const isRuntimeWireCommand = (command: WireCommand): command is RuntimeWireCommand =>
 	command.command.startsWith("runtime:")
 
@@ -411,12 +416,12 @@ export async function bindSourceCheckoutCommand(
   const command = parseWireCommand(value)
   if (command === undefined) return wireCommandRefusalFor(value)
   dependencies.trace?.("capability-check")
-  if (command.command !== "payload:package") return refusal("capability-insufficient")
+	if (!isSourceCheckoutPayloadCommand(command)) return refusal("capability-insufficient")
   dependencies.trace?.("admission")
   const admitted = await dependencies.admission()
   if (admitted.kind !== "admitted") return refusal("source-checkout-not-admitted")
   dependencies.trace?.("bind")
-  return { status: "bound", command: { command: "payload:package", request: command.request } }
+  return { status: "bound", command: boundPayloadCommandFor(command) }
 }
 
 /** Bind a command that has already crossed the structural parse boundary. */

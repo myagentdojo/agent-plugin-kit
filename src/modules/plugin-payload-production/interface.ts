@@ -52,16 +52,77 @@ export type PreparedPayloadDeclaration = {
   bindingSha256: `sha256:${string}`
 }
 
+export type PayloadCategory =
+  | "Productivity"
+  | "Creativity"
+  | "Developer Tools"
+  | "Business & Operations"
+  | "Data & Analytics"
+  | "Communication"
+  | "Education & Research"
+  | "Security"
+  | "Finance"
+  | "Healthcare"
+  | "Travel"
+  | "Entertainment"
+  | "Other"
+
+export type PayloadHookDependence = "hook-dependent" | "hook-independent"
+
+export type PluginPayloadMetadata = {
+  readonly name: string
+  readonly displayName: string
+  readonly version: string
+  readonly description: string
+  readonly author: { readonly name: string }
+  readonly repository: string
+  readonly license: string
+  readonly keywords: readonly string[]
+  readonly category: PayloadCategory
+  readonly shortDescription: string
+  readonly longDescription: string
+  readonly capabilities: readonly string[]
+  readonly defaultPrompts: readonly string[]
+  readonly brandColor: `#${string}`
+  readonly composerIcon: string
+  readonly logo: string
+  readonly hookDeclarationPaths: readonly string[]
+}
+
+export type PayloadSkillProduction =
+  | { readonly kind: "model-only" }
+  | { readonly kind: "workspace"; readonly workspacePath: string; readonly entryPath: string }
+  | { readonly kind: "prepared"; readonly entryPath: string }
+
+export type PluginPayloadSkillConfiguration = {
+  readonly id: string
+  readonly hookDependence: PayloadHookDependence
+  readonly production: PayloadSkillProduction
+}
+
+export type PluginPayloadConfiguration = {
+  readonly plugin: PluginPayloadMetadata
+  readonly skills: readonly PluginPayloadSkillConfiguration[]
+}
+
+export type PayloadSourceProjectionPaths = {
+  readonly config: string
+  readonly runtimeLock: string
+  readonly skillInventory: string
+}
+
 export type PayloadCheckRequest = {
-  repositoryRoot: string
+  readonly repositoryRoot: string
   mode: "check"
-  sourceIdentity?: SourceIdentity
+  readonly configuration: PluginPayloadConfiguration
+  readonly sourceProjectionPaths: PayloadSourceProjectionPaths
 }
 
 export type PayloadMaterializeRequest = {
-  repositoryRoot: string
+  readonly repositoryRoot: string
   mode: "materialize"
-  sourceIdentity?: SourceIdentity
+  readonly configuration: PluginPayloadConfiguration
+  readonly sourceProjectionPaths: PayloadSourceProjectionPaths
 }
 
 export type PayloadPackageRequest = {
@@ -82,6 +143,13 @@ export type PreparedPluginPayload = {
   payloadSha256: `sha256:${string}`
 }
 
+export type PreparedPayloadCandidate = {
+  readonly files: readonly PreparedFileDeclaration[]
+  readonly projections: readonly PreparedProjectionDeclaration[]
+  readonly ownedFiles: readonly PreparedFileDeclaration[]
+  readonly payloadSha256: `sha256:${string}`
+}
+
 export type PayloadArtifactRecord = {
   path: string
   bytes: number
@@ -95,7 +163,6 @@ export type PayloadArtifacts = {
 
 /** Refusals name invalid input or an output conflict and publish nothing. */
 export type PayloadRefusalCode =
-  | "mode-deferred"
   | "repository-root-invalid"
   | "payload-root-invalid"
   | "source-identity-mismatch"
@@ -109,6 +176,26 @@ export type PayloadRefusalCode =
   | "file-mismatch"
   | "projection-mismatch"
   | "output-conflict"
+  | "configuration-invalid"
+  | "dependency-refused"
+  | "bundle-refused"
+  | "payload-outdated"
+  | "inventory-invalid"
+
+export type PayloadRefusal =
+  | {
+      readonly kind: "refused"
+      readonly code: Exclude<PayloadRefusalCode, "payload-outdated">
+      readonly detail: string
+      readonly nextAction: string
+    }
+  | {
+      readonly kind: "refused"
+      readonly code: "payload-outdated"
+      readonly paths: readonly string[]
+      readonly detail: string
+      readonly nextAction: string
+    }
 
 /** Failures report the publication state actually observed. */
 export type PayloadFailureCode =
@@ -120,9 +207,54 @@ export type PayloadFailureCode =
 
 export type PayloadPublicationState = "none" | "archive-only" | "unknown"
 
+export type MaterializationFailure =
+  | {
+      readonly kind: "materialization-failed"
+      readonly code: "materialization-staging-failed" | "materialization-interrupted" | "materialization-verification-failed"
+      readonly state: "none"
+      readonly transient: boolean
+      readonly changedPaths: readonly []
+      readonly remainingPaths: readonly string[]
+      readonly nextAction: string
+    }
+  | {
+      readonly kind: "materialization-failed"
+      readonly code: "materialization-interrupted" | "materialization-verification-failed"
+      readonly state: "partial"
+      readonly transient: false
+      readonly changedPaths: readonly [string, ...string[]]
+      readonly remainingPaths: readonly string[]
+      readonly nextAction: string
+    }
+  | {
+      readonly kind: "materialization-failed"
+      readonly code: "materialization-state-unobservable"
+      readonly state: "unknown"
+      readonly transient: false
+      readonly changedPaths: null
+      readonly remainingPaths: null
+      readonly nextAction: string
+    }
+
+export type PayloadCheckResult =
+  | { readonly kind: "checked"; readonly candidate: PreparedPayloadCandidate; readonly nextAction: string }
+  | PayloadRefusal
+
+export type PayloadMaterializeResult =
+  | {
+      readonly kind: "materialized"
+      readonly candidate: PreparedPayloadCandidate
+      readonly changedPaths: readonly string[]
+      readonly removedPaths: readonly string[]
+      readonly unchangedPaths: readonly string[]
+      readonly nextAction: string
+    }
+  | PayloadRefusal
+  | MaterializationFailure
+
 export type PayloadProductionResult =
-  | { kind: "checked"; payload?: PreparedPluginPayload; nextAction: string }
-  | { kind: "materialized"; payload?: PreparedPluginPayload; nextAction: string }
+  | PayloadCheckResult
+  | PayloadMaterializeResult
   | {
       kind: "packaged"
       sourceIdentity: SourceIdentity
@@ -132,7 +264,7 @@ export type PayloadProductionResult =
       artifacts: PayloadArtifacts
       nextAction: string
     }
-  | { kind: "refused"; code: PayloadRefusalCode; detail: string; nextAction: string }
+  | PayloadRefusal
   | {
       kind: "failed"
       code: PayloadFailureCode
@@ -149,8 +281,9 @@ export type PayloadProductionResult =
  * publishes with no-replace operations (archive first, checksums last), and
  * rereads both artifacts before reporting `packaged`. Identical existing
  * output is reused and an exact archive-only state is completed; any other
- * existing output is preserved and refused. Check and materialize are
- * deferred and return `refused` with `mode-deferred`.
+ * existing output is preserved and refused. Check and materialize construct
+ * and, respectively, inspect or publish a complete normalized payload
+ * candidate.
  */
 export interface PluginPayloadProduction {
   produce(request: PayloadProductionRequest): Promise<PayloadProductionResult>

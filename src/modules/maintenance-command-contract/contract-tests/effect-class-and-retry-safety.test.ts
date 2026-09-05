@@ -23,8 +23,9 @@ const digest = (bytes: string) =>
 const canonicalInspectionFor = (request: MaintenanceApplyRequest): MaintenanceCommand => {
   switch (request.command) {
     case "payload:materialize":
-    case "payload:package":
       return { command: "payload:check", request: { ...request.request, mode: "check" } }
+    case "payload:package":
+      return { command: "payload:package", request: request.request }
     case "runtime:repair-apply":
       return { command: "runtime:repair", argv: ["repair"] }
     case "release:apply":
