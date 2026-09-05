@@ -389,7 +389,7 @@ one complete candidate in private staging before comparing or writing:
 - repository-root `.claude-plugin/marketplace.json` and
   `.agents/plugins/marketplace.json`;
 - payload-root `plugin/.claude-plugin/plugin.json` and
-  `plugin/.agents/plugin.json` native manifests;
+  `plugin/.codex-plugin/plugin.json` native manifests;
 - the installed skill inventory;
 - every workspace-produced runtime bundle;
 - the bundle inventory JSON and shell projection;
@@ -429,6 +429,12 @@ beside workspace bundles, matching the accepted baseline inventory shape.
 Invalid or unsafe ownership evidence is a refusal, not deletion. Product-authored
 files, prepared runtime entries, hook declarations, native capability fixtures,
 and every path outside that removal set are preserved.
+
+The obsolete `plugin/.agents/plugin.json` Codex manifest is outside the owned
+removal set. If it exists, check and materialize preserve it and return
+`payload-outdated` before any write. The refusal names that exact path and tells
+the operator to inspect and remove the legacy manifest before retrying; the Kit
+never deletes it automatically.
 
 A missing bundle inventory contributes an empty removal set and never grants
 deletion authority. If the remaining payload contains an unclaimed bundle,
@@ -656,8 +662,9 @@ the call. The unchanged consumer comparison is bound to My Second Brain commit
 An independent fixture reader enumerates the 61 committed baseline files and
 compares every payload-relative path, byte sequence, executable bit, and
 framed payload digest. Workspace bundles must also be byte-identical because
-the Bun and lock inputs are pinned. The migrated producer may not generate its
-own expected values.
+the Bun and lock inputs are pinned. Generated inventory bytes and executable
+modes must remain byte-for-byte equal to that same baseline. The migrated
+producer may not generate its own expected values.
 
 ### Required focused proof
 

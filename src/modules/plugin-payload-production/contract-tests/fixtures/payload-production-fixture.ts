@@ -204,19 +204,19 @@ export const expectedCodexMarketplace = `{
 `
 
 export const expectedSkillInventory = `{
-  "schemaVersion": 1,
-  "skills": [
-    {
-      "id": "alpha",
-      "execution": "model-only",
-      "hookDependence": "hook-independent"
-    },
-    {
-      "id": "beta",
-      "execution": "bun-backed",
-      "hookDependence": "hook-dependent"
-    }
-  ]
+	"schemaVersion": 1,
+	"skills": [
+		{
+			"id": "alpha",
+			"execution": "model-only",
+			"hookDependence": "hook-independent"
+		},
+		{
+			"id": "beta",
+			"execution": "bun-backed",
+			"hookDependence": "hook-dependent"
+		}
+	]
 }
 `
 
@@ -233,7 +233,21 @@ Fixture dependency license text.
 Fixture dependency notice.
 `
 
-export const expectedWorkspaceBundle = '// @bun\nvar beta="workspace";export{beta};\n'
+export const expectedWorkspaceBundle = '// @bun\n// workspace/beta/src/index.ts\nvar beta = "workspace";\nexport {\n  beta\n};\n'
+
+export const expectedBundleInventoryShell = `#!/bin/sh
+# Generated from bundle-inventory.json by scripts/build.ts. Edit workspace sources, then run bun run build.
+runtime_inventory_select_bundle() {
+	case "$1" in
+	'beta')
+		RUNTIME_BUNDLE_PATH='runtime/prepared.js'
+		RUNTIME_BUNDLE_BYTES='35'
+		RUNTIME_BUNDLE_SHA256='01a8934471c10985bd165cbbf5659f4af3ebd97deb6bcb172dccbb331308ca22'
+		;;
+	*) return 1 ;;
+	esac
+}
+`
 
 const writeFile = (path: string, bytes: Uint8Array | string, executable = false): void => {
 	mkdirSync(dirname(path), { recursive: true })
