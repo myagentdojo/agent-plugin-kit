@@ -1,29 +1,44 @@
 import { expect, test } from "bun:test"
 import type { AdmittedSourceCheckoutIdentity } from "../../release-and-git-engine/interface"
+import type { MaintenanceCommand } from "../interface"
 import { bindSourceCheckoutCommand, type TrustedCommandBindingStep } from "../implementation/trusted-command-binding"
 import { createMaintenanceContractHarness } from "./adapters/mutation-recording-module-adapter"
 import { literalWireCommands } from "./fixtures/literal-wire-commands"
 
+const checkWire = literalWireCommands.find((value) => value.command === "payload:check")
+const materializeWire = literalWireCommands.find((value) => value.command === "payload:materialize")
 const packageWire = literalWireCommands.find((value) => value.command === "payload:package")
+if (checkWire === undefined || checkWire.command !== "payload:check") throw new Error("missing check wire fixture")
+if (materializeWire === undefined || materializeWire.command !== "payload:materialize") throw new Error("missing materialize wire fixture")
 if (packageWire === undefined || packageWire.command !== "payload:package") throw new Error("missing package wire fixture")
 const canaryWire = literalWireCommands.find((value) => value.command === "canary:qualify")
 if (canaryWire === undefined || canaryWire.command !== "canary:qualify") throw new Error("missing canary wire fixture")
 const admitted = { kind: "admitted" as const, identity: {} as AdmittedSourceCheckoutIdentity }
 
-test("M01 package binding parses, checks capability, admits, and binds once", async () => {
-  const steps: TrustedCommandBindingStep[] = []
+test("M01 all repository-local payload bindings parse, check capability, admit, and bind once", async () => {
+  const payloadWires = [checkWire, materializeWire, packageWire] as const
   let admissions = 0
-  const result = await bindSourceCheckoutCommand(packageWire, {
-    admission: async () => { admissions += 1; return admitted }, trace: (step) => steps.push(step),
-  })
-  expect(result).toEqual({ status: "bound", command: { command: "payload:package", request: packageWire.request } })
-  expect(steps).toEqual(["parse", "capability-check", "admission", "bind"])
-  expect(admissions).toBe(1)
+  for (const wire of payloadWires) {
+    const steps: TrustedCommandBindingStep[] = []
+    const result = await bindSourceCheckoutCommand(wire, {
+      admission: async () => { admissions += 1; return admitted }, trace: (step) => steps.push(step),
+    })
+    const expected: MaintenanceCommand = (() => {
+      switch (wire.command) {
+        case "payload:check": return { command: "payload:check", request: wire.request }
+        case "payload:materialize": return { command: "payload:materialize", request: wire.request }
+        case "payload:package": return { command: "payload:package", request: wire.request }
+      }
+    })()
+    expect(result).toEqual({ status: "bound", command: expected })
+    expect(steps).toEqual(["parse", "capability-check", "admission", "bind"])
+  }
+  expect(admissions).toBe(payloadWires.length)
 })
 
 test("M02 every other valid Wire Command refuses before source admission", async () => {
-  const protectedCommands = literalWireCommands.filter((value) => value.command !== "payload:package")
-  expect(protectedCommands).toHaveLength(13)
+  const protectedCommands = literalWireCommands.filter((value) => !["payload:check", "payload:materialize", "payload:package"].includes(value.command))
+  expect(protectedCommands).toHaveLength(11)
   for (const value of protectedCommands) {
     const steps: TrustedCommandBindingStep[] = []
     let admissions = 0

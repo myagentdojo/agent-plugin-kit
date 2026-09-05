@@ -1,6 +1,10 @@
 export const literalRequiredStationIds = [
   "help.previewed",
   "maintenance.usage-refused",
+  "payload-check.previewed",
+  "payload-check.command-refused",
+  "payload-materialize.completed",
+  "payload-materialize.command-refused",
   "payload-package.completed",
   "payload-package.command-refused",
 ] as const
@@ -11,6 +15,8 @@ const literalDeclaredUnreachableStationIds = [
   "help.retry-deferred",
   "help.recovery-required",
   "help.runtime-failed",
+  "payload-check.retry-deferred",
+  "payload-check.recovery-required",
   "runtime-repair.runtime-repair-applied",
   "runtime-repair-apply.runtime-repair-preview",
 ] as const
@@ -49,6 +55,16 @@ export const literalDeclaredUnreachableRationales = {
       "No accepted argv, stdin, named file, or owner-local host input can cause the closed static help Interface to return this typed outcome.",
     governingInterface: "src/modules/maintenance-command-contract/interface.ts",
   },
+  "payload-check.retry-deferred": {
+    ownerReason:
+      "Payload check has no accepted retry-deferred result variant; fault-only retry behaviour remains owner-local and is not a public-process path.",
+    governingInterface: "src/modules/plugin-payload-production/interface.ts",
+  },
+  "payload-check.recovery-required": {
+    ownerReason:
+      "Payload check has no accepted recovery-required result variant; fault-only recovery behaviour remains owner-local and is not a public-process path.",
+    governingInterface: "src/modules/plugin-payload-production/interface.ts",
+  },
   "runtime-repair.runtime-repair-applied": {
     ownerReason:
       "runtime:repair is inspection-only and cannot request Runtime Custody repair --apply.",
@@ -72,7 +88,7 @@ export const literalBranchKinds = [
 ] as const
 
 export const literalImplementationDeferredCounts = {
-  "plugin-payload-production": 15,
+  "plugin-payload-production": 10,
   "runtime-custody": 48,
   "release-and-git-engine": 11,
   "harness-journeys": 22,
@@ -83,12 +99,12 @@ export const literalDeferredOwnerProofs = {
   "plugin-payload-production": {
     controllingOwnerId: "plugin-payload-production",
     futureSelector:
-      "bun test src/modules/plugin-payload-production/contract-tests/deterministic-plugin-payload.test.ts src/modules/plugin-payload-production/contract-tests/unsafe-inventory-refusal.test.ts",
-    expectedTestCount: 38,
+      "bun test src/modules/plugin-payload-production/contract-tests/deterministic-plugin-payload.test.ts src/modules/plugin-payload-production/contract-tests/unsafe-inventory-refusal.test.ts src/modules/plugin-payload-production/contract-tests/check-materialize.test.ts src/modules/plugin-payload-production/contract-tests/production-input-refusal.test.ts",
+    expectedTestCount: 65,
     skipRationale:
-      "Plugin Payload Production check and materialize modes remain deferred in the current stage; supplying a request file proves facade loading only, not an owner outcome. Future selector: bun test src/modules/plugin-payload-production/contract-tests/deterministic-plugin-payload.test.ts src/modules/plugin-payload-production/contract-tests/unsafe-inventory-refusal.test.ts. Non-Claim: The current-stage proof does not prove Plugin Payload Production check, materialize, or fault-only package failure outcomes through a real process.",
+      "Plugin Payload Production fault-only check and materialize failure outcomes remain deferred in the current stage; no accepted input deliberately produces those owner faults through a real process. Future selector: bun test src/modules/plugin-payload-production/contract-tests/deterministic-plugin-payload.test.ts src/modules/plugin-payload-production/contract-tests/unsafe-inventory-refusal.test.ts src/modules/plugin-payload-production/contract-tests/check-materialize.test.ts src/modules/plugin-payload-production/contract-tests/production-input-refusal.test.ts. Non-Claim: The current-stage proof does not prove Plugin Payload Production fault-only check or materialize failure outcomes through a real process.",
     nonClaim:
-      "The current-stage proof does not prove Plugin Payload Production check, materialize, or fault-only package failure outcomes through a real process.",
+      "The current-stage proof does not prove Plugin Payload Production fault-only check or materialize failure outcomes through a real process.",
   },
   "runtime-custody": {
     controllingOwnerId: "runtime-custody",
@@ -156,9 +172,9 @@ export const literalBranchStationIds = [
   "help.previewed",
   "maintenance.usage-refused",
   ...literalDeclaredUnreachableStationIds,
-  "payload-check.previewed", ...ids("payload-check", inspectFamily),
+  "payload-check.previewed", "payload-check.runtime-failed", "payload-check.command-refused",
   "payload-materialize.completed", ...ids("payload-materialize", applyFamily),
-  "payload-package.completed", ...ids("payload-package", applyFamily),
+  "payload-package.previewed", "payload-package.completed", ...ids("payload-package", applyFamily),
   "runtime-repair.runtime-repair-preview",
   "runtime-repair.runtime-repair-unneeded",
   "runtime-repair-apply.runtime-repair-applied",

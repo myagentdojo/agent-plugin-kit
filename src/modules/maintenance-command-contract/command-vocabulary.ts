@@ -86,7 +86,7 @@ export const commandVocabulary = [
     stdin: true,
     effectClass: "repository-local",
     protectedInput: null,
-    previewRoute: ["payload", "check"],
+    previewRoute: null,
     example: ["maintenance", "--run-id", runId, "payload", "package", "--request", "<FILE>"],
     nextAction: {
       id: "payload-package.inspect-result",

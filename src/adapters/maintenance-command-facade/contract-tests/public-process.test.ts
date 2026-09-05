@@ -117,15 +117,45 @@ test("the public process refuses stdin without waiting for the producer to close
   )
 })
 test("the real public process parses one request JSON value from explicit stdin", async () => {
+  const checkRequest = {
+    repositoryRoot: "/fixture/plugin",
+    mode: "check",
+    configuration: {
+      plugin: {
+        name: "fixture-plugin",
+        displayName: "Fixture Plugin",
+        version: "1.2.3",
+        description: "Fixture plugin for payload contracts.",
+        author: { name: "Fixture Author" },
+        repository: "https://github.com/example/fixture-plugin.git",
+        license: "MIT",
+        keywords: ["fixture", "payload"],
+        category: "Developer Tools",
+        shortDescription: "Fixture payload",
+        longDescription: "Fixture payload for the accepted payload production contract.",
+        capabilities: ["payload-check", "payload-materialize"],
+        defaultPrompts: ["Check this payload"],
+        brandColor: "#123ABC",
+        composerIcon: "./assets/fixture-plugin.svg",
+        logo: "./assets/fixture-plugin.svg",
+        hookDeclarationPaths: ["hooks/claude/hooks.json", "hooks/codex/hooks.json"],
+      },
+      skills: [
+        { id: "alpha", hookDependence: "hook-independent", production: { kind: "model-only" } },
+        { id: "beta", hookDependence: "hook-dependent", production: { kind: "prepared", entryPath: "runtime/prepared.js" } },
+      ],
+    },
+    sourceProjectionPaths: { config: "runtime/plugin.config.json", runtimeLock: "runtime/runtime.lock.json", skillInventory: "runtime/skill-catalog.json" },
+  }
   const actual = await invokePublicProcess(
     ["--run-id", fixedRunId, "maintenance", "payload", "check", "--request", "-"],
     {},
     import.meta.dir,
-    '{"repositoryRoot":"/fixture/plugin","mode":"check"}\n',
+    `${JSON.stringify(checkRequest)}\n`,
   )
   expect(actual.stdout).toBe("")
   expect(actual.exitCode).toBe(2)
-  expect(actual.stderr).toContain('"message":"Maintenance command is not admitted."')
+  expect(actual.stderr).toContain('"message":"Maintenance source checkout is not admitted."')
   expect(actual.stderr).not.toContain('"message":"Invalid maintenance command input."')
 })
 test("explicit request stdin rejects malformed JSON", async () => {

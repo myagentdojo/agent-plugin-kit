@@ -12,8 +12,8 @@ import {
 import { sourceCheckoutAdmissionCases } from "./fixtures/source-checkout-admission-cases"
 
 let consumer: AdmittedPackageConsumer
-let prepared: PluginFixture
-let packageRequest = "", preparedRequest = "", checkRequest = ""
+let prepared: PluginFixture, payloadPrepared: PluginFixture
+let packageRequest = "", preparedRequest = "", payloadCheckRequest = "", payloadMaterializeRequest = ""
 const run = (args: string[], options: { entry?: string; cwd?: string; environment?: Record<string, string | undefined> } = {}) => consumer.run(args, options)
 function expectPublicRefusal(result: ProcessResult, message: string): ProcessResult {
   expect(result.exitCode).toBe(2)
@@ -82,18 +82,57 @@ function expectPayloadUntouched(): void {
 beforeAll(async () => {
   consumer = createAdmittedPackageConsumer()
   prepared = createPluginFixture({ files: [{ path: "a-safe.txt", bytes: "safe\n" }] })
-  packageRequest = join(consumer.consumerRoot, "request.json"); preparedRequest = join(consumer.consumerRoot, "prepared-request.json"); checkRequest = join(consumer.consumerRoot, "check-request.json")
+  payloadPrepared = createPluginFixture({
+    files: [
+      { path: "a-safe.txt", bytes: "safe\n" },
+      { path: "skills/fixture/SKILL.md", bytes: "# Fixture\n" },
+    ],
+    projections: [
+      { role: "runtime-lock", path: "runtime/runtime.lock.json", bytes: '{"lock":"fixture"}\n' },
+      { role: "config", path: "runtime/plugin.config.json", bytes: '{"fixture":true}\n' },
+      { role: "skill-inventory", path: "runtime/skill-catalog.json", bytes: '{"skills":["fixture"]}\n' },
+    ],
+  })
+  packageRequest = join(consumer.consumerRoot, "request.json"); preparedRequest = join(consumer.consumerRoot, "prepared-request.json")
   writeFileSync(packageRequest, JSON.stringify({ ...prepared.request, repositoryRoot: join(consumer.fixtureRoot, "nonexistent-payload-root") }))
   writeFileSync(preparedRequest, JSON.stringify(prepared.request))
-  writeFileSync(checkRequest, JSON.stringify({ repositoryRoot: "/foreign", mode: "check", sourceIdentity: { repository: { origin: "https://github.com/example/foreign.git" }, commit: "e".repeat(40) } }))
+  const payloadRequest = {
+    repositoryRoot: payloadPrepared.root,
+    configuration: {
+      plugin: {
+        name: "source-checkout-plugin", displayName: "Source Checkout Plugin", version: "0.1.0",
+        description: "Source checkout payload fixture", author: { name: "Fixture Author" },
+        repository: "https://github.com/example/source-checkout-plugin", license: "MIT", keywords: ["fixture"],
+        category: "Developer Tools", shortDescription: "Source checkout payload",
+        longDescription: "Source checkout payload fixture", capabilities: ["payload-check"],
+        defaultPrompts: ["Check this payload"], brandColor: "#123ABC",
+        composerIcon: "./assets/fixture-plugin.svg", logo: "./assets/fixture-plugin.svg", hookDeclarationPaths: [],
+      },
+      skills: [{ id: "fixture", hookDependence: "hook-independent", production: { kind: "model-only" } }],
+    },
+    sourceProjectionPaths: { config: "runtime/plugin.config.json", runtimeLock: "runtime/runtime.lock.json", skillInventory: "runtime/skill-catalog.json" },
+  }
+  payloadCheckRequest = join(consumer.consumerRoot, "payload-check-request.json")
+  payloadMaterializeRequest = join(consumer.consumerRoot, "payload-materialize-request.json")
+  writeFileSync(payloadCheckRequest, JSON.stringify({ ...payloadRequest, mode: "check" }))
+  writeFileSync(payloadMaterializeRequest, JSON.stringify({ ...payloadRequest, mode: "materialize" }))
 })
 beforeEach(() => { consumer.commitAuthority(consumer.kitCommit) })
-afterAll(() => { rmSync(prepared.root, { recursive: true, force: true }); consumer?.dispose() })
+afterAll(() => { rmSync(prepared.root, { recursive: true, force: true }); rmSync(payloadPrepared.root, { recursive: true, force: true }); consumer?.dispose() })
 test(sourceCheckoutAdmissionCases.admittedPayloadRefusal.title, async () => {
   expect(git(consumer.kitRoot, "status", "--porcelain=v1", "--untracked-files=all")).toBe("")
   expect(readFileSync(join(consumer.consumerRoot, "dist/generated.txt"), "utf8")).toBe("allowed\n")
   await expectPayloadRefusal(packageRequest)
-  expectPublicRefusal(await run(["--run-id", "source-checkout", "maintenance", "payload", "check", "--request", checkRequest]), "Maintenance command is not admitted.")
+  const materialized = await run(["--run-id", "source-checkout-payload-materialize", "maintenance", "payload", "materialize", "--request", payloadMaterializeRequest])
+  expect(materialized.exitCode).toBe(0)
+  expect(materialized.stderr).toBe("")
+  expect(materialized.stdout).toContain('"command":"payload:materialize"')
+  expect(materialized.stdout).toContain('"result_code":"completed"')
+  const checked = await run(["--run-id", "source-checkout-payload-check", "maintenance", "payload", "check", "--request", payloadCheckRequest])
+  expect(checked.exitCode).toBe(0)
+  expect(checked.stderr).toBe("")
+  expect(checked.stdout).toContain('"command":"payload:check"')
+  expect(checked.stdout).toContain('"result_code":"previewed"')
 })
 test(sourceCheckoutAdmissionCases.committedWrongPin.title, async () => {
   consumer.commitAuthority("e".repeat(40))

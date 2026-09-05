@@ -1,11 +1,17 @@
 import { z } from "zod"
 import type {
   PayloadArtifactRecord,
+  PayloadCategory,
   PayloadCheckRequest,
   PayloadMaterializeRequest,
   PayloadPackageRequest,
-  PayloadProductionRequest,
   PayloadProductionResult,
+  PayloadProductionRequest,
+  PluginPayloadConfiguration,
+  PluginPayloadMetadata,
+  PluginPayloadSkillConfiguration,
+  PayloadSkillProduction,
+  PayloadSourceProjectionPaths,
   PreparedFileDeclaration,
   PreparedPayloadDeclaration,
   PreparedPluginPayload,
@@ -22,6 +28,65 @@ const payloadReleaseSchema = z.strictObject({
   name: nonEmptyStringSchema,
   version: nonEmptyStringSchema,
   tag: nonEmptyStringSchema,
+})
+
+const payloadCategorySchema = z.enum([
+  "Productivity",
+  "Creativity",
+  "Developer Tools",
+  "Business & Operations",
+  "Data & Analytics",
+  "Communication",
+  "Education & Research",
+  "Security",
+  "Finance",
+  "Healthcare",
+  "Travel",
+  "Entertainment",
+  "Other",
+])
+
+const payloadMetadataSchema = z.strictObject({
+  name: z.string(),
+  displayName: z.string(),
+  version: z.string(),
+  description: z.string(),
+  author: z.strictObject({ name: z.string() }),
+  repository: z.string(),
+  license: z.string(),
+  keywords: z.array(z.string()).readonly(),
+  category: payloadCategorySchema,
+  shortDescription: z.string(),
+  longDescription: z.string(),
+  capabilities: z.array(z.string()).readonly(),
+  defaultPrompts: z.array(z.string()).readonly(),
+  brandColor: z.templateLiteral(["#", z.string()]),
+  composerIcon: z.string(),
+  logo: z.string(),
+  hookDeclarationPaths: z.array(z.string()).readonly(),
+})
+
+const payloadSkillProductionSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("model-only") }),
+  z.strictObject({ kind: z.literal("workspace"), workspacePath: z.string(), entryPath: z.string() }),
+  z.strictObject({ kind: z.literal("prepared"), entryPath: z.string() }),
+])
+
+const payloadSkillConfigurationSchema = z.strictObject({
+  id: z.string(),
+  hookDependence: z.enum(["hook-dependent", "hook-independent"]),
+  production: payloadSkillProductionSchema,
+})
+
+const payloadConfigurationSchema = z.strictObject({
+  plugin: payloadMetadataSchema,
+  skills: z.array(payloadSkillConfigurationSchema).readonly(),
+})
+
+const payloadSourceProjectionPathsSchema = z.strictObject({
+  config: z.string(),
+  runtimeLock: z.string(),
+  skillInventory: z.string(),
 })
 
 const preparedFileDeclarationSchema = z.strictObject({
@@ -49,13 +114,15 @@ const preparedPayloadDeclarationSchema = z.strictObject({
 export const payloadCheckRequestSchema = z.strictObject({
   repositoryRoot: z.string(),
   mode: z.literal("check"),
-  sourceIdentity: sourceIdentitySchema.exactOptional(),
+  configuration: payloadConfigurationSchema,
+  sourceProjectionPaths: payloadSourceProjectionPathsSchema,
 })
 
 export const payloadMaterializeRequestSchema = z.strictObject({
   repositoryRoot: z.string(),
   mode: z.literal("materialize"),
-  sourceIdentity: sourceIdentitySchema.exactOptional(),
+  configuration: payloadConfigurationSchema,
+  sourceProjectionPaths: payloadSourceProjectionPathsSchema,
 })
 
 export const payloadPackageRequestSchema = z.strictObject({
@@ -72,6 +139,13 @@ const payloadProductionRequestSchema = z.discriminatedUnion("mode", [
   payloadPackageRequestSchema,
 ])
 
+const preparedPayloadCandidateSchema = z.strictObject({
+  files: z.array(preparedFileDeclarationSchema).readonly(),
+  projections: z.array(preparedProjectionDeclarationSchema).readonly(),
+  ownedFiles: z.array(preparedFileDeclarationSchema).readonly(),
+  payloadSha256: hexSha256Schema,
+})
+
 export const preparedPluginPayloadSchema = z.strictObject({
   regularFiles: z.array(z.string()).readonly(),
   payloadSha256: sha256Schema,
@@ -84,7 +158,6 @@ const payloadArtifactRecordSchema = z.strictObject({
 })
 
 const payloadRefusalCodeSchema = z.enum([
-  "mode-deferred",
   "repository-root-invalid",
   "payload-root-invalid",
   "source-identity-mismatch",
@@ -98,7 +171,53 @@ const payloadRefusalCodeSchema = z.enum([
   "file-mismatch",
   "projection-mismatch",
   "output-conflict",
+  "configuration-invalid",
+  "dependency-refused",
+  "bundle-refused",
+  "payload-outdated",
+  "inventory-invalid",
 ])
+
+const payloadRefusalSchema = z.union([
+  z.strictObject({
+    kind: z.literal("refused"),
+    code: z.enum([
+      "repository-root-invalid",
+      "payload-root-invalid",
+      "source-identity-mismatch",
+      "release-invalid",
+      "declaration-invalid",
+      "binding-mismatch",
+      "payload-digest-mismatch",
+      "unsafe-entry",
+      "undeclared-file",
+      "declared-file-missing",
+      "file-mismatch",
+      "projection-mismatch",
+      "output-conflict",
+      "configuration-invalid",
+      "dependency-refused",
+      "bundle-refused",
+      "inventory-invalid",
+    ]),
+    detail: z.string(),
+    nextAction: z.string(),
+  }),
+  z.strictObject({
+    kind: z.literal("refused"),
+    code: z.literal("payload-outdated"),
+    paths: z.array(z.string()).readonly(),
+    detail: z.string(),
+    nextAction: z.string(),
+  }),
+])
+
+const emptyPathArraySchema: z.ZodType<readonly []> = z.custom<readonly []>(
+  (value) => Array.isArray(value) && value.length === 0,
+)
+const nonEmptyPathArraySchema: z.ZodType<readonly [string, ...string[]]> = z.custom<readonly [string, ...string[]]>(
+  (value) => Array.isArray(value) && value.length > 0 && value.every((entry) => typeof entry === "string"),
+)
 
 const payloadFailureCodeSchema = z.enum([
   "staging-failed",
@@ -108,15 +227,18 @@ const payloadFailureCodeSchema = z.enum([
   "publication-unobservable",
 ])
 
-const payloadProductionResultSchema = z.discriminatedUnion("kind", [
+const payloadProductionResultSchema = z.union([
   z.strictObject({
     kind: z.literal("checked"),
-    payload: preparedPluginPayloadSchema.exactOptional(),
+    candidate: preparedPayloadCandidateSchema,
     nextAction: z.string(),
   }),
   z.strictObject({
     kind: z.literal("materialized"),
-    payload: preparedPluginPayloadSchema.exactOptional(),
+    candidate: preparedPayloadCandidateSchema,
+    changedPaths: z.array(z.string()).readonly(),
+    removedPaths: z.array(z.string()).readonly(),
+    unchangedPaths: z.array(z.string()).readonly(),
     nextAction: z.string(),
   }),
   z.strictObject({
@@ -131,12 +253,7 @@ const payloadProductionResultSchema = z.discriminatedUnion("kind", [
     }),
     nextAction: z.string(),
   }),
-  z.strictObject({
-    kind: z.literal("refused"),
-    code: payloadRefusalCodeSchema,
-    detail: z.string(),
-    nextAction: z.string(),
-  }),
+  payloadRefusalSchema,
   z.strictObject({
     kind: z.literal("failed"),
     code: payloadFailureCodeSchema,
@@ -146,6 +263,33 @@ const payloadProductionResultSchema = z.discriminatedUnion("kind", [
       archive: payloadArtifactRecordSchema.nullable(),
       checksums: payloadArtifactRecordSchema.nullable(),
     }),
+    nextAction: z.string(),
+  }),
+  z.strictObject({
+    kind: z.literal("materialization-failed"),
+    code: z.enum(["materialization-staging-failed", "materialization-interrupted", "materialization-verification-failed"]),
+    state: z.literal("none"),
+    transient: z.boolean(),
+    changedPaths: emptyPathArraySchema,
+    remainingPaths: z.array(z.string()).readonly(),
+    nextAction: z.string(),
+  }),
+  z.strictObject({
+    kind: z.literal("materialization-failed"),
+    code: z.enum(["materialization-interrupted", "materialization-verification-failed"]),
+    state: z.literal("partial"),
+    transient: z.literal(false),
+    changedPaths: nonEmptyPathArraySchema,
+    remainingPaths: z.array(z.string()).readonly(),
+    nextAction: z.string(),
+  }),
+  z.strictObject({
+    kind: z.literal("materialization-failed"),
+    code: z.literal("materialization-state-unobservable"),
+    state: z.literal("unknown"),
+    transient: z.literal(false),
+    changedPaths: z.null(),
+    remainingPaths: z.null(),
     nextAction: z.string(),
   }),
 ])
@@ -212,6 +356,12 @@ type InferredPreparedPayloadDeclaration = z.infer<typeof preparedPayloadDeclarat
 type InferredPreparedPluginPayload = z.infer<typeof preparedPluginPayloadSchema>
 type InferredPayloadArtifactRecord = z.infer<typeof payloadArtifactRecordSchema>
 type InferredPayloadProductionResult = z.infer<typeof payloadProductionResultSchema>
+type InferredPayloadMetadata = z.infer<typeof payloadMetadataSchema>
+type InferredPayloadSkillProduction = z.infer<typeof payloadSkillProductionSchema>
+type InferredPayloadSkillConfiguration = z.infer<typeof payloadSkillConfigurationSchema>
+type InferredPayloadConfiguration = z.infer<typeof payloadConfigurationSchema>
+type InferredPayloadSourceProjectionPaths = z.infer<typeof payloadSourceProjectionPathsSchema>
+type InferredPreparedPayloadCandidate = z.infer<typeof preparedPayloadCandidateSchema>
 
 const bidirectionalTypeChecks: [
   InferredPayloadCheckRequest extends PayloadCheckRequest ? true : false,
@@ -234,9 +384,23 @@ const bidirectionalTypeChecks: [
   PayloadArtifactRecord extends InferredPayloadArtifactRecord ? true : false,
   InferredPayloadProductionResult extends PayloadProductionResult ? true : false,
   PayloadProductionResult extends InferredPayloadProductionResult ? true : false,
+  InferredPayloadMetadata extends PluginPayloadMetadata ? true : false,
+  PluginPayloadMetadata extends InferredPayloadMetadata ? true : false,
+  InferredPayloadSkillProduction extends PayloadSkillProduction ? true : false,
+  PayloadSkillProduction extends InferredPayloadSkillProduction ? true : false,
+  InferredPayloadSkillConfiguration extends PluginPayloadSkillConfiguration ? true : false,
+  PluginPayloadSkillConfiguration extends InferredPayloadSkillConfiguration ? true : false,
+  InferredPayloadConfiguration extends PluginPayloadConfiguration ? true : false,
+  PluginPayloadConfiguration extends InferredPayloadConfiguration ? true : false,
+  InferredPayloadSourceProjectionPaths extends PayloadSourceProjectionPaths ? true : false,
+  PayloadSourceProjectionPaths extends InferredPayloadSourceProjectionPaths ? true : false,
+  InferredPreparedPayloadCandidate extends import("./interface").PreparedPayloadCandidate ? true : false,
+  import("./interface").PreparedPayloadCandidate extends InferredPreparedPayloadCandidate ? true : false,
 ] = [
   true, true, true, true, true, true, true, true, true, true,
   true, true, true, true, true, true, true, true, true, true,
+  true, true, true, true, true, true, true, true, true, true,
+  true, true,
 ]
 
 void bidirectionalTypeChecks

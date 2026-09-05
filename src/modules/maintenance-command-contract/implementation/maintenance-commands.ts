@@ -6,7 +6,6 @@ import type {
   MaintenanceApplyRequest,
   MaintenanceCommand,
   MaintenanceCommands,
-  MaintenanceError,
   MaintenanceErrorEnvelopeData,
   MaintenanceErrorEnvelopeProjection,
   MaintenanceOutcome,
@@ -30,6 +29,7 @@ import type {
 import type {
   PayloadProductionResult,
   PluginPayloadProduction,
+  PreparedPayloadCandidate,
 } from "../../plugin-payload-production/interface"
 import type {
   CandidateIdentity,
@@ -95,7 +95,6 @@ export type MaintenanceCommandDependencies = {
   canary: CanaryQualification
 }
 
-type PayloadRequest = Parameters<PluginPayloadProduction["produce"]>[0]
 type PayloadResult = PayloadProductionResult
 type ReleaseInspectionCommand = Extract<
   MaintenanceInspectionInput,
@@ -138,15 +137,18 @@ const commandIdFor = (command: MaintenanceCommand["command"]) => {
 const inspectionInputFor = (command: MaintenanceCommand): MaintenanceInspectionInput => {
   switch (command.command) {
     case "payload:materialize":
-    case "payload:package":
       return {
         command: "payload:check",
         request: {
-          repositoryRoot: command.request.repositoryRoot,
+          ...command.request,
           mode: "check",
-          ...(command.request.sourceIdentity === undefined ? {} : { sourceIdentity: command.request.sourceIdentity }),
         },
       }
+    case "payload:package":
+      // Package's accepted request is source-bound and intentionally lacks the
+      // normalized check/materialize configuration. Preserve it for the
+      // package's static zero-effect preview instead of synthesizing a check.
+      return { command: "payload:package", request: command.request }
     case "runtime:repair-apply":
       return { command: "runtime:repair", argv: ["repair"] }
     case "release:apply":
@@ -249,7 +251,38 @@ const projectCandidateIdentity = (candidate: CandidateIdentity): JsonValue => ({
 
 type PackagedPayloadResult = Extract<PayloadResult, { kind: "packaged" }>
 
-const projectPreparedPayload = (payload: NonNullable<Extract<PayloadResult, { kind: "checked" }>["payload"]>): JsonValue => ({
+const projectFileDeclaration = (file: {
+  path: string
+  bytes: number
+  sha256: `sha256:${string}`
+  executable: boolean
+}): JsonValue => ({
+  path: file.path,
+  bytes: file.bytes,
+  sha256: file.sha256,
+  executable: file.executable,
+})
+
+const projectProjectionDeclaration = (projection: {
+  role: string
+  path: string
+  bytes: number
+  sha256: `sha256:${string}`
+}): JsonValue => ({
+  role: projection.role,
+  path: projection.path,
+  bytes: projection.bytes,
+  sha256: projection.sha256,
+})
+
+const projectCandidate = (candidate: Extract<PayloadResult, { kind: "checked" | "materialized" }>["candidate"]): JsonValue => ({
+  files: candidate.files.map(projectFileDeclaration),
+  projections: candidate.projections.map(projectProjectionDeclaration),
+  ownedFiles: candidate.ownedFiles.map(projectFileDeclaration),
+  payloadSha256: candidate.payloadSha256,
+})
+
+const projectPreparedPayload = (payload: PackagedPayloadResult["payload"]): JsonValue => ({
   regularFiles: [...payload.regularFiles],
   payloadSha256: payload.payloadSha256,
 })
@@ -271,6 +304,28 @@ const isCompletePackagedResult = (result: PayloadResult): result is PackagedPayl
   ) && Array.isArray(result.payload?.regularFiles) && typeof result.payload.payloadSha256 === "string"
 }
 
+const isCompletePayloadCandidate = (candidate: PreparedPayloadCandidate | undefined): candidate is PreparedPayloadCandidate =>
+  Array.isArray(candidate?.files) &&
+  Array.isArray(candidate.projections) &&
+  Array.isArray(candidate.ownedFiles) &&
+  /^sha256:[0-9a-f]{64}$/u.test(candidate.payloadSha256)
+
+const isCompleteCheckedResult = (
+  result: PayloadResult,
+): result is Extract<PayloadResult, { kind: "checked" }> => {
+  return result.kind === "checked" && isCompletePayloadCandidate(result.candidate)
+}
+
+const isCompleteMaterializedResult = (
+  result: PayloadResult,
+): result is Extract<PayloadResult, { kind: "materialized" }> => {
+  return result.kind === "materialized" &&
+    isCompletePayloadCandidate(result.candidate) &&
+    Array.isArray(result.changedPaths) &&
+    Array.isArray(result.removedPaths) &&
+    Array.isArray(result.unchangedPaths)
+}
+
 const projectPackagedResult = (result: PackagedPayloadResult): JsonValue => ({
   kind: result.kind,
   sourceIdentity: {
@@ -289,7 +344,14 @@ const projectPackagedResult = (result: PackagedPayloadResult): JsonValue => ({
 
 const projectPayloadResult = (result: Extract<PayloadResult, { kind: "checked" | "materialized" }>): JsonValue => ({
   kind: result.kind,
-  ...(result.payload === undefined ? {} : { payload: projectPreparedPayload(result.payload) }),
+  candidate: projectCandidate(result.candidate),
+  ...(result.kind === "materialized"
+    ? {
+        changedPaths: [...result.changedPaths],
+        removedPaths: [...result.removedPaths],
+        unchangedPaths: [...result.unchangedPaths],
+      }
+    : {}),
   nextAction: result.nextAction,
 })
 
@@ -820,7 +882,12 @@ const applyMaterialize = (
   request: Extract<MaintenanceApplyRequest, { command: "payload:materialize" }>,
   ownerResult: PayloadResult,
 ): MaintenanceOutcome<CommandResult> => {
-  if (ownerResult.kind !== "materialized") return errorFor(request.command, "runtime-failed")
+  if (ownerResult.kind === "materialization-failed") {
+    if (ownerResult.state === "unknown") return errorFor(request.command, "recovery-required")
+    if (ownerResult.state === "partial") return continuationRequired(request, [], ["effect:payload-materialized"])
+    return errorFor(request.command, ownerResult.transient ? "retry-deferred" : "command-refused")
+  }
+  if (!isCompleteMaterializedResult(ownerResult)) return errorFor(request.command, "runtime-failed")
   return completedResult(
     request,
     ["effect:payload-materialized"],
@@ -862,7 +929,7 @@ const inspectPayload = async (
 ): Promise<MaintenanceOutcome<CommandPreview>> => {
   const ownerResult = await collaborators.payload.produce(command.request)
   if (ownerResult.kind === "refused") return errorFor(command.command, "command-refused")
-  if (ownerResult.kind !== "checked") return errorFor(command.command, "runtime-failed")
+  if (!isCompleteCheckedResult(ownerResult)) return errorFor(command.command, "runtime-failed")
   return preview(command.command, [], agentPayload("checked", projectPayloadResult(ownerResult)))
 }
 

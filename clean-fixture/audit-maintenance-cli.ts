@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
-import { dirname, relative, resolve } from "node:path"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join, relative, resolve } from "node:path"
 import { z } from "zod"
 import packageMetadata from "../package.json"
 import {
@@ -336,7 +337,12 @@ const usageDiagnosticsMatch = (stderr: string, expectedPrimary: string): boolean
 
 type FixedScenario = (typeof fixedScenarios)[number]
 type PackageScenario = { stationId: "payload-package.completed" | "payload-package.command-refused"; argv: readonly string[]; expected: { exitCode: 0 | 21; resultCode: "completed" | "command-refused" } }
-type RequiredScenario = FixedScenario | PackageScenario
+type PayloadScenario = {
+  stationId: "payload-check.previewed" | "payload-check.command-refused" | "payload-materialize.completed" | "payload-materialize.command-refused"
+  argv: readonly string[]
+  expected: { exitCode: 0 | 21; resultCode: "previewed" | "completed" | "command-refused" }
+}
+type AdmittedPackageConsumer = ReturnType<typeof createAdmittedPackageConsumer>
 
 const primaryDataFor = (stdout: string, stderr: string): { data?: Record<string, unknown> } => {
   const primaryLine = (stdout || stderr).split("\n").filter(Boolean).at(-1)
@@ -351,6 +357,28 @@ const expectedStreamsMatch = (scenario: FixedScenario, stdout: string, stderr: s
   scenario.stationId === "maintenance.usage-refused"
     ? stdout === "" && usageDiagnosticsMatch(stderr, scenario.expected.stderr.trimEnd())
     : stderr === scenario.expected.stderr
+
+const observeAdmittedScenario = (
+  consumer: AdmittedPackageConsumer,
+  scenario: PackageScenario | PayloadScenario,
+) => {
+  const result = consumer.runSync(scenario.argv, { timeoutMs: packageProcessDeadlineMs })
+  const primary = primaryDataFor(result.stdout, result.stderr)
+  const observed = result.exitCode === scenario.expected.exitCode &&
+    primary.data?.result_code === scenario.expected.resultCode &&
+    primary.data?.station_id === scenario.stationId &&
+    (scenario.expected.exitCode === 0 ? result.stderr === "" : result.stdout === "")
+  return {
+    ...scenario,
+    exitCode: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    primary,
+    observed,
+    deadlineMs: packageProcessDeadlineMs,
+    timedOut: result.signalCode === "SIGKILL",
+  }
+}
 
 const observeFixedScenario = (scenario: FixedScenario) => {
   const result = Bun.spawnSync({
@@ -398,30 +426,92 @@ const observePackageScenarios = () => {
       { stationId: "payload-package.completed", argv: packageArguments("audit-package", packageRequest), expected: { exitCode: 0, resultCode: "completed" } },
       { stationId: "payload-package.command-refused", argv: packageArguments("audit-package-refused", refusedRequest), expected: { exitCode: 21, resultCode: "command-refused" } },
     ]
-    return scenarios.map((scenario) => {
-      const result = consumer.runSync(scenario.argv, { timeoutMs: packageProcessDeadlineMs })
-      const primary = primaryDataFor(result.stdout, result.stderr)
-      const observed = result.exitCode === scenario.expected.exitCode &&
-        primary.data?.result_code === scenario.expected.resultCode &&
-        primary.data?.station_id === scenario.stationId &&
-        (scenario.expected.exitCode === 0 ? result.stderr === "" : result.stdout === "")
-      return {
-        ...scenario,
-        exitCode: result.exitCode,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        primary,
-        observed,
-        deadlineMs: packageProcessDeadlineMs,
-        timedOut: result.signalCode === "SIGKILL",
-      }
-    })
+    return scenarios.map((scenario) => observeAdmittedScenario(consumer, scenario))
   } finally {
     rmSync(prepared.root, { recursive: true, force: true })
     consumer.dispose()
   }
 }
-const requiredObservations = [...fixedScenarios.map(observeFixedScenario), ...observePackageScenarios()]
+
+/**
+ * The four required check and materialize Stations are reconciled through one
+ * admitted process and two disposable Plugin Repository payload fixtures.
+ */
+const observePayloadCheckMaterializeScenarios = () => {
+  const consumer = createAdmittedPackageConsumer()
+  const fixtureRoots: string[] = []
+  const payloadConfiguration = {
+    plugin: {
+      name: "source-checkout-plugin", displayName: "Source Checkout Plugin", version: "0.1.0",
+      description: "Source checkout payload fixture", author: { name: "Fixture Author" },
+      repository: "https://github.com/example/source-checkout-plugin", license: "MIT", keywords: ["fixture"],
+      category: "Developer Tools", shortDescription: "Source checkout payload",
+      longDescription: "Source checkout payload fixture", capabilities: ["payload-check"],
+      defaultPrompts: ["Check this payload"], brandColor: "#123ABC",
+      composerIcon: "./assets/fixture-plugin.svg", logo: "./assets/fixture-plugin.svg", hookDeclarationPaths: [],
+    },
+    skills: [{ id: "fixture", hookDependence: "hook-independent", production: { kind: "model-only" } }],
+  } as const
+  const createPayloadFixture = (): string => {
+    const root = mkdtempSync(join(tmpdir(), "agent-plugin-kit-audit-payload-"))
+    fixtureRoots.push(root)
+    mkdirSync(join(root, "plugin", "skills", "fixture"), { recursive: true })
+    writeFileSync(join(root, "plugin", "skills", "fixture", "SKILL.md"), "# Fixture\n")
+    writeFileSync(join(root, "plugin.config.json"), "private config\n")
+    writeFileSync(join(root, "runtime.lock.json"), "private lock\n")
+    writeFileSync(join(root, "skill-catalog.json"), "private catalog\n")
+    return root
+  }
+  const writePayloadRequest = (root: string, mode: "check" | "materialize", filename: string): string => {
+    const request = {
+      repositoryRoot: root,
+      mode,
+      configuration: payloadConfiguration,
+      sourceProjectionPaths: { config: "plugin.config.json", runtimeLock: "runtime.lock.json", skillInventory: "skill-catalog.json" },
+    }
+    const requestPath = resolve(consumer.consumerRoot, filename)
+    writeFileSync(requestPath, `${JSON.stringify(request)}\n`)
+    return requestPath
+  }
+  try {
+    const fixture1Root = createPayloadFixture()
+    const fixture1MaterializeRequest = writePayloadRequest(fixture1Root, "materialize", "payload-materialize-request.json")
+    const fixture1CheckRequest = writePayloadRequest(fixture1Root, "check", "payload-check-request.json")
+    const observeScenario = (scenario: PayloadScenario) => observeAdmittedScenario(consumer, scenario)
+    const observations = [
+      observeScenario({
+        stationId: "payload-materialize.completed",
+        argv: ["--run-id", "audit-payload-materialize", "maintenance", "payload", "materialize", "--request", fixture1MaterializeRequest],
+        expected: { exitCode: 0, resultCode: "completed" },
+      }),
+      observeScenario({
+        stationId: "payload-check.previewed",
+        argv: ["--run-id", "audit-payload-check", "maintenance", "payload", "check", "--request", fixture1CheckRequest],
+        expected: { exitCode: 0, resultCode: "previewed" },
+      }),
+    ]
+    writeFileSync(join(fixture1Root, "plugin", ".claude-plugin", "plugin.json"), '{"drifted":true}\n')
+    observations.push(observeScenario({
+      stationId: "payload-check.command-refused",
+      argv: ["--run-id", "audit-payload-check-refused", "maintenance", "payload", "check", "--request", fixture1CheckRequest],
+      expected: { exitCode: 21, resultCode: "command-refused" },
+    }))
+    const fixture2Root = createPayloadFixture()
+    mkdirSync(join(fixture2Root, "plugin", "runtime"), { recursive: true })
+    writeFileSync(join(fixture2Root, "plugin", "runtime", "bundle-inventory.json"), "not-json\n")
+    const fixture2MaterializeRequest = writePayloadRequest(fixture2Root, "materialize", "payload-materialize-refused-request.json")
+    observations.push(observeScenario({
+      stationId: "payload-materialize.command-refused",
+      argv: ["--run-id", "audit-payload-materialize-refused", "maintenance", "payload", "materialize", "--request", fixture2MaterializeRequest],
+      expected: { exitCode: 21, resultCode: "command-refused" },
+    }))
+    return observations
+  } finally {
+    for (const root of fixtureRoots) rmSync(root, { recursive: true, force: true })
+    consumer.dispose()
+  }
+}
+const requiredObservations = [...fixedScenarios.map(observeFixedScenario), ...observePackageScenarios(), ...observePayloadCheckMaterializeScenarios()]
 const implementationAbsent = requiredObservations.every(({ exitCode, stderr }) => exitCode === 1 && stderr.includes("implementation-absent"))
 const publicProcessesAligned = requiredObservations.every(({ observed }) => observed)
 findings.push({ surface: "public_process", status: publicProcessesAligned ? "aligned" : "drifted", detail: implementationAbsent ? "implementation-absent" : publicProcessesAligned ? "four-required-stations-observed" : "required-observation-drift" })

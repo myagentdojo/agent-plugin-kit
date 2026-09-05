@@ -22,6 +22,7 @@ import type {
   HarnessJourneys,
 } from "../../../harness-journeys/interface"
 import type { PayloadProductionResult, PluginPayloadProduction } from "../../../plugin-payload-production/interface"
+import { literalPayloadCandidate } from "../fixtures/literal-command-results"
 import type {
   ReleaseAndGitEngine,
   ReleaseResult,
@@ -145,12 +146,19 @@ export function createMaintenanceContractHarness(
 
   const payload: PluginPayloadProduction = {
     async produce(request) {
-      if (request.mode === "check") return { kind: "checked", nextAction: "Inspect the payload." }
+      if (request.mode === "check") return { kind: "checked", candidate: literalPayloadCandidate, nextAction: "Inspect the payload." }
       if (request.mode === "materialize") {
         const ownerRequest = { ...request, mode: "materialize" as const }
         testCollaborators.recordApply("payload", { command: "payload:materialize", request: ownerRequest })
         testCollaborators.mutateDurableTarget("repository", request.mode)
-        return { kind: "materialized", nextAction: "Inspect the payload." }
+        return {
+          kind: "materialized",
+          candidate: literalPayloadCandidate,
+          changedPaths: [],
+          removedPaths: [],
+          unchangedPaths: [],
+          nextAction: "Inspect the payload.",
+        }
       }
       testCollaborators.recordApply("payload", { command: "payload:package", request })
       testCollaborators.mutateDurableTarget("profile", request.mode)

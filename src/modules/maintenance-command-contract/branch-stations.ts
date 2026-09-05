@@ -295,6 +295,7 @@ const station = (input: {
   nextActionId?: string
   repairRouteCommandId?: MaintenanceCommand["command"] | null
   precondition?: string
+  mutationExpectation?: BranchStation["mutationExpectation"]
 }): BranchStation => {
   const descriptor = descriptorFor(input.resultCode)
   const commandSlug = stationSlugFor(input.commandId)
@@ -325,20 +326,20 @@ const station = (input: {
     governingInterface: input.governingInterface,
     expectedNextActionId: input.nextActionId ?? descriptor.nextAction.id,
     repairRouteCommandId: repairRouteFor(input, descriptor),
-    mutationExpectation: mutationExpectationFor(input.commandId),
+    mutationExpectation: input.mutationExpectation ?? mutationExpectationFor(input.commandId),
   }
 }
 
 const payloadFutureSelector =
-  "bun test src/modules/plugin-payload-production/contract-tests/deterministic-plugin-payload.test.ts src/modules/plugin-payload-production/contract-tests/unsafe-inventory-refusal.test.ts"
+  "bun test src/modules/plugin-payload-production/contract-tests/deterministic-plugin-payload.test.ts src/modules/plugin-payload-production/contract-tests/unsafe-inventory-refusal.test.ts src/modules/plugin-payload-production/contract-tests/check-materialize.test.ts src/modules/plugin-payload-production/contract-tests/production-input-refusal.test.ts"
 const payloadNonClaim =
-  "The current-stage proof does not prove Plugin Payload Production check, materialize, or fault-only package failure outcomes through a real process."
+  "The current-stage proof does not prove Plugin Payload Production fault-only check or materialize failure outcomes through a real process."
 
 const deferredRationale = {
   payload:
-    `Plugin Payload Production check and materialize modes remain deferred in the current stage; supplying a request file proves facade loading only, not an owner outcome. Future selector: ${payloadFutureSelector}. Non-Claim: ${payloadNonClaim}`,
+    `Plugin Payload Production fault-only check and materialize failure outcomes remain deferred in the current stage; no accepted input deliberately produces those owner faults through a real process. Future selector: ${payloadFutureSelector}. Non-Claim: ${payloadNonClaim}`,
   payloadFault:
-    `Plugin Payload Production package failure outcomes are reached only through owner-local fault Adapters in-process; no accepted argv, stdin, or named file causes this outcome through the real process, so Station reconciliation remains deferred. Future selector: ${payloadFutureSelector}. Non-Claim: ${payloadNonClaim}`,
+    `Plugin Payload Production fault outcomes are reached only through owner-local fault Adapters in-process; no accepted argv, stdin, or named file causes this outcome through the real process, so Station reconciliation remains deferred. Future selector: ${payloadFutureSelector}. Non-Claim: ${payloadNonClaim}`,
   runtime:
     "Runtime Custody Implementation remains absent in the current stage; Runtime argv proves dispatch shape only, not custody outcome. Future selector: bun test src/modules/runtime-custody/contract-tests/run-and-repair.test.ts src/modules/runtime-custody/contract-tests/corrupt-custody-refusal.test.ts. Non-Claim: The current-stage proof does not prove Runtime Custody result, refresh, download, lock, or repair through a real process.",
   release:
@@ -371,34 +372,62 @@ const payloadStations = [
     commandId: "payload:check",
     resultCode: "previewed",
     controllingOwnerId: "plugin-payload-production",
-    reachability: "implementation-deferred",
-    skipRationale: deferredRationale.payload,
+    reachability: "required",
     governingInterface: "src/modules/plugin-payload-production/interface.ts",
     nextActionId: "payload-check.inspect-result",
     repairRouteCommandId: null,
+    precondition: "An admitted source checkout checks a normalized Plugin Payload through the real process.",
   }),
   ...deferredFor(
     "payload:check",
-    inspectFailures,
+    ["runtime-failed"],
     "plugin-payload-production",
     deferredRationale.payload,
   ),
   station({
+    commandId: "payload:check",
+    resultCode: "command-refused",
+    controllingOwnerId: "plugin-payload-production",
+    reachability: "required",
+    governingInterface: "src/modules/plugin-payload-production/interface.ts",
+    precondition: "An admitted source checkout names an invalid or drifted normalized Plugin Payload through the real process.",
+  }),
+  station({
     commandId: "payload:materialize",
     resultCode: "completed",
     controllingOwnerId: "plugin-payload-production",
-    reachability: "implementation-deferred",
-    skipRationale: deferredRationale.payload,
+    reachability: "required",
     governingInterface: "src/modules/plugin-payload-production/interface.ts",
     nextActionId: "payload-materialize.inspect-result",
     repairRouteCommandId: null,
+    precondition: "An admitted source checkout materializes a normalized Plugin Payload through the real process.",
+  }),
+  station({
+    commandId: "payload:materialize",
+    resultCode: "command-refused",
+    controllingOwnerId: "plugin-payload-production",
+    reachability: "required",
+    governingInterface: "src/modules/plugin-payload-production/interface.ts",
+    precondition: "An admitted source checkout names an invalid or unsafe materialization input through the real process.",
   }),
   ...deferredFor(
     "payload:materialize",
-    applyFailures,
+    applyFailures.filter((resultCode) => resultCode !== "command-refused"),
     "plugin-payload-production",
     deferredRationale.payload,
   ),
+  station({
+    commandId: "payload:package",
+    resultCode: "previewed",
+    controllingOwnerId: "plugin-payload-production",
+    reachability: "implementation-deferred",
+    skipRationale: deferredRationale.payloadFault,
+    governingInterface: "src/modules/plugin-payload-production/interface.ts",
+    nextActionId: "payload-package.inspect-result",
+    repairRouteCommandId: null,
+    mutationExpectation: { kind: "preview", expectedEffectIds: [] },
+    precondition: "The programmatic package inspection returns its static zero-effect preview without invoking production.",
+  }),
   station({
     commandId: "payload:package",
     resultCode: "completed",
@@ -580,6 +609,24 @@ const declaredUnreachable = [
       }),
   ),
   station({
+    commandId: "payload:check",
+    resultCode: "retry-deferred",
+    controllingOwnerId: "plugin-payload-production",
+    reachability: "declared-unreachable",
+    skipRationale:
+      "Payload check has no accepted retry-deferred result variant; fault-only retry behaviour remains owner-local and is not a public-process path.",
+    governingInterface: "src/modules/plugin-payload-production/interface.ts",
+  }),
+  station({
+    commandId: "payload:check",
+    resultCode: "recovery-required",
+    controllingOwnerId: "plugin-payload-production",
+    reachability: "declared-unreachable",
+    skipRationale:
+      "Payload check has no accepted recovery-required result variant; fault-only recovery behaviour remains owner-local and is not a public-process path.",
+    governingInterface: "src/modules/plugin-payload-production/interface.ts",
+  }),
+  station({
     commandId: "runtime:repair",
     resultCode: "runtime-repair-applied",
     controllingOwnerId: "runtime-custody",
@@ -632,7 +679,7 @@ export const deferredOwnerProofs = {
     controllingOwnerId: "plugin-payload-production",
     stationIds: payloadStations.filter(({ reachability }) => reachability === "implementation-deferred").map(({ stationId }) => stationId).sort(),
     futureSelector: payloadFutureSelector,
-    expectedTestCount: 38,
+    expectedTestCount: 65,
     skipRationale: deferredRationale.payload,
     nonClaim: payloadNonClaim,
   },

@@ -90,7 +90,23 @@ const writeJson = async (name, value) => {
   await writeFile(path, JSON.stringify(value) + "\\n")
   return path
 }
-const payloadRequestPath = await writeJson("payload-request.json", { repositoryRoot: "/fixture/plugin", mode: "check" })
+const payloadRequestPath = await writeJson("payload-request.json", {
+  repositoryRoot: "/fixture/plugin",
+  mode: "check",
+  configuration: {
+    plugin: {
+      name: "source-checkout-plugin", displayName: "Source Checkout Plugin", version: "0.1.0",
+      description: "Source checkout payload fixture", author: { name: "Fixture Author" },
+      repository: "https://github.com/example/source-checkout-plugin", license: "MIT", keywords: ["fixture"],
+      category: "Developer Tools", shortDescription: "Source checkout payload fixture",
+      longDescription: "Source checkout payload fixture", capabilities: ["payload-check"],
+      defaultPrompts: ["Check this payload"], brandColor: "#123ABC",
+      composerIcon: "./assets/fixture-plugin.svg", logo: "./assets/fixture-plugin.svg", hookDeclarationPaths: [],
+    },
+    skills: [{ id: "fixture", hookDependence: "hook-independent", production: { kind: "model-only" } }],
+  },
+  sourceProjectionPaths: { config: "runtime/plugin.config.json", runtimeLock: "runtime/runtime.lock.json", skillInventory: "runtime/skill-catalog.json" },
+})
 const releaseRequestPath = await writeJson("release-request.json", { candidate, intent: "maintenance" })
 const claudeRequestPath = await writeJson("claude-request.json", { candidate, payload, profileIdentity: "clean-fixture" })
 const codexRequestPath = await writeJson("codex-request.json", { candidate, payload, profileIdentity: "clean-fixture", checkoutIdentity: "checkout-b" })
@@ -113,6 +129,7 @@ const observe = (result) => ({
   stdoutEmpty: result.stdout === "",
   maintenanceNotAdmitted: result.stderr.includes('"message":"Maintenance command is not admitted."'),
   invalidInput: result.stderr.includes('"message":"Invalid maintenance command input."'),
+  sourceCheckoutNotAdmitted: result.stderr.includes('"message":"Maintenance source checkout is not admitted."'),
 })
 const validCommands = {
   payloadCheck: ["--run-id", "clean-fixture-payload", "maintenance", "payload", "check", "--request", payloadRequestPath],
@@ -138,7 +155,7 @@ const qualification = qualificationResult.status === "refused"
   : { status: qualificationResult.status, code: null }
 console.log(JSON.stringify({
   parseOwners: {
-    "plugin-payload-production": publicProcess.payloadCheck.maintenanceNotAdmitted,
+    "plugin-payload-production": publicProcess.payloadCheck.sourceCheckoutNotAdmitted && !publicProcess.payloadCheck.invalidInput,
     "release-and-git-engine": publicProcess.releaseInspect.maintenanceNotAdmitted,
     "harness-journeys": publicProcess.harnessClaudeInspect.maintenanceNotAdmitted && publicProcess.harnessCodexInspect.maintenanceNotAdmitted,
     "canary-qualification": publicProcess.canaryInspect.maintenanceNotAdmitted,
@@ -162,12 +179,14 @@ export type ProductionOwnerProof = Readonly<{
     stdoutEmpty: boolean
     maintenanceNotAdmitted: boolean
     invalidInput: boolean
+    sourceCheckoutNotAdmitted: boolean
   }>>>
   invalidInput: Readonly<{
     exitCode: number
     stdoutEmpty: boolean
     maintenanceNotAdmitted: boolean
     invalidInput: boolean
+    sourceCheckoutNotAdmitted: boolean
   }>
   qualification: Readonly<{ status: string; code: string | null }>
 }>

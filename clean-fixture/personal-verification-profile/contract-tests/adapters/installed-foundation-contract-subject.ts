@@ -1147,7 +1147,7 @@ function observeStationMap(packageRoot: string): InstalledMaintenanceCliObservat
   const sourceSha256 = sha256(source)
   const requiredStationIds = requiredStationIdsInCatalogOrder(source)
   return {
-    declared_branch_coverage: sourceSha256 === expectedBranchStationSourceSha256 ? 118 : 0,
+    declared_branch_coverage: sourceSha256 === expectedBranchStationSourceSha256 ? 119 : 0,
     required_station_ids: requiredStationIds,
     source_sha256: sourceSha256,
   }
@@ -1285,7 +1285,12 @@ async function qualificationPerturbationIsRefused(
     restorationsProved.length !== perturbations.length ||
     !cachedBaselineRestorationRefused
   ) {
-    throw new Error("Qualification conditional descriptor perturbations were not refused and restored")
+    throw new Error(`Qualification conditional descriptor perturbations were not refused and restored: ${JSON.stringify({
+      expected: perturbations.map(([label]) => label),
+      perturbationsRefused,
+      restorationsProved,
+      cachedBaselineRestorationRefused,
+    })}`)
   }
   return {
     refused: true,
@@ -1324,8 +1329,17 @@ async function qualificationDescriptorRestored(input: {
       env: input.environment,
     }),
   )
-  return descriptorRestored && compilerRestored && catalogRestored &&
-    JSON.stringify(runtimeRestored) === JSON.stringify(input.baseline)
+  const runtimeMatchesBaseline = JSON.stringify(runtimeRestored) === JSON.stringify(input.baseline)
+  if (!descriptorRestored || !compilerRestored || !catalogRestored || !runtimeMatchesBaseline) {
+    throw new Error(`Qualification conditional descriptor restoration failed: ${JSON.stringify({
+      label: input.label,
+      descriptorRestored,
+      compilerRestored,
+      catalogRestored,
+      runtimeMatchesBaseline,
+    })}`)
+  }
+  return true
 }
 
 function proveCachedDescriptorCannotRestoreDisk(

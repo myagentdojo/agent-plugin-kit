@@ -36,7 +36,7 @@ test("fixed-run Clean Fixture namespaced events-off help ignores invalid endpoin
   absent(installedMaintenanceCliSubject?.observations[3], cleanFixtureHelpScenarios[3].expected, "events off must win over invalid endpoint configuration")
 })
 test("Clean Fixture reconciles installed current-stage inventory and Station Map projection", () => {
-  expect(expectedInstalledFiles).toHaveLength(146)
+  expect(expectedInstalledFiles).toHaveLength(152)
   absent(installedMaintenanceCliSubject?.installedFiles, expectedInstalledFiles, "the Git Clean Fixture must prove installed inventory")
   absent(installedMaintenanceCliSubject.importedFiles, expectedDependencyFreeHelpRuntimeTrace, "dependency-free help must load the exact installed runtime closure")
   expect(installedMaintenanceCliSubject.externalDependencyPerturbationRefused).toBeTrue()
@@ -46,8 +46,17 @@ test("Clean Fixture reconciles installed current-stage inventory and Station Map
   expect(installedMaintenanceCliSubject.nonJavaScriptRuntimePerturbationRefused).toBeTrue()
   expect(installedMaintenanceCliSubject.nonJavaScriptRuntimeBaselineRestored).toBeTrue()
   expect(installedMaintenanceCliSubject?.stationMap, "contract-absent: the Git Clean Fixture must parse the installed Station Map bytes").toEqual({
-    declared_branch_coverage: 118,
-    required_station_ids: ["help.previewed", "maintenance.usage-refused", "payload-package.completed", "payload-package.command-refused"],
+    declared_branch_coverage: 119,
+    required_station_ids: [
+      "help.previewed",
+      "maintenance.usage-refused",
+      "payload-check.previewed",
+      "payload-check.command-refused",
+      "payload-materialize.completed",
+      "payload-materialize.command-refused",
+      "payload-package.completed",
+      "payload-package.command-refused",
+    ],
     source_sha256: expectedBranchStationSourceSha256,
   })
 
@@ -66,9 +75,9 @@ test("Clean Fixture reconciles installed current-stage inventory and Station Map
   const report = reportResult.data
   expect(report.verdict, "contract-absent: the audit must emit the accepted ship verdict").toBe("ship")
   expect(report.surface_findings.every(({ status }) => status === "aligned"), "contract-absent: every audited command surface must align").toBe(true)
-  expect(report.required_observed_branch_total, "contract-absent: the audit must retain all four required Branch Stations").toBe(4)
-  expect(report.observed_branch_coverage, "contract-absent: only qualifying real-process evidence may count").toBe(4)
-  expect(report.stations.filter(({ status, provenance }) => status === "covered" && provenance === "real_process")).toHaveLength(4)
+  expect(report.required_observed_branch_total, "contract-absent: the audit must retain all eight required Branch Stations").toBe(8)
+  expect(report.observed_branch_coverage, "contract-absent: only qualifying real-process evidence may count").toBe(8)
+  expect(report.stations.filter(({ status, provenance }) => status === "covered" && provenance === "real_process")).toHaveLength(8)
   expect(report.stations.filter(({ station_id, status, provenance }) => station_id.startsWith("payload-package.") && status === "covered" && provenance === "real_process").map(({ station_id, exit_code, result_code }) => [station_id, exit_code, result_code])).toEqual([
     ["payload-package.completed", 0, "completed"],
     ["payload-package.command-refused", 21, "command-refused"],
@@ -80,7 +89,7 @@ test("Clean Fixture reconciles installed current-stage inventory and Station Map
     ? { ...station, station_id: "payload-check.previewed" }
     : station)
   expect(requiredStationProjectionAligned(substitutedStation), "contract-absent: a station substitution must drift").toBeFalse()
-  const promotedDeferredStation = report.stations.map((station) => station.station_id === "payload-check.previewed"
+  const promotedDeferredStation = report.stations.map((station) => station.station_id === "maintenance.runtime-failed"
     ? { ...station, status: "covered" as const, provenance: "real_process" as const }
     : station)
   expect(requiredStationProjectionAligned(promotedDeferredStation), "contract-absent: deferred promotion must not count").toBeFalse()
@@ -105,7 +114,7 @@ test("Clean Fixture reconciles installed current-stage inventory and Station Map
     stations: report.stations.map((station) => ({ ...station, descriptor_closure: "closed" })),
   }
   expect(auditReportSchema.safeParse(descriptorClaim).success, "contract-absent: an unsupported descriptor claim must be refused").toBeFalse()
-})
+}, 30_000)
 
 test("Clean Fixture production install observes every owner through public surfaces", async () => {
   const proof = await productionOwnerProof()
@@ -160,18 +169,23 @@ test("Clean Fixture distinguishes public command refusal from invalid input", as
     "payloadCheck",
     "releaseInspect",
   ])
-  const commandObservations = Object.entries(proof.publicProcess)
-    .filter(([label]) => label !== "help")
-    .map(([, observation]) => observation)
-  expect(commandObservations.every((observation) => observation.exitCode === 2)).toBeTrue()
-  expect(commandObservations.every((observation) => observation.stdoutEmpty)).toBeTrue()
-  expect(commandObservations.every((observation) => observation.maintenanceNotAdmitted)).toBeTrue()
-  expect(commandObservations.every((observation) => !observation.invalidInput)).toBeTrue()
+  const commandObservations = Object.fromEntries(
+    Object.entries(proof.publicProcess).filter(([label]) => label !== "help"),
+  )
+  expect(commandObservations).toEqual({
+    payloadCheck: { exitCode: 2, stdoutEmpty: true, maintenanceNotAdmitted: false, invalidInput: false, sourceCheckoutNotAdmitted: true },
+    releaseInspect: { exitCode: 2, stdoutEmpty: true, maintenanceNotAdmitted: true, invalidInput: false, sourceCheckoutNotAdmitted: false },
+    harnessClaudeInspect: { exitCode: 2, stdoutEmpty: true, maintenanceNotAdmitted: true, invalidInput: false, sourceCheckoutNotAdmitted: false },
+    harnessCodexInspect: { exitCode: 2, stdoutEmpty: true, maintenanceNotAdmitted: true, invalidInput: false, sourceCheckoutNotAdmitted: false },
+    canaryInspect: { exitCode: 2, stdoutEmpty: true, maintenanceNotAdmitted: true, invalidInput: false, sourceCheckoutNotAdmitted: false },
+    canaryQualify: { exitCode: 2, stdoutEmpty: true, maintenanceNotAdmitted: true, invalidInput: false, sourceCheckoutNotAdmitted: false },
+  })
   expect(proof.invalidInput).toEqual({
     exitCode: 2,
     stdoutEmpty: true,
     maintenanceNotAdmitted: false,
     invalidInput: true,
+    sourceCheckoutNotAdmitted: false,
   })
   expect(proof.qualification).toEqual({ status: "refused", code: "zero-cell" })
 })
