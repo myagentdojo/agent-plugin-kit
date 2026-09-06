@@ -226,29 +226,32 @@ const alive = (pid: number): boolean => {
     return false
   }
 }
-const childrenOf = (pid: number): number[] => {
-  const result = Bun.spawnSync({ cmd: ["pgrep", "-P", String(pid)], stdout: "pipe", stderr: "pipe" })
-  return result.stdout.toString().split("\n").map((line) => Number.parseInt(line, 10)).filter((value) => Number.isInteger(value))
-}
-const descendantsOf = (pid: number): number[] => {
-  const descendants: number[] = []
-  const pending = childrenOf(pid)
-  while (pending.length > 0) {
-    const child = pending.shift()
-    if (child === undefined || descendants.includes(child)) continue
-    descendants.push(child)
-    pending.push(...childrenOf(child))
-  }
-  return descendants
-}
 const commandOf = (pid: number): string =>
   Bun.spawnSync({ cmd: ["ps", "-o", "comm=", "-p", String(pid)], stdout: "pipe", stderr: "pipe" }).stdout.toString().trim()
 /**
  * The admitted process spawns Git children before it ever compresses, so the
  * compressor is identified by its command name rather than by child order.
  */
-const compressorChildOf = (pid: number): number | undefined =>
-  descendantsOf(pid).find((child) => commandOf(child).split("/").at(-1) === "gzip")
+const compressorChildOf = (pid: number): number | undefined => {
+  const result = Bun.spawnSync({ cmd: ["ps", "-axo", "pid=,ppid=,comm="], stdout: "pipe", stderr: "pipe" })
+  if (result.exitCode !== 0) throw new Error("compressor process snapshot failed")
+  const rows = result.stdout.toString().split("\n").flatMap((line) => {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.+)$/u.exec(line)
+    return match === null ? [] : [{ pid: Number(match[1]), parent: Number(match[2]), command: match[3] ?? "" }]
+  })
+  const pending = [pid]
+  const visited = new Set<number>()
+  while (pending.length > 0) {
+    const parent = pending.shift()
+    if (parent === undefined || visited.has(parent)) continue
+    visited.add(parent)
+    for (const child of rows.filter((row) => row.parent === parent)) {
+      if (child.command.split("/").at(-1) === "gzip") return child.pid
+      pending.push(child.pid)
+    }
+  }
+  return undefined
+}
 const waitUntil = async (condition: () => boolean, budgetMs: number): Promise<boolean> => {
   const started = performance.now()
   while (performance.now() - started < budgetMs) {
