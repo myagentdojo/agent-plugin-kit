@@ -36,9 +36,10 @@ released or protected command.
   Fixed, bounded, scrubbed Git invocations observe identity facts. Admission
   Bootstrap judges the observations and creates the capability.
 - Maintenance parses one Wire Command, checks capability, admits once, and
-  binds once. Only `payload:package` can reach Source Checkout Admission.
-  Every other command refuses before Admission and before protected authority
-  access.
+  binds once. Source Checkout Admission uses `committed-pin` for
+  `payload:check` and `payload:materialize`, and `committed-manifest` for
+  `payload:package`. Every other command refuses before Admission and before
+  protected authority access.
 - Until Plugin Payload Production supplies a collaborator,
   `payload:package` with an admitted source checkout projects the existing
   usage-refusal family with the message "Maintenance command owner is not
