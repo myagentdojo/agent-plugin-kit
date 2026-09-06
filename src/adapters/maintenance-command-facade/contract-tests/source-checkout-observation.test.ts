@@ -96,7 +96,21 @@ test("F03 link, copied checkout, and worktree mismatches refuse physical resolut
 
 test("F04 committed consumer authority outranks working files and malformed pins", async () => {
   const value = await fixture()
+  const manifestPath = join(value.consumer, "package.json")
+  const original = await readFile(manifestPath, "utf8")
+  const observeDevelopment = () => observeSourceCheckout({ entryPath: value.entry, cwd: value.consumer, environment: { PATH: process.env.PATH }, consumerAuthority: "committed-pin" })
+  await writeFile(manifestPath, JSON.stringify({ ...JSON.parse(original), version: "0.1.0" }))
+  expect(observeDevelopment()).toMatchObject({ kind: "observed", request: { source: { commit: value.commit } } })
+  expect(observe(value.entry, value.consumer)).toEqual({ kind: "refused", code: "consumer-authority-dirty" })
+  for (const changed of ["{", "null", "[]", "{}", JSON.stringify({ dependencies: { "agent-plugin-kit": `git+${origin}#${"e".repeat(40)}` } })]) {
+    await writeFile(manifestPath, changed)
+    expect(observeDevelopment()).toEqual({ kind: "refused", code: "consumer-authority-dirty" })
+  }
+  await rm(manifestPath)
+  expect(observeDevelopment()).toEqual({ kind: "refused", code: "consumer-authority-dirty" })
+  await writeFile(manifestPath, original)
   git(value.consumer, "rm", "--cached", "-q", "package.json")
+  expect(observeDevelopment()).toEqual({ kind: "refused", code: "consumer-authority-dirty" })
   expect(observe(value.entry, value.consumer)).toEqual({ kind: "refused", code: "consumer-authority-dirty" })
   git(value.consumer, "add", "package.json")
   await writeFile(join(value.consumer, "package.json"), JSON.stringify({ dependencies: { "agent-plugin-kit": `git+${origin}#${"e".repeat(40)}` } }))

@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
 import type { SourceCheckoutAdmissionRequest } from "../../../modules/release-and-git-engine/interface"
@@ -27,6 +27,7 @@ export type SourceCheckoutObservationInput = {
   entryPath: string
   cwd: string
   environment: Readonly<Record<string, string | undefined>>
+  consumerAuthority?: "committed-manifest" | "committed-pin"
 }
 
 const commitPattern = /^[0-9a-f]{40}$/
@@ -189,10 +190,26 @@ function committedConsumerManifestFor(consumerRoot: string, input: SourceCheckou
   return manifestAtHead(consumerRoot, input.environment)
 }
 
-function cleanConsumerAuthorityFor(consumerRoot: string, input: SourceCheckoutObservationInput): SourceCheckoutObservation | undefined {
+function consumerPinsMatch(consumerRoot: string, indexed: string, committedManifest: Record<string, unknown>): boolean {
+  try {
+    const path = join(consumerRoot, "package.json")
+    if (!lstatSync(path).isFile()) return false
+    const expected = kitDependencyFor(committedManifest)
+    const manifests: unknown[] = [JSON.parse(indexed), JSON.parse(readFileSync(path, "utf8"))]
+    return manifests.every((manifest) => typeof manifest === "object" && manifest !== null && !Array.isArray(manifest)
+      && kitDependencyFor(manifest as Record<string, unknown>) === expected)
+  } catch { return false }
+}
+
+function cleanConsumerAuthorityFor(consumerRoot: string, input: SourceCheckoutObservationInput, committedManifest: Record<string, unknown>): SourceCheckoutObservation | undefined {
   const status = git(consumerRoot, input.environment, [], "status", "--porcelain=v1", "--untracked-files=all", "--", "package.json")
   if (status === undefined || status === gitUnavailable) return refused("git-unavailable")
-  return status === "" ? undefined : refused("consumer-authority-dirty")
+  if (status === "") return undefined
+  if (input.consumerAuthority !== "committed-pin") return refused("consumer-authority-dirty")
+  const indexed = git(consumerRoot, input.environment, [128], "show", ":package.json")
+  if (indexed === gitUnavailable) return refused("git-unavailable")
+  if (indexed === undefined) return refused("consumer-authority-dirty")
+  return consumerPinsMatch(consumerRoot, indexed, committedManifest) ? undefined : refused("consumer-authority-dirty")
 }
 
 function consumerLinksToKit(consumerRoot: string, kitRoot: string): boolean {
@@ -205,7 +222,7 @@ function consumerCheckoutFactsFor(input: SourceCheckoutObservationInput, kitRoot
   const consumerManifest = committedConsumerManifestFor(consumerRoot, input)
   if (consumerManifest === gitUnavailable) return refused("git-unavailable")
   if (consumerManifest === undefined) return refused("consumer-manifest-uncommitted")
-  const dirty = cleanConsumerAuthorityFor(consumerRoot, input)
+  const dirty = cleanConsumerAuthorityFor(consumerRoot, input, consumerManifest)
   if (dirty !== undefined) return dirty
   const pin = consumerPinFor(consumerManifest)
   if (typeof pin === "string") return refused(pin)

@@ -70,7 +70,7 @@ export type TrustedCommandBindingDependencies = {
   trace?: (step: TrustedCommandBindingStep) => void
 }
 
-export type SourceCheckoutAdmissionSource = () => Promise<
+export type SourceCheckoutAdmissionSource = (consumerAuthority: "committed-manifest" | "committed-pin") => Promise<
   | { kind: "admitted"; identity: AdmittedSourceCheckoutIdentity }
   | { kind: "refused" }
 >
@@ -418,7 +418,7 @@ export async function bindSourceCheckoutCommand(
   dependencies.trace?.("capability-check")
 	if (!isSourceCheckoutPayloadCommand(command)) return refusal("capability-insufficient")
   dependencies.trace?.("admission")
-  const admitted = await dependencies.admission()
+  const admitted = await dependencies.admission(command.command === "payload:package" ? "committed-manifest" : "committed-pin")
   if (admitted.kind !== "admitted") return refusal("source-checkout-not-admitted")
   dependencies.trace?.("bind")
   return { status: "bound", command: boundPayloadCommandFor(command) }

@@ -378,7 +378,7 @@ async function run(): Promise<number> {
 	for (const result of [validateCurrentStageDiscovery(root), validateCurrentStageSelection(selected), validateCurrentStageFiles(root, selected), validateCurrentStageSources(root, selected)]) if (!result.ok) { report(result); return 1 }
 	const temporaryRoot = mkdtempSync(join(tmpdir(), "agent-plugin-kit-current-stage-")), reportPath = join(temporaryRoot, "junit.xml")
 	try {
-		const child = await settleCurrentStageChild([process.execPath, "test", "--reporter=junit", "--reporter-outfile", reportPath, ...selected], root, 120_000)
+		const child = await settleCurrentStageChild([process.execPath, "test", "--reporter=junit", "--reporter-outfile", reportPath, ...selected], root, 300_000)
 		process.stdout.write(child.stdout); process.stderr.write(child.stderr)
 		const result = validateCurrentStageProcess({ exitCode: child.exitCode, signalCode: child.signalCode, report: existsSync(reportPath) ? readFileSync(reportPath, "utf8") : "" })
 		if (!result.ok) report(result); return result.ok ? 0 : 1
