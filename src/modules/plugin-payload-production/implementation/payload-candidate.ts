@@ -497,9 +497,10 @@ const versionMatches = (version: string, requested: string): boolean => {
 const dependencyTarget = (name: string, requested: string): { expectedName: string; range: string } => {
   if (!requested.startsWith("npm:")) return { expectedName: name, range: requested }
   const alias = requested.slice(4)
-  const expectedName = alias.split("@")[0] ?? ""
-  const separatorLength = alias.includes("@") ? 1 : 0
-  return { expectedName, range: alias.slice(expectedName.length + separatorLength) || "*" }
+  const versionSeparator = alias.lastIndexOf("@")
+  return versionSeparator > 0
+    ? { expectedName: alias.slice(0, versionSeparator), range: alias.slice(versionSeparator + 1) || "*" }
+    : { expectedName: alias, range: "*" }
 }
 
 const dependencyMatches = (candidate: FrozenPackage, expectedName: string, requested: string, range: string): boolean => {

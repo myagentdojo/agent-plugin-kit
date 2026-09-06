@@ -235,6 +235,33 @@ test("CM05 admits a frozen workspace and records an independently hashed bundle"
 	expect(aliasBundle).toContain('"wildcard-alias-proof"')
 	expect(aliasBundle).toContain('"locked-dependency-alias-proof"')
 	expect(aliasBundle).not.toContain('from "#')
+
+	for (const [name, requested] of [
+		["real-package", "npm:real-package@1.0.0"],
+		["real-package", "npm:real-package"],
+		["@fixture/real-package", "npm:@fixture/real-package@1.0.0"],
+		["@fixture/real-package", "npm:@fixture/real-package"],
+	] as const) {
+		const aliased = fixture({ production: "workspace", workspaceSource: 'import value from "alias";export const beta = value;\n' })
+		writeFileSync(join(aliased.workspaceRoot, "package.json"), JSON.stringify({
+			name: "@fixture/beta", main: "src/index.ts", dependencies: { alias: requested },
+		}))
+		writeFileSync(aliased.lockPath, JSON.stringify({
+			workspaces: { [aliased.workspacePath]: { dependencies: { alias: requested } } },
+			packages: { alias: [`${name}@1.0.0`, "sha512-fixture", {}] },
+		}))
+		const packageRoot = join(aliased.storeRoot, `${name.replace("/", "+")}@1.0.0`, "node_modules", name)
+		mkdirSync(packageRoot, { recursive: true })
+		writeFileSync(join(packageRoot, "package.json"), JSON.stringify({ name, version: "1.0.0", license: "MIT", main: "index.js" }))
+		writeFileSync(join(packageRoot, "index.js"), 'export default "npm-alias-proof";\n')
+		writeFileSync(join(packageRoot, "LICENSE"), "Alias fixture license.\n")
+		symlinkSync(packageRoot, join(aliased.root, "node_modules/alias"))
+		await expectMaterialized(aliased)
+		const produced = JSON.parse(readFileSync(join(aliased.pluginRoot, "runtime/bundle-inventory.json"), "utf8"))
+		expect(readFileSync(join(aliased.pluginRoot, produced.bundles.beta.path), "utf8")).toContain('"npm-alias-proof"')
+		expect(readFileSync(join(aliased.pluginRoot, "THIRD-PARTY-NOTICES.md"), "utf8")).toContain(`## ${name}@1.0.0 (MIT)`)
+		expect((await produceCheck(aliased)).kind).toBe("checked")
+	}
 })
 
 test("CM06 preserves and records a prepared runtime entry", async () => {
