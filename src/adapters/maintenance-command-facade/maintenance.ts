@@ -2,6 +2,7 @@
 import { createMaintenanceCommands } from "../../modules/maintenance-command-contract/implementation/maintenance-commands"
 import {
   bindSourceCheckoutCommand,
+  type SourceCheckoutAdmissionSource,
 } from "../../modules/maintenance-command-contract/implementation/trusted-command-binding"
 import { createMaintenanceCommandFacade } from "./implementation/maintenance-command-facade"
 import type { PluginPayloadProduction } from "../../modules/plugin-payload-production/interface"
@@ -78,13 +79,13 @@ const commands = createMaintenanceCommands({
   canary: { inspect: unavailable, qualify: unavailable },
 })
 
-const sourceCheckoutAdmission = async () => {
+const sourceCheckoutAdmission: SourceCheckoutAdmissionSource = async (consumerAuthority) => {
   try {
     const [{ observeSourceCheckout }, { admissionBootstrap }] = await Promise.all([
       import("./implementation/source-checkout-observation"),
       import("../../admission-bootstrap/implementation/admission-bootstrap"),
     ])
-    const observation = observeSourceCheckout({ entryPath: import.meta.path, cwd: process.cwd(), environment: process.env })
+    const observation = observeSourceCheckout({ entryPath: import.meta.path, cwd: process.cwd(), environment: process.env, consumerAuthority })
     return observation.kind === "observed"
       ? admissionBootstrap.admitSourceCheckout(observation.request)
       : { kind: "refused" as const }

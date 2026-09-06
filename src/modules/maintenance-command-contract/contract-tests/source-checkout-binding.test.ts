@@ -18,10 +18,11 @@ const admitted = { kind: "admitted" as const, identity: {} as AdmittedSourceChec
 test("M01 all repository-local payload bindings parse, check capability, admit, and bind once", async () => {
   const payloadWires = [checkWire, materializeWire, packageWire] as const
   let admissions = 0
+  const policies: unknown[] = []
   for (const wire of payloadWires) {
     const steps: TrustedCommandBindingStep[] = []
     const result = await bindSourceCheckoutCommand(wire, {
-      admission: async () => { admissions += 1; return admitted }, trace: (step) => steps.push(step),
+      admission: async (...arguments_) => { policies.push(arguments_[0]); admissions += 1; return admitted }, trace: (step) => steps.push(step),
     })
     const expected: MaintenanceCommand = (() => {
       switch (wire.command) {
@@ -34,6 +35,7 @@ test("M01 all repository-local payload bindings parse, check capability, admit, 
     expect(steps).toEqual(["parse", "capability-check", "admission", "bind"])
   }
   expect(admissions).toBe(payloadWires.length)
+  expect(policies).toEqual(["committed-pin", "committed-pin", "committed-manifest"])
 })
 
 test("M02 every other valid Wire Command refuses before source admission", async () => {

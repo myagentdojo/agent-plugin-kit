@@ -36,9 +36,10 @@ released or protected command.
   Fixed, bounded, scrubbed Git invocations observe identity facts. Admission
   Bootstrap judges the observations and creates the capability.
 - Maintenance parses one Wire Command, checks capability, admits once, and
-  binds once. Only `payload:package` can reach Source Checkout Admission.
-  Every other command refuses before Admission and before protected authority
-  access.
+  binds once. Source Checkout Admission uses `committed-pin` for
+  `payload:check` and `payload:materialize`, and `committed-manifest` for
+  `payload:package`. Every other command refuses before Admission and before
+  protected authority access.
 - Until Plugin Payload Production supplies a collaborator,
   `payload:package` with an admitted source checkout projects the existing
   usage-refusal family with the message "Maintenance command owner is not
@@ -69,7 +70,37 @@ This distinguishes admission-related shell work from Deep Module
 Implementation dispatch. It does not broaden pre-Admission execution beyond
 the stated observation, validation, help, and refusal projection.
 
-## Consequences
+## Development metadata amendment
+
+Nathan accepted this scoped amendment on 6 September 2026. Initialization
+changes the consumer package version before `generate:check`; development
+checks must retain the committed Kit pin without requiring an unrelated
+metadata commit.
+
+- Maintenance Command Contract selects `committed-pin` only after parsing and
+  admitting the command vocabulary for `payload:check` or
+  `payload:materialize`. It selects `committed-manifest` for `payload:package`.
+- Source Checkout Observation receives that policy from the composition root,
+  without accepting a Wire Command, request paths, or caller-supplied identity.
+  Its default remains `committed-manifest`.
+- Under `committed-pin`, the consumer manifest at HEAD remains the sole pin
+  authority. The index and regular working manifest must both contain the same
+  exact Kit dependency string. Other metadata may differ. Missing, malformed,
+  untracked, symlinked, or pin-changing authority refuses.
+- Packaging retains full consumer-manifest cleanliness. Every route retains
+  clean executing Kit source, exact checkout identity, physical link checks,
+  and fail-closed Git observation. Released and protected commands are unchanged.
+
+This supersedes only the whole-consumer-manifest cleanliness requirement for
+check and materialize. It does not admit uncommitted Kit upgrades. Requiring a
+metadata commit would interrupt initialization; weakening every command would
+unnecessarily change packaging policy.
+
+Confirmation: F04 Git-observation cases, M01 command-policy selection, and CF04
+real materialize/check after a version edit, with package and changed-pin
+refusal controls. Existing counts are retained by extending those cases.
+
+## Consequences retained
 
 - Positive: local package work can prove an exact physical source checkout
   without fabricating Release or Workflow evidence.
