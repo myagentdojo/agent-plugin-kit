@@ -94,7 +94,7 @@ test("F03 link, copied checkout, and worktree mismatches refuse physical resolut
   expect(observe(value.entry, value.consumer)).toEqual({ kind: "refused", code: "consumer-link-mismatch" })
 })
 
-test("F04 committed consumer authority outranks working files and malformed pins", async () => {
+test("F04a development pin authority allows metadata but rejects missing or changed pins", async () => {
   const value = await fixture()
   const manifestPath = join(value.consumer, "package.json")
   const original = await readFile(manifestPath, "utf8")
@@ -112,7 +112,10 @@ test("F04 committed consumer authority outranks working files and malformed pins
   git(value.consumer, "rm", "--cached", "-q", "package.json")
   expect(observeDevelopment()).toEqual({ kind: "refused", code: "consumer-authority-dirty" })
   expect(observe(value.entry, value.consumer)).toEqual({ kind: "refused", code: "consumer-authority-dirty" })
-  git(value.consumer, "add", "package.json")
+}, 15_000)
+
+test("F04b committed consumer authority outranks working files and malformed pins", async () => {
+  const value = await fixture()
   await writeFile(join(value.consumer, "package.json"), JSON.stringify({ dependencies: { "agent-plugin-kit": `git+${origin}#${"e".repeat(40)}` } }))
   expect(observe(value.entry, value.consumer)).toEqual({ kind: "refused", code: "consumer-authority-dirty" })
   await rm(join(value.consumer, "package.json")); expect(observe(value.entry, value.consumer)).toEqual({ kind: "refused", code: "consumer-authority-dirty" })

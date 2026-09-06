@@ -743,13 +743,24 @@ const closedResolutionPlugin = (
   manifest: WorkspaceManifest,
   violations: string[],
 ): import("bun").BunPlugin => {
-  const allowedRoots = [workspaceRoot, realpathSync(join(root, "node_modules"))]
+  const lock = parseFrozenLock(root)
+  const dependencies = reachableDependencies(parsedPackages(lock), workspaceRequests(root, lock, relative(root, workspaceRoot)))
+  const allowedRoots = [workspaceRoot, ...dependencies.map((dependency) => realpathSync(dependencyStore(root, dependency)))]
   const bareImports = new Set([
     ...Object.keys(manifest.dependencies ?? {}),
     ...Object.keys(manifest.peerDependencies ?? {}),
     ...(typeof manifest.name === "string" ? [manifest.name] : []),
   ])
-  const admittedPath = (path: string): boolean => allowedRoots.some((candidate) => isInside(path, candidate))
+  const packageImports = Object.keys(manifest.imports ?? {})
+  const declaredPackageImport = (specifier: string): boolean => packageImports.some((pattern) => {
+    if (pattern === specifier) return true
+    const wildcard = pattern.indexOf("*")
+    if (wildcard < 0) return false
+    const prefix = pattern.slice(0, wildcard)
+    const suffix = pattern.slice(wildcard + 1)
+    return specifier.length >= prefix.length + suffix.length && specifier.startsWith(prefix) && specifier.endsWith(suffix)
+  })
+  const admittedPath = (path: string): boolean => isInside(path, root) && allowedRoots.some((candidate) => isInside(path, candidate))
   return {
     name: "payload-closed-resolution",
     setup(builder) {
@@ -765,7 +776,8 @@ const closedResolutionPlugin = (
       builder.onResolve({ filter: /^[^./]/u }, (args) => {
         if (allowedRuntimeSpecifier(args.path)) return undefined
         const packageName = args.path.startsWith("@") ? args.path.split("/", 2).join("/") : args.path.split("/", 1)[0] ?? ""
-        if (!isInside(args.importer, workspaceRoot) || !bareImports.has(packageName)) return rejectedResolution(violations, args.path, `unadmitted import: ${args.path}`)
+        const declared = args.path.startsWith("#") ? declaredPackageImport(args.path) : bareImports.has(packageName)
+        if (!isInside(args.importer, workspaceRoot) || !declared) return rejectedResolution(violations, args.path, `unadmitted import: ${args.path}`)
         const classify = (resolved: string): string | undefined => admittedPath(resolved)
           ? undefined
           : `unadmitted package path: ${args.path}`

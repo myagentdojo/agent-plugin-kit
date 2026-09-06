@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { PayloadProductionResult, PreparedProjectionDeclaration } from "../interface"
 import { createPluginPayloadProduction } from "../implementation/plugin-payload-production"
@@ -217,6 +217,24 @@ test("CM05 admits a frozen workspace and records an independently hashed bundle"
 	expect(snapshotRepository(subject.root).filter((entry) =>
 		entry.path === "bun.lock" || entry.path.startsWith("workspace/") || entry.path.startsWith("node_modules/.bun/"),
 	)).toEqual(dependencyBefore)
+
+	const aliases = fixture({ production: "workspace", dependencyManifest: { main: "index.js" }, workspaceSource: 'import exact from "#exact";import wildcard from "#lib/value";import dependency from "#dependency";export const beta = [exact, wildcard, dependency];\n' })
+	const manifestPath = join(aliases.workspaceRoot, "package.json")
+	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
+	manifest.imports = { "#exact": "./src/exact.ts", "#lib/*": "./src/lib/*.ts", "#dependency": "fixture-dependency" }
+	writeFileSync(manifestPath, JSON.stringify(manifest))
+	mkdirSync(join(aliases.workspaceRoot, "src/lib"))
+	writeFileSync(join(aliases.workspaceRoot, "src/exact.ts"), 'export default "exact-alias-proof";\n')
+	writeFileSync(join(aliases.workspaceRoot, "src/lib/value.ts"), 'export default "wildcard-alias-proof";\n')
+	writeFileSync(join(aliases.dependencyRoot, "index.js"), 'export default "locked-dependency-alias-proof";\n')
+	symlinkSync(aliases.dependencyRoot, join(aliases.root, "node_modules/fixture-dependency"))
+	await expectMaterialized(aliases)
+	const aliasInventory = JSON.parse(readFileSync(join(aliases.pluginRoot, "runtime/bundle-inventory.json"), "utf8"))
+	const aliasBundle = readFileSync(join(aliases.pluginRoot, aliasInventory.bundles.beta.path), "utf8")
+	expect(aliasBundle).toContain('"exact-alias-proof"')
+	expect(aliasBundle).toContain('"wildcard-alias-proof"')
+	expect(aliasBundle).toContain('"locked-dependency-alias-proof"')
+	expect(aliasBundle).not.toContain('from "#')
 })
 
 test("CM06 preserves and records a prepared runtime entry", async () => {

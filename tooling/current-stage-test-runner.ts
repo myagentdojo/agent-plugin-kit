@@ -40,9 +40,9 @@ export const currentStageTestFiles = [
 	"src/modules/canary-qualification/contract-tests/authority-source.test.ts",
 ] as const
 
-	const expectedTests = [3, 2, 6, 6, 9, 7, 8, 12, 5, 5, 8, 7, 3, 3, 2, 2, 8, 8, 13, 19, 12, 7, 12, 7, 7, 4, 3, 20, 20, 15, 10, 3, 4, 3, 3] as const
+	const expectedTests = [3, 2, 6, 6, 9, 7, 8, 12, 5, 5, 8, 7, 3, 3, 2, 2, 8, 8, 13, 19, 12, 8, 12, 7, 7, 4, 3, 20, 20, 15, 10, 3, 4, 3, 3] as const
 const expectedTestsByFile = new Map<string, number>(currentStageTestFiles.map((file, index) => [file, expectedTests[index] ?? 0]))
-export const currentStageExpectedTestCount = 266
+export const currentStageExpectedTestCount = 267
 
 export type GuardCode =
 	| "selector-duplicate" | "selector-missing" | "selector-unexpected" | "selector-order" | "selector-file-missing" | "selector-discovery"

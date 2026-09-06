@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { basename, join } from "node:path"
 import type { PayloadProductionResult } from "../interface"
 import { createPluginPayloadProduction } from "../implementation/plugin-payload-production"
@@ -223,5 +223,28 @@ test("IR10 refuses computed imports and runtime-loader escapes in workspace bund
 		const result = await createPluginPayloadProduction().produce(checkRequest(subject))
 		expectRefusal(result, "bundle-refused")
 		expect(snapshotRepository(subject.root)).toEqual(before)
+	}
+	for (const alias of ["#missing", "#escape", "#blocked", "#lib/missing", "#unlocked", "#outside"]) {
+		const subject = fixture({ production: "workspace", workspaceSource: `import value from "${alias}";export const beta = value;\n` })
+		writeFileSync(join(subject.workspaceRoot, "package.json"), JSON.stringify({
+			name: "@fixture/beta",
+			main: "src/index.ts",
+			imports: { "#escape": "../../outside.ts", "#blocked": null, "#lib/*": "./src/lib/*.ts", "#unlocked": "unlocked-package", "#outside": "fixture-dependency" },
+		}))
+		writeFileSync(join(subject.root, "outside.ts"), 'export default "must-not-be-bundled";\n')
+		const unlocked = join(subject.root, "node_modules/unlocked-package")
+		mkdirSync(unlocked)
+		writeFileSync(join(unlocked, "package.json"), JSON.stringify({ name: "unlocked-package", main: "index.js" }))
+		writeFileSync(join(unlocked, "index.js"), 'export default "not-in-the-frozen-graph";\n')
+		if (alias === "#outside") {
+			const outside = fixture({ production: "workspace", dependencyManifest: { main: "index.js" } })
+			writeFileSync(join(outside.dependencyRoot, "index.js"), 'export default "outside-consumer";\n')
+			rmSync(subject.dependencyRoot, { recursive: true })
+			symlinkSync(outside.dependencyRoot, subject.dependencyRoot)
+			symlinkSync(subject.dependencyRoot, join(subject.root, "node_modules/fixture-dependency"))
+		}
+		const before = snapshotRepository(subject.root)
+		const result = await createPluginPayloadProduction().produce(materializeRequest(subject))
+		expectNoWrite(subject, before, result, "bundle-refused")
 	}
 })
