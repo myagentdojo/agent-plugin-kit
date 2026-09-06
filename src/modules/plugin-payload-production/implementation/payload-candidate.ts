@@ -769,13 +769,14 @@ const closedResolutionPlugin = (
   const lock = parseFrozenLock(root)
   const dependencies = reachableDependencies(parsedPackages(lock), workspaceRequests(root, lock, relative(root, workspaceRoot)))
   const allowedRoots = [workspaceRoot, ...dependencies.map((dependency) => realpathSync(dependencyStore(root, dependency)))]
-  const bareImports = new Set([
-    ...Object.keys(manifest.dependencies ?? {}),
-    ...Object.keys(manifest.peerDependencies ?? {}),
-    ...(typeof manifest.name === "string" ? [manifest.name] : []),
-  ])
-  const packageImports = Object.keys(manifest.imports ?? {})
-  const declaredPackageImport = (specifier: string): boolean => packageImports.some((pattern) => {
+  const owners = [
+    { directory: workspaceRoot, manifest },
+    ...dependencies.map((dependency) => {
+      const directory = realpathSync(dependencyStore(root, dependency))
+      return { directory, manifest: dependencyManifest(directory, dependency) }
+    }),
+  ].sort((left, right) => right.directory.length - left.directory.length)
+  const declaredPackageImport = (imports: unknown, specifier: string): boolean => Object.keys(isRecord(imports) ? imports : {}).some((pattern) => {
     if (pattern === specifier) return true
     const wildcard = pattern.indexOf("*")
     if (wildcard < 0) return false
@@ -783,6 +784,13 @@ const closedResolutionPlugin = (
     const suffix = pattern.slice(wildcard + 1)
     return specifier.length >= prefix.length + suffix.length && specifier.startsWith(prefix) && specifier.endsWith(suffix)
   })
+  const declaresImport = (declaration: WorkspaceManifest | Record<string, unknown>, specifier: string): boolean => {
+    if (specifier.startsWith("#")) return declaredPackageImport(declaration.imports, specifier)
+    const name = specifier.startsWith("@") ? specifier.split("/", 2).join("/") : specifier.split("/", 1)[0] ?? ""
+    return declaration.name === name
+      || (isRecord(declaration.dependencies) && Object.hasOwn(declaration.dependencies, name))
+      || (isRecord(declaration.peerDependencies) && Object.hasOwn(declaration.peerDependencies, name))
+  }
   const admittedPath = (path: string): boolean => isInside(path, root) && allowedRoots.some((candidate) => isInside(path, candidate))
   return {
     name: "payload-closed-resolution",
@@ -798,9 +806,8 @@ const closedResolutionPlugin = (
       })
       builder.onResolve({ filter: /^[^./]/u }, (args) => {
         if (allowedRuntimeSpecifier(args.path)) return undefined
-        const packageName = args.path.startsWith("@") ? args.path.split("/", 2).join("/") : args.path.split("/", 1)[0] ?? ""
-        const declared = args.path.startsWith("#") ? declaredPackageImport(args.path) : bareImports.has(packageName)
-        if (!isInside(args.importer, workspaceRoot) || !declared) return rejectedResolution(violations, args.path, `unadmitted import: ${args.path}`)
+        const owner = owners.find((candidate) => isInside(args.importer, candidate.directory))
+        if (owner === undefined || !declaresImport(owner.manifest, args.path)) return rejectedResolution(violations, args.path, `unadmitted import: ${args.path}`)
         const classify = (resolved: string): string | undefined => admittedPath(resolved)
           ? undefined
           : `unadmitted package path: ${args.path}`

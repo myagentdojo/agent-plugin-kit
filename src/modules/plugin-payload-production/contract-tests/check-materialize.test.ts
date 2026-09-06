@@ -138,6 +138,30 @@ const expectFailurePathPartition = (
 	else expect(changed.length).toBeGreaterThan(0)
 }
 
+test("CM05 resolves transitive imports through their declaring package", async () => {
+	const subject = fixture({ production: "workspace", workspaceSource: 'export { default } from "fixture-dependency";\n' })
+	writeFileSync(join(subject.workspaceRoot, "package.json"), JSON.stringify({ name: "@fixture/beta", main: "src/index.ts", dependencies: { "fixture-dependency": "^1.0.0" } }))
+	writeFileSync(subject.dependencyManifestPath, JSON.stringify({ name: "fixture-dependency", version: "1.0.0", license: "MIT", main: "index.js", dependencies: { "nested-child": "^2.0.0" } }))
+	writeFileSync(join(subject.dependencyRoot, "index.js"), 'export { default } from "nested-child";\n')
+	const child = join(subject.root, "node_modules/.bun/nested-child@2.3.1/node_modules/nested-child")
+	mkdirSync(child, { recursive: true })
+	writeFileSync(join(child, "package.json"), JSON.stringify({ name: "nested-child", version: "2.3.1", license: "MIT", main: "index.js" }))
+	writeFileSync(join(child, "index.js"), 'export default "correct-transitive-child";\n')
+	mkdirSync(join(subject.dependencyRoot, "node_modules"), { recursive: true })
+	symlinkSync(child, join(subject.dependencyRoot, "node_modules/nested-child"))
+	symlinkSync(subject.dependencyRoot, join(subject.root, "node_modules/fixture-dependency"))
+	writeFileSync(subject.lockPath, JSON.stringify({ workspaces: { "workspace/beta": { dependencies: { "fixture-dependency": "^1.0.0" } } }, packages: {
+		"fixture-dependency": ["fixture-dependency@1.0.0", "", { dependencies: { "nested-child": "^2.0.0" } }],
+		"fixture-dependency/nested-child": ["nested-child@2.3.1", "", {}],
+	} }))
+	const result = await expectMaterialized(subject)
+	const bundle = result.candidate.files.find((file) => /^runtime\/beta-.*\.js$/u.test(file.path))
+	if (bundle === undefined) throw new Error("missing beta bundle")
+	expect(readFileSync(join(subject.pluginRoot, bundle.path), "utf8")).toContain("correct-transitive-child")
+	writeFileSync(subject.dependencyManifestPath, JSON.stringify({ name: "fixture-dependency", version: "1.0.0", license: "MIT", main: "index.js" }))
+	expectRefusal(await produceMaterialize(subject), "bundle-refused")
+})
+
 test("CM01 accepts strict normalized configuration and all source projections", async () => {
 	const subject = fixture()
 	const result = await expectMaterialized(subject)
