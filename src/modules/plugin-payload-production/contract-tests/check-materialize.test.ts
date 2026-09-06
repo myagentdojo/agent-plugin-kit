@@ -218,6 +218,42 @@ test("CM05 admits a frozen workspace and records an independently hashed bundle"
 		entry.path === "bun.lock" || entry.path.startsWith("workspace/") || entry.path.startsWith("node_modules/.bun/"),
 	)).toEqual(dependencyBefore)
 
+	const peer = fixture({ production: "workspace", workspaceSource: 'import shared from "shared";export const beta = shared;\n' })
+	const sharedPath = "workspace/shared"
+	const sharedRoot = join(peer.root, sharedPath)
+	mkdirSync(sharedRoot, { recursive: true })
+	writeFileSync(join(sharedRoot, "package.json"), JSON.stringify({ name: "shared", version: "1.2.0", main: "index.js", type: "module" }))
+	writeFileSync(join(sharedRoot, "index.js"), 'export default "workspace-peer-proof";\n')
+	writeFileSync(join(peer.workspaceRoot, "package.json"), JSON.stringify({ name: "@fixture/beta", main: "src/index.ts", peerDependencies: { shared: "^1.0.0" } }))
+	const peerLock = {
+		workspaces: { [peer.workspacePath]: { peerDependencies: { shared: "^1.0.0" } }, [sharedPath]: { name: "shared", version: "1.2.0" } },
+		packages: { shared: ["shared@workspace:workspace/shared"] },
+	}
+	writeFileSync(peer.lockPath, JSON.stringify(peerLock))
+	symlinkSync(sharedRoot, join(peer.root, "node_modules/shared"))
+	await expectMaterialized(peer)
+	const peerInventory = JSON.parse(readFileSync(join(peer.pluginRoot, "runtime/bundle-inventory.json"), "utf8"))
+	expect(readFileSync(join(peer.pluginRoot, peerInventory.bundles.beta.path), "utf8")).toContain("workspace-peer-proof")
+	const peerBefore = snapshotRepository(peer.root)
+	writeFileSync(join(sharedRoot, "package.json"), JSON.stringify({ name: "shared", version: "2.0.0", main: "index.js", type: "module" }))
+	expect(await produceCheck(peer)).toMatchObject({ kind: "refused", code: "dependency-refused" })
+	expect(await produceMaterialize(peer)).toMatchObject({ kind: "refused", code: "dependency-refused" })
+	expect(readFileSync(peer.lockPath, "utf8")).toBe(JSON.stringify(peerLock))
+	writeFileSync(join(sharedRoot, "package.json"), JSON.stringify({ name: "shared", version: "1.2.0", main: "index.js", type: "module" }))
+	Object.assign(peerLock.workspaces[sharedPath], { peerDependencies: { absent: "^1.0.0" }, peerDependenciesMeta: { absent: { optional: true } } })
+	writeFileSync(peer.lockPath, JSON.stringify(peerLock))
+	await expectMaterialized(peer)
+	expect((await produceCheck(peer)).kind).toBe("checked")
+	Object.assign(peerLock.workspaces[sharedPath], { peerDependenciesMeta: { absent: { optional: false } } })
+	writeFileSync(peer.lockPath, JSON.stringify(peerLock))
+	expect(await produceCheck(peer)).toMatchObject({ kind: "refused", code: "dependency-refused" })
+	expect(await produceMaterialize(peer)).toMatchObject({ kind: "refused", code: "dependency-refused" })
+	Object.assign(peerLock.workspaces[sharedPath], { peerDependencies: {}, peerDependenciesMeta: {} })
+	peerLock.workspaces[sharedPath].version = "2.0.0"
+	writeFileSync(peer.lockPath, JSON.stringify(peerLock))
+	expect(await produceCheck(peer)).toMatchObject({ kind: "refused", code: "dependency-refused" })
+	expect(snapshotRepository(peer.root).filter((entry) => entry.path.startsWith("plugin/"))).toEqual(peerBefore.filter((entry) => entry.path.startsWith("plugin/")))
+
 	const aliases = fixture({ production: "workspace", dependencyManifest: { main: "index.js" }, workspaceSource: 'import exact from "#exact";import wildcard from "#lib/value";import dependency from "#dependency";export const beta = [exact, wildcard, dependency];\n' })
 	const manifestPath = join(aliases.workspaceRoot, "package.json")
 	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))

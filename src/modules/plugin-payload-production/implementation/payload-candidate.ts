@@ -433,7 +433,7 @@ type FrozenWorkspace = {
   peerDependencies?: Record<string, string>
   peerDependenciesMeta?: Record<string, { optional?: boolean }>
 }
-type FrozenPackage = { key: string; name: string; version: string; dependencies?: Record<string, string> }
+type FrozenPackage = { key: string; name: string; version: string; workspaceVersion?: string; dependencies?: Record<string, string> }
 type FrozenLock = { workspaces?: Record<string, FrozenWorkspace>; packages?: Record<string, unknown> }
 type AdmittedDependency = { name: string; version: string; license: string; licenseText?: string; noticeText?: string }
 type WorkspaceManifest = { name?: unknown; main?: unknown; dependencies?: Record<string, string>; peerDependencies?: Record<string, string>; imports?: Record<string, unknown> }
@@ -463,7 +463,19 @@ const parsedPackage = (key: string, value: unknown): FrozenPackage => {
 }
 
 const parsedPackages = (lock: FrozenLock): Map<string, FrozenPackage> => new Map(
-  Object.entries(lock.packages ?? {}).map(([key, value]) => [key, parsedPackage(key, value)]),
+  Object.entries(lock.packages ?? {}).map(([key, value]) => {
+    const dependency = parsedPackage(key, value)
+    if (!dependency.version.startsWith("workspace:")) return [key, dependency]
+    const workspace = lock.workspaces?.[dependency.version.slice("workspace:".length)]
+    return [key, {
+      ...dependency,
+      ...(typeof workspace?.version === "string" ? { workspaceVersion: workspace.version } : {}),
+      dependencies: {
+        ...(workspace?.dependencies ?? {}),
+        ...Object.fromEntries(Object.entries(workspace?.peerDependencies ?? {}).filter(([name]) => workspace?.peerDependenciesMeta?.[name]?.optional !== true)),
+      },
+    }]
+  }),
 )
 
 const partialSemver = /^(?:[xX*]|(?:0|[1-9]\d*)(?:\.(?:[xX*]|(?:0|[1-9]\d*)(?:\.(?:[xX*]|0|[1-9]\d*))?))?)$/u
@@ -507,7 +519,7 @@ const dependencyMatches = (candidate: FrozenPackage, expectedName: string, reque
   if (candidate.name !== expectedName) return false
   return requested.startsWith("workspace:")
     ? candidate.version.startsWith("workspace:")
-    : versionMatches(candidate.version, range)
+    : versionMatches(candidate.workspaceVersion ?? candidate.version, range)
 }
 
 const lockDependency = (packages: Map<string, FrozenPackage>, name: string, requested: string, parent?: FrozenPackage): FrozenPackage => {
@@ -522,6 +534,7 @@ const lockDependency = (packages: Map<string, FrozenPackage>, name: string, requ
 }
 
 const dependencyStore = (root: string, dependency: FrozenPackage): string => {
+  if (dependency.version.startsWith("workspace:")) return physicalPath(root, dependency.version.slice("workspace:".length), "dependency-refused")
   for (const storeName of [`${dependency.name}@${dependency.version}`, `${dependency.name.replace("/", "+")}@${dependency.version}`]) {
     const candidate = join(root, "node_modules", ".bun", storeName, "node_modules", dependency.name)
     if (existsSync(join(candidate, "package.json"))) return candidate
@@ -587,7 +600,7 @@ const reachableDependencies = (
   while (queue.length > 0) {
     const request = queue.pop() as DependencyRequest
     const locked = lockDependency(packages, request.name, request.requested, request.parent)
-    if (locked.version.startsWith("workspace:") || reachable.has(locked.key)) continue
+    if (reachable.has(locked.key)) continue
     reachable.set(locked.key, locked)
     for (const [name, requested] of Object.entries(locked.dependencies ?? {})) queue.push({ name, requested, parent: locked })
   }
@@ -662,7 +675,16 @@ const admitWorkspaceDependencies = (root: string, skills: readonly PluginPayload
   const packages = parsedPackages(lock)
   const requests = workspaceDependencyRequests(root, lock, skills)
   refuseRootTrustedDependencies(root)
-  return reachableDependencies(packages, requests).map((dependency) => admittedDependency(root, packages, dependency))
+  return reachableDependencies(packages, requests)
+    .filter((dependency) => {
+      if (!dependency.version.startsWith("workspace:")) return true
+      const manifest = dependencyManifest(dependencyStore(root, dependency), dependency)
+      if (dependency.workspaceVersion !== undefined && manifest.version !== dependency.workspaceVersion) {
+        throw new PayloadCandidateRefusal("dependency-refused", `${dependency.name} workspace version differs from bun.lock; restore the frozen workspace manifest before repeating payload:check`)
+      }
+      return false
+    })
+    .map((dependency) => admittedDependency(root, packages, dependency))
 }
 
 const findNative = (directory: string): string | undefined => {
