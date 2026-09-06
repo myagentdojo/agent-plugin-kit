@@ -470,7 +470,10 @@ const parsedPackages = (lock: FrozenLock): Map<string, FrozenPackage> => new Map
     return [key, {
       ...dependency,
       ...(typeof workspace?.version === "string" ? { workspaceVersion: workspace.version } : {}),
-      dependencies: { ...(workspace?.dependencies ?? {}), ...(workspace?.peerDependencies ?? {}) },
+      dependencies: {
+        ...(workspace?.dependencies ?? {}),
+        ...Object.fromEntries(Object.entries(workspace?.peerDependencies ?? {}).filter(([name]) => workspace?.peerDependenciesMeta?.[name]?.optional !== true)),
+      },
     }]
   }),
 )
@@ -673,7 +676,14 @@ const admitWorkspaceDependencies = (root: string, skills: readonly PluginPayload
   const requests = workspaceDependencyRequests(root, lock, skills)
   refuseRootTrustedDependencies(root)
   return reachableDependencies(packages, requests)
-    .filter((dependency) => !dependency.version.startsWith("workspace:"))
+    .filter((dependency) => {
+      if (!dependency.version.startsWith("workspace:")) return true
+      const manifest = dependencyManifest(dependencyStore(root, dependency), dependency)
+      if (dependency.workspaceVersion !== undefined && manifest.version !== dependency.workspaceVersion) {
+        throw new PayloadCandidateRefusal("dependency-refused", `${dependency.name} workspace version differs from bun.lock; restore the frozen workspace manifest before repeating payload:check`)
+      }
+      return false
+    })
     .map((dependency) => admittedDependency(root, packages, dependency))
 }
 
