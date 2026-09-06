@@ -29,6 +29,7 @@ root context insufficient.
 | [`0006-qualification-evidence-public-runtime.md`](../adr/0006-qualification-evidence-public-runtime.md) | Qualification Evidence public reducer ownership and installed-consumer proof. |
 | [`0007-source-checkout-admission.md`](../adr/0007-source-checkout-admission.md) | Exact physical Source Checkout Admission for package-only commands. |
 | [`0008-package-prepared-plugin-payload.md`](../adr/0008-package-prepared-plugin-payload.md) | Prepared Plugin Payload packaging, no-replace publication, result mapping, and its Test Design. |
+| [`0009-complete-plugin-payload-check-and-materialize.md`](../adr/0009-complete-plugin-payload-check-and-materialize.md) | Payload check and materialize, their Test Design, and the amendment admitting all three payload commands from a Source Checkout. |
 
 ## Accepted structure
 
@@ -48,14 +49,14 @@ root context insufficient.
 │   │   ├── package.json                  (Owner Manifest)
 │   │   ├── interface.ts
 │   │   ├── contract-tests/
-│   │   └── implementation/               (future)
+│   │   └── implementation/
 │   ├── modules/<canonical-module>/
 │   │   ├── package.json                  (Owner Manifest)
 │   │   ├── interface.ts
 │   │   ├── contract-tests/
 │   │   │   ├── fixtures/
 │   │   │   └── adapters/
-│   │   └── implementation/               (present for Plugin Payload Production package mode; future elsewhere)
+│   │   └── implementation/               (current owners: see CONTEXT-MAP.md)
 │   └── adapters/reusable-workflow-adapter/
 │       ├── package.json                  (Owner Manifest)
 │       ├── interface.ts

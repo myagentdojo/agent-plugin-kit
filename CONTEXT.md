@@ -225,12 +225,13 @@ _Avoid_: Installer, setup hook, package lifecycle script
 
 **Source Checkout Admission**:
 The fail-closed identity judgment that admits an exact physical Kit checkout
-for `payload:package` without making Release or Workflow claims.
+for payload check, materialize, and package without making Release or Workflow
+claims.
 _Avoid_: Released Admission, installation proof, checkout success
 
 **Admitted Source Checkout Identity**:
 A separately branded Source Checkout Admission result containing only its
-source and package identities for package-only binding.
+source and package identities for payload-command binding.
 _Avoid_: Admitted Identity, serialized capability, released identity
 
 **Source Checkout Observation**:
