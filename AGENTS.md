@@ -52,8 +52,8 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   `contract-tests/`; keep independent higher Proof Layers in Clean Fixture.
 - Identity: released Admission binds Repository, Release, Package, Workflow,
   and evidence claims to one Full Commit Pin; Source Checkout Admission binds
-  only the exact source and package checkout identities under ADR 0007 before
-  Kit Repository Implementation dispatch.
+  only the exact source and package checkout identities under ADR 0007,
+  amended by ADR 0009 for payload check and materialize, before dispatch.
 - Evidence: preserve `proved`, `not-proved`, and `unknown`; attach a Skip
   Rationale and Non-Claims where evidence does not reach the requested layer.
 - Packaging: `payload:package` follows
@@ -69,9 +69,12 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
 
 ## Checks
 
-- Complete gate: run `bun run check` from the repository root. It runs
-  `git diff --check`, Biome, TypeScript, focused repository-quality Contract
-  Tests, native changed-code Fallow, and Repository Verification.
+- Setup and completion: follow `README.md` from **Set up a checkout** through
+  **Run one owner's Contract Tests**. `package.json` owns executable selectors.
+- Complete gate: run `bun run check` from the repository root; it includes
+  current-stage product proof. Preserve its direct output as issue evidence.
+- Focused proof: select the owning `test:current-stage:*` or workspace `test`
+  script from `package.json`; verify the reported files and non-zero count.
 - Changed-code quality: run
   `bun run --silent quality:fallow --changed-since HEAD` after a dirty
   code-changing turn. For comparison-base policy, JSON interpretation, editor
@@ -81,39 +84,11 @@ Behaviour and Plugin Payload ownership in each Plugin Repository.
   `docs/agents/fallow.md` for zone and suppression policy.
 - Local static policy: read `docs/agents/biome.md` before changing
   `biome.jsonc`, its pinned canary, or a Biome refusal.
-- Focused quality Contract Tests: run `bun run test:quality:repository`.
-- Repository Verification: run `bun run verify:repository` for the current
-  cross-owner and filesystem decision.
-- Product current-stage selector: run `bun run test:current-stage` for the
-  current product Contract Tests. Preserve its direct output as issue
-  evidence; Repository Verification does not parse or reinterpret it.
-- Focused current-stage selectors: run
-  `bun run test:current-stage:kit-interface`,
-  `bun run test:current-stage:admission-bootstrap`,
-  `bun run test:current-stage:maintenance-command-contract`,
-  `bun run test:current-stage:plugin-payload-production`,
-  `bun run test:current-stage:package-dispatch`,
-  `bun run test:current-stage:payload-package`,
-  `bun run test:current-stage:qualification-evidence`, or
-  `bun run test:current-stage:clean-fixture`.
-- CLI current-stage selectors: run
-  `bun run test:current-stage:maintenance-cli:unit`,
-  `bun run test:current-stage:maintenance-cli:catalog`,
-  `bun run test:current-stage:maintenance-cli:process`,
-  `bun run test:current-stage:maintenance-cli:observability`,
-  `bun run test:current-stage:maintenance-cli:clean-fixture`,
-  `bun run test:current-stage:maintenance-cli:local-link`, or the exact
-  combined selector `bun run test:current-stage:maintenance-cli`.
-- CLI shells: `bun run audit:maintenance-cli` and
-  `bun run verify:maintenance-cli:local-link` are complete current-stage
-  proofs and must exit zero when their accepted behaviour aligns.
-- Workspace current-stage selectors: run
-  `bun run --filter @agent-plugin-kit/admission-bootstrap test`,
-  `bun run --filter @agent-plugin-kit/maintenance-command-contract test`,
-  `bun run --filter @agent-plugin-kit/plugin-payload-production test`,
-  `bun run --filter @agent-plugin-kit/qualification-evidence test`, or
-  `bun run --filter @agent-plugin-kit/maintenance-command-facade test`.
-- Review: inspect `git status --short` and the exact intended diff.
+- CLI shells: run `bun run audit:maintenance-cli` and
+  `bun run verify:maintenance-cli:local-link` for command-surface and local-link
+  changes. Both must exit zero for their accepted current-stage behaviour.
+- Handoff: inspect `git status --short` and the exact intended diff; report
+  verification outcomes and remaining proof gaps.
 
 ## Agent skills
 
