@@ -767,15 +767,17 @@ const closedResolutionPlugin = (
   violations: string[],
 ): import("bun").BunPlugin => {
   const lock = parseFrozenLock(root)
-  const dependencies = reachableDependencies(parsedPackages(lock), workspaceRequests(root, lock, relative(root, workspaceRoot)))
+  const packages = parsedPackages(lock)
+  const dependencies = reachableDependencies(packages, workspaceRequests(root, lock, relative(root, workspaceRoot)))
   const allowedRoots = [workspaceRoot, ...dependencies.map((dependency) => realpathSync(dependencyStore(root, dependency)))]
-  const bareImports = new Set([
-    ...Object.keys(manifest.dependencies ?? {}),
-    ...Object.keys(manifest.peerDependencies ?? {}),
-    ...(typeof manifest.name === "string" ? [manifest.name] : []),
-  ])
-  const packageImports = Object.keys(manifest.imports ?? {})
-  const declaredPackageImport = (specifier: string): boolean => packageImports.some((pattern) => {
+  const owners = [
+    { directory: workspaceRoot, manifest, dependency: undefined },
+    ...dependencies.map((dependency) => {
+      const directory = realpathSync(dependencyStore(root, dependency))
+      return { directory, manifest: dependencyManifest(directory, dependency), dependency }
+    }),
+  ].sort((left, right) => right.directory.length - left.directory.length)
+  const declaredPackageImport = (imports: unknown, specifier: string): boolean => Object.keys(isRecord(imports) ? imports : {}).some((pattern) => {
     if (pattern === specifier) return true
     const wildcard = pattern.indexOf("*")
     if (wildcard < 0) return false
@@ -783,7 +785,27 @@ const closedResolutionPlugin = (
     const suffix = pattern.slice(wildcard + 1)
     return specifier.length >= prefix.length + suffix.length && specifier.startsWith(prefix) && specifier.endsWith(suffix)
   })
+  const declaresImport = (declaration: WorkspaceManifest | Record<string, unknown>, specifier: string): boolean => {
+    if (specifier.startsWith("#")) return declaredPackageImport(declaration.imports, specifier)
+    const name = specifier.startsWith("@") ? specifier.split("/", 2).join("/") : specifier.split("/", 1)[0] ?? ""
+    return declaration.name === name
+      || (isRecord(declaration.dependencies) && Object.hasOwn(declaration.dependencies, name))
+      || (isRecord(declaration.peerDependencies) && Object.hasOwn(declaration.peerDependencies, name))
+  }
   const admittedPath = (path: string): boolean => isInside(path, root) && allowedRoots.some((candidate) => isInside(path, candidate))
+  const dependencyRequest = (declaration: WorkspaceManifest | Record<string, unknown>, name: string): unknown =>
+    (isRecord(declaration.dependencies) ? declaration.dependencies[name] : undefined)
+      ?? (isRecord(declaration.peerDependencies) ? declaration.peerDependencies[name] : undefined)
+  const admitsImportPath = (owner: (typeof owners)[number], specifier: string, resolved: string): boolean => {
+    if (!admittedPath(resolved)) return false
+    if (owner.dependency === undefined || specifier.startsWith("#")) return true
+    const name = specifier.startsWith("@") ? specifier.split("/", 2).join("/") : specifier.split("/", 1)[0] ?? ""
+    if (owner.manifest.name === name) return isInside(resolved, owner.directory)
+    const requested = dependencyRequest(owner.manifest, name)
+    if (typeof requested !== "string") return false
+    const selected = lockDependency(packages, name, requested, owner.dependency)
+    return isInside(resolved, realpathSync(dependencyStore(root, selected)))
+  }
   return {
     name: "payload-closed-resolution",
     setup(builder) {
@@ -798,10 +820,9 @@ const closedResolutionPlugin = (
       })
       builder.onResolve({ filter: /^[^./]/u }, (args) => {
         if (allowedRuntimeSpecifier(args.path)) return undefined
-        const packageName = args.path.startsWith("@") ? args.path.split("/", 2).join("/") : args.path.split("/", 1)[0] ?? ""
-        const declared = args.path.startsWith("#") ? declaredPackageImport(args.path) : bareImports.has(packageName)
-        if (!isInside(args.importer, workspaceRoot) || !declared) return rejectedResolution(violations, args.path, `unadmitted import: ${args.path}`)
-        const classify = (resolved: string): string | undefined => admittedPath(resolved)
+        const owner = owners.find((candidate) => isInside(args.importer, candidate.directory))
+        if (owner === undefined || !declaresImport(owner.manifest, args.path)) return rejectedResolution(violations, args.path, `unadmitted import: ${args.path}`)
+        const classify = (resolved: string): string | undefined => admitsImportPath(owner, args.path, resolved)
           ? undefined
           : `unadmitted package path: ${args.path}`
         const resolution = resolvedOrRejected(args.path, dirname(args.importer), violations, classify, `unresolved import: ${args.path}`)
